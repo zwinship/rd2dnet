@@ -35,6 +35,10 @@ class Fit:
     def k(self) -> int:
         return len(self.beta)
 
+    def loadings(self, coef: int = 0) -> np.ndarray:
+        """Weights ``a_i`` with ``beta_coef = sum_i a_i y_i``."""
+        return (self.X @ self.Ginv[coef]) * self.w
+
     def influence(self, coef: int = 0, vce: str = "hc1") -> np.ndarray:
         """Per-observation influence ``psi_i`` with ``beta_coef - truth ~ sum_i psi_i``."""
         e = self.resid

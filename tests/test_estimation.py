@@ -106,10 +106,78 @@ def test_bandwidth_selection(coords, city):
     bw = rdnet.rdbwnet(y, coords)
     ok = bw["status"] == "ok"
     assert ok.sum() >= 8
-    assert (bw.loc[ok, "h"] >= bw.loc[ok, "h_min"]).all()
-    assert (bw.loc[ok, "h"] > 0).all()
-    common = rdnet.rdbwnet(y, coords, bwselect="imserd")
-    assert common.loc[common["status"] == "ok", "h_mse"].nunique() == 1
+    assert (bw.loc[ok, "h0"] == bw.loc[ok, "h1"]).all()
+    assert (bw.loc[ok, "h0"] >= np.maximum(bw.loc[ok, "hmin0"], bw.loc[ok, "hmin1"]) - 1e-9).all()
+    assert np.isfinite(bw.loc[ok, ["V0", "V1", "B0", "B1", "Reg10", "Reg20", "bn0", "bn1", "dn"]]).all().all()
+
+
+@pytest.mark.parametrize("sel", ["msetwo", "imserd", "imsetwo"])
+def test_bandwidth_variants(coords, city, sel):
+    bw = rdnet.rdbwnet(city.obs["outcome"].to_numpy(), coords, bwselect=sel)
+    ok = bw["status"] == "ok"
+    assert (bw.loc[ok, ["h0", "h1"]] > 0).all().all()
+    if sel == "msetwo":
+        assert not np.allclose(bw.loc[ok, "h0"], bw.loc[ok, "h1"])
+    if sel.startswith("i"):
+        h = bw.loc[ok, ["h0", "h1"]]
+        inner = h[(h["h0"] > bw.loc[ok, "hmin0"]) & (h["h1"] > bw.loc[ok, "hmin1"])]
+        assert inner["h0"].nunique() <= 2
+
+
+def test_side_specific_bandwidths_in_estimation(coords, city):
+    res = rdnet.rdnet(city.obs["outcome"].to_numpy(), coords, bwselect="msetwo", cbands=False)
+    ok = res.table["status"] == "ok"
+    assert ok.sum() >= 6
+    assert res.table.loc[ok, "h"].isna().any()  # h0 != h1 somewhere
+    res2 = rdnet.rdnet(city.obs["outcome"].to_numpy(), coords, h=(400.0, 700.0), cbands=False)
+    assert (res2.table.loc[res2.table["status"] == "ok", "h1"] == 700.0).all()
+
+
+def test_bandwidth_with_cluster_and_fuzzy(coords, city):
+    y = city.obs["outcome"].to_numpy()
+    rng = np.random.default_rng(0)
+    D = np.where(coords.treated, rng.uniform(size=len(y)) < 0.8, rng.uniform(size=len(y)) < 0.2).astype(float)
+    bw = rdnet.rdbwnet(y, coords, cluster=city.obs["block"].to_numpy(), fuzzy=D)
+    assert (bw.loc[bw["status"] == "ok", "h0"] > 0).all()
+
+
+def test_fuzzy_design_recovers_late():
+    city = make_mock_midtown(n_obs=6000, seed=11)
+    obs = city.obs
+    rng = np.random.default_rng(2)
+    T = obs["treated"].to_numpy()
+    D = np.where(T, rng.uniform(size=len(obs)) < 0.75, rng.uniform(size=len(obs)) < 0.25).astype(float)
+    y = 0.0008 * (obs["y"] - 1600) + 2.0 * D + rng.normal(0, 0.1, len(obs))
+    coords = rdnet.network_coordinates(city.network(), city.boundary, obs[["x", "y"]], n_eval=9)
+    res = rdnet.rdnet(y.to_numpy(), coords, fuzzy=D, h=600.0, seed=0)
+    t = res.table[res.table["status"] == "ok"]
+    assert res.fuzzy and len(t) >= 4
+    assert (np.abs(t["fs"] - 0.5) <= 4 * t["fs_se"]).all()
+    assert (np.abs(t["tau"] - 2.0) <= 4 * t["se"]).all()
+    assert ((t["ci_lo"] <= 2.0) & (2.0 <= t["ci_hi"])).mean() >= 0.75
+    with pytest.raises(ValueError):
+        rdnet.rdnet(y.to_numpy(), coords, fuzzy=D[:-1])
+
+
+def test_conley_uniform_band_uses_hac(coords, city):
+    y = city.obs["outcome"].to_numpy()
+    hc = rdnet.rdnet(y, coords, h=600.0, vce="hc0", seed=0)
+    cl = rdnet.rdnet(y, coords, h=600.0, conley_cutoff=1e-9, conley_resid_scale=1.0, seed=0)
+    # A vanishing cutoff makes the HAC kernel diagonal: identical to HC0.
+    np.testing.assert_allclose(cl.table["se_rb"], hc.table["se_rb"], rtol=1e-8)
+    np.testing.assert_allclose(cl.cb_cov, hc.cb_cov, rtol=1e-8)
+    wide = rdnet.rdnet(y, coords, h=600.0, conley_cutoff=300.0, seed=0)
+    assert wide.cb_crit is not None and np.isfinite(wide.table["cb_lo"]).any()
+
+
+def test_hac_quadratic_blocking_invariant(coords):
+    idx = np.arange(300)
+    Psi = np.random.default_rng(0).normal(size=(300, 3))
+    a = coords.hac_quadratic(idx, Psi, 200.0)
+    b = coords.hac_quadratic(idx, Psi, 200.0, max_cells=7 * 300)
+    np.testing.assert_allclose(a, b)
+    K = np.clip(1 - coords.pairwise(idx, cutoff=200.0) / 200.0, 0, None)
+    np.testing.assert_allclose(a, Psi.T @ K @ Psi, atol=1e-8)
 
 
 def test_input_validation(coords, city):

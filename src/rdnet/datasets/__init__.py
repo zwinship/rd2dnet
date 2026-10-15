@@ -67,12 +67,12 @@ def _grid_id(i: int, j: int) -> int:
     return i * 100 + j
 
 
-def make_mock_graph() -> nx.Graph:
+def make_mock_graph(park: bool = True) -> nx.Graph:
     G = nx.Graph(name="mock_midtown", crs="local-metres")
     streets = range(FIRST_STREET, LAST_STREET + 1)
 
     def in_park(i, j):
-        return 3 < i < 7 and BOUNDARY_STREET < j < BOUNDARY_STREET + 15
+        return park and 3 < i < 7 and BOUNDARY_STREET < j < BOUNDARY_STREET + 15
 
     rng = np.random.default_rng(7)
     for i in range(N_AVENUES):
@@ -106,9 +106,9 @@ def make_mock_graph() -> nx.Graph:
     return G
 
 
-def make_mock_midtown(n_obs: int = 3000, seed: int = 0) -> MockCity:
-    """Generate the mock city with ``n_obs`` simulated parcels."""
-    G = make_mock_graph()
+def make_mock_midtown(n_obs: int = 3000, seed: int = 0, park: bool = True) -> MockCity:
+    """Generate the mock city with ``n_obs`` simulated parcels (``park=False`` removes the park)."""
+    G = make_mock_graph(park)
     rng = np.random.default_rng(seed)
     xmax = (N_AVENUES - 1) * AVENUE_SPACING
     ymax = (LAST_STREET - FIRST_STREET) * STREET_SPACING
@@ -118,7 +118,7 @@ def make_mock_midtown(n_obs: int = 3000, seed: int = 0) -> MockCity:
         inside = (cand[:, 0] > PARK.bounds[0]) & (cand[:, 0] < PARK.bounds[2]) & (cand[:, 1] > PARK.bounds[1]) & (
             cand[:, 1] < PARK.bounds[3]
         )
-        pts.extend(cand[~inside].tolist())
+        pts.extend(cand[~inside].tolist() if park else cand.tolist())
     xy = np.array(pts[:n_obs])
     x, y = xy[:, 0], xy[:, 1]
     treated = y < BOUNDARY_Y
@@ -136,7 +136,7 @@ def make_mock_midtown(n_obs: int = 3000, seed: int = 0) -> MockCity:
             "outcome": np.round(outcome, 6),
         }
     )
-    return MockCity(G, obs, mock_boundary(), PARK, true_tau)
+    return MockCity(G, obs, mock_boundary(park), PARK if park else None, true_tau)
 
 
 def load_mock_midtown() -> MockCity:

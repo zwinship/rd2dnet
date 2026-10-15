@@ -57,6 +57,8 @@ class NetworkCoordinates:
         depth_cost: np.ndarray,
         s: np.ndarray,
         crossing_node: np.ndarray,
+        crossing_arc: np.ndarray,
+        crossing: Snap,
         node_treated: np.ndarray,
         node_on_boundary: np.ndarray,
         node_dist: np.ndarray,
@@ -73,9 +75,11 @@ class NetworkCoordinates:
         self.depth_cost = depth_cost
         self.s = s
         self.crossing_node = crossing_node
-        self.crossing_arc = np.where(
-            crossing_node >= 0, boundary.project(network.coords[np.maximum(crossing_node, 0)]), np.nan
-        )
+        #: Arc position where each observation reaches the boundary.
+        self.crossing_arc = crossing_arc
+        #: Network location of that crossing (a boundary node, or the point itself
+        #: when it sits on a street segment running along the boundary).
+        self.crossing = crossing
         self.node_treated = node_treated
         self.node_on_boundary = node_on_boundary
         self.node_dist = node_dist
@@ -133,8 +137,9 @@ class NetworkCoordinates:
         D = self.node_row(j)
         d = self.snap.to_nodes(D[None, :], self.depth_cost)[0]
         sign = np.sign(self.crossing_arc - self.eval_node_arc[j])
-        cn = np.maximum(self.crossing_node, 0)
-        o = np.where(self.crossing_node >= 0, sign * D[cn], np.nan)
+        c = self.crossing
+        reach = np.minimum(c.cost_u + D[c.u], c.cost_v + D[c.v])
+        o = np.where(self.crossing_node >= 0, sign * reach, np.nan)
         return d, o
 
     def frame(self, j: int | None = None) -> pd.DataFrame:
@@ -153,26 +158,56 @@ class NetworkCoordinates:
             out["d"], out["o"] = self.at(j)
         return out
 
-    def pairwise(self, idx: np.ndarray, cutoff: float = np.inf) -> np.ndarray:
-        """Network distance between the observations in ``idx`` (for spatial HAC)."""
+    def pairwise(self, idx: np.ndarray, cols: np.ndarray | None = None, cutoff: float = np.inf) -> np.ndarray:
+        """Network distance from observations ``idx`` (rows) to ``cols`` (default: ``idx``).
+
+        Distances beyond ``cutoff`` may be reported as ``inf``.
+        """
+        idx = np.asarray(idx)
+        cols = idx if cols is None else np.asarray(cols)
         sn = self.snap
-        nodes = np.unique(np.r_[sn.u[idx], sn.v[idx]])
-        pos = {n: k for k, n in enumerate(nodes)}
-        Dn = self.network.distances_from(nodes, limit=cutoff)[:, nodes]
-        iu = np.array([pos[n] for n in sn.u[idx]])
-        iv = np.array([pos[n] for n in sn.v[idx]])
-        cu, cv = sn.cost_u[idx], sn.cost_v[idx]
-        best = np.full((len(idx), len(idx)), np.inf)
-        for ai, ca in ((iu, cu), (iv, cv)):
-            for bi, cb in ((iu, cu), (iv, cv)):
-                best = np.minimum(best, ca[:, None] + Dn[np.ix_(ai, bi)] + cb[None, :])
-        dc = self.depth_cost[idx]
-        out = best + dc[:, None] + dc[None, :]
-        same_edge = (sn.u[idx][:, None] == sn.u[idx][None, :]) & (sn.v[idx][:, None] == sn.v[idx][None, :])
-        along = np.abs(cu[:, None] - cu[None, :]) + dc[:, None] + dc[None, :]
+        row_nodes, row_inv = np.unique(np.r_[sn.u[idx], sn.v[idx]], return_inverse=True)
+        Dn = self.network.distances_from(row_nodes, limit=cutoff)
+        iu, iv = row_inv[: len(idx)], row_inv[len(idx):]
+        cu_r, cv_r = sn.cost_u[idx], sn.cost_v[idx]
+        cu_c, cv_c = sn.cost_u[cols], sn.cost_v[cols]
+        best = np.full((len(idx), len(cols)), np.inf)
+        for ri, cr in ((iu, cu_r), (iv, cv_r)):
+            Drow = Dn[ri]
+            for cn, cc in ((sn.u[cols], cu_c), (sn.v[cols], cv_c)):
+                best = np.minimum(best, cr[:, None] + Drow[:, cn] + cc[None, :])
+        dr, dc = self.depth_cost[idx], self.depth_cost[cols]
+        out = best + dr[:, None] + dc[None, :]
+        same_edge = (sn.u[idx][:, None] == sn.u[cols][None, :]) & (sn.v[idx][:, None] == sn.v[cols][None, :])
+        along = np.abs(cu_r[:, None] - cu_c[None, :]) + dr[:, None] + dc[None, :]
         out = np.where(same_edge, np.minimum(out, along), out)
-        np.fill_diagonal(out, 0.0)
+        out[idx[:, None] == cols[None, :]] = 0.0
         return out
+
+    def hac_quadratic(self, idx: np.ndarray, Psi: np.ndarray, cutoff: float, distance: str = "network",
+                      max_cells: int = 20_000_000) -> np.ndarray:
+        """Conley (Bartlett) HAC quadratic form ``Psi' K Psi`` for observations ``idx``.
+
+        ``Psi`` has one row per entry of ``idx`` and one column per estimand; the
+        result is the joint covariance matrix of the column sums. The kernel
+        matrix is built block by block so memory stays bounded.
+        """
+        idx = np.asarray(idx)
+        Psi = np.asarray(Psi, dtype=float).reshape(len(idx), -1)
+        if distance not in ("network", "euclidean"):
+            raise ValueError("distance must be 'network' or 'euclidean'")
+        out = np.zeros((Psi.shape[1], Psi.shape[1]))
+        block = max(1, max_cells // max(len(idx), 1))
+        for start in range(0, len(idx), block):
+            rows = idx[start:start + block]
+            if distance == "network":
+                Dm = self.pairwise(rows, idx, cutoff=cutoff)
+            else:
+                diff = self.xy[rows][:, None, :] - self.xy[idx][None, :, :]
+                Dm = np.sqrt((diff**2).sum(-1))
+            K = np.clip(1.0 - Dm / cutoff, 0.0, None)
+            out += Psi[start:start + block].T @ (K @ Psi)
+        return (out + out.T) / 2
 
 
 def network_coordinates(
@@ -252,11 +287,25 @@ def network_coordinates(
     via_v = cv + node_dist[v]
     dist = depth_cost + np.minimum(via_u, via_v)
     crossing = np.where(via_u <= via_v, node_src[u], node_src[v])
+    # A point snapped onto a segment that runs along the boundary is already there.
+    on_edge = node_on[u] & node_on[v] & (u != v)
+    dist = np.where(on_edge, depth_cost, dist)
+    crossing = np.where(on_edge, np.where(cu <= cv, u, v), crossing)
     unreachable = ~np.isfinite(dist) | (crossing < 0)
     if unreachable.any():
         warnings.warn(f"{int(unreachable.sum())} observations cannot reach the boundary and are dropped", stacklevel=2)
     s = np.where(unreachable, np.nan, np.where(T, dist, -dist))
     crossing = np.where(unreachable, -1, crossing)
+    safe = np.maximum(crossing, 0)
+    cross_loc = Snap(
+        np.where(on_edge, u, safe),
+        np.where(on_edge, v, safe),
+        np.where(on_edge, cu, 0.0),
+        np.where(on_edge, cv, 0.0),
+        np.zeros(n),
+    )
+    cross_arc = np.where(on_edge, boundary.project(xy), boundary.project(network.coords[safe]))
+    cross_arc = np.where(unreachable, np.nan, cross_arc)
 
     bnode_arc = boundary.project(network.coords[boundary_nodes])
     if eval_points is None:
@@ -276,6 +325,8 @@ def network_coordinates(
         depth_cost,
         s,
         crossing,
+        cross_arc,
+        cross_loc,
         node_T,
         node_on,
         node_dist,

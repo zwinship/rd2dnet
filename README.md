@@ -66,7 +66,8 @@ print(res)          # pointwise BATEC table
 res.plot()
 
 rdnet.rdbwnet(city.obs["outcome"], coords)          # bandwidths
-print(rdnet.density(coords, normalize="network"))   # sorting test per unit street length
+print(rdnet.density(coords))                         # sorting test per metre of street
+rdnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design (take_up = your 0/1 or share)
 ```
 
 For real data, use `rdnet.NetworkGraph.from_place("Manhattan, New York")`, which needs
@@ -77,18 +78,60 @@ offline. You can also pass your own graph:
 ### Features
 
 - `Boundary(line, treated_region=... | treated_side="left"/"right", mask=[park_polygon, (a, b)])`:
-  masked stretches with no mass, such as Central Park, are skipped.
+  masked stretches with no mass, such as Central Park, are skipped by both the
+  estimator and the density test.
 - Edges that cross the boundary are split automatically, so every cross-side path
-  passes through a boundary node.
-- `vce`: `hc0` to `hc3`, `cluster`, or `conley` (Bartlett spatial HAC over **network**
-  or Euclidean distance).
+  passes through a boundary node. Points on a street segment that runs along the
+  boundary count as already being on it.
+- **Bandwidths** (`rdbwnet`): a port of rd2d's two-stage direct plug-in. It uses a
+  rule-of-thumb pilot, a separate pilot bandwidth for the bias, regularisation
+  (`scaleregul`) and a higher-order bias term (`scalebiascrct`). `bwselect` takes
+  `mserd`, `msetwo` (one bandwidth per side), `imserd` or `imsetwo`. You can also
+  pass `h` as a scalar, `(h_control, h_treated)`, or one value per evaluation point.
+- **Fuzzy designs**: `rdnet(y, coords, fuzzy=D)` estimates the ratio of the outcome
+  jump to the take-up jump at each boundary point. It reports the first stage `fs`
+  and `fs_se`, and selects the bandwidth from the linearised outcome, as rd2d does.
+- **Standard errors** (`vce`): `hc0` to `hc3`, `cluster`, or `conley` (Bartlett
+  spatial HAC over **network** or Euclidean distance). Conley is computed block by
+  block, so memory stays bounded, and it also drives the uniform band's joint
+  covariance across boundary points. Conley residuals come from a smoother
+  auxiliary fit (`conley_resid_scale`, default 2 × h). Residuals from the estimation
+  fit itself absorb spatially correlated shocks and make the HAC variance far too
+  small (see Validation).
 - `weights`: parcel intensity (floor-area ratio (FAR), building height) multiplies the
   kernel weights.
 - `pooled=True` gives the common-slope model `y ~ 1 + T + s + o`. The default is
   side-specific fits, as in rd2d.
-- `rdbwnet`: direct plug-in MSE (`mserd`) or common IMSE (`imserd`) bandwidths.
-- `density`: a McCrary-style test on `s`. With `normalize="network"` it is per unit of
-  street length, so the test is not confounded by uneven street supply.
+- **Density test** (`density`): the local polynomial density estimator of
+  Cattaneo, Jansson & Ma (as in `rddensity`), with jackknife standard errors and
+  bias-corrected inference. The default `normalize="network"` measures position in
+  *cumulative street length* from the boundary, so the test asks whether there are
+  more parcels per metre of street on one side. On a street grid the raw density
+  of `s` is jagged, and street supply differs across sides (for example a park
+  frontage), so the unnormalised test (`normalize="none"`) can flag geometry as
+  sorting. The default `bwselect="common"` uses one bandwidth for both sides.
+
+## Validation (Monte Carlo on the bundled mock city)
+
+| check | result |
+|---|---|
+| robust 95% CI, pointwise coverage | 0.927 (n = 4,000), 0.939 (n = 16,000) |
+| uniform 95% band coverage | 0.880 (n = 4,000), 0.933 (n = 16,000) |
+| first stage, fuzzy design | unbiased; HC standard error matches Monte Carlo sd within 5% |
+| density test size at 5%, `network` / `none` (no-park city) | 0.030 / 0.065 |
+| density test size at 5%, `network` / `none` (park city, masked) | 0.025 / 0.085 |
+| pointwise coverage under spatially correlated errors, HC1 → Conley (4 designs) | 0.80–0.89 → 0.89–0.91 |
+
+**Known limitations.**
+- Coverage is below nominal when local samples are small (about 150 observations
+  per side) and improves with n.
+- Under spatially correlated errors the uniform band still under-covers (0.75–0.83)
+  with either variance estimator.
+- Residual-based HAC cannot fully separate spatially correlated noise from the
+  regression function at scales below the bandwidth. `conley_resid_scale` controls
+  that trade-off.
+- Not yet ported from rd2d: covariate adjustment (`covs_eff`), derivative and
+  tangent targets (`deriv`, `tangvec`), and coverage-error-optimal (CER) bandwidths.
 
 ## Development
 
