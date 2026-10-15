@@ -206,3 +206,106 @@ def test_plot(coords, city):
     res = rdnet.rdnet(city.obs["outcome"].to_numpy(), coords, h=600.0, seed=0)
     ax = res.plot(true_tau=city.true_tau(res.table["node_arc"]))
     assert ax.get_xlabel()
+
+
+@pytest.fixture(scope="module")
+def big_coords():
+    city = make_mock_midtown(n_obs=8000, seed=21)
+    c = rdnet.network_coordinates(city.network(), city.boundary, city.obs[["x", "y"]], eval_points=[600, 900, 2300, 2600])
+    return city, c
+
+
+def test_covariate_adjustment_matches_rd2d_plugin_and_shrinks_se(big_coords):
+    from rdnet.kernels import triangular
+
+    city, c = big_coords
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=c.n_obs)
+    y = 0.0005 * c.s + 2.0 * c.treated + 3.0 * X + rng.normal(0, 1, c.n_obs)
+    plain = rdnet.rdnet(y, c, h=500.0, cbands=False).table
+    adj = rdnet.rdnet(y, c, h=500.0, covs=X, cbands=False).table
+    assert (adj["se"] < 0.6 * plain["se"]).all()
+    # rd2d: common gamma from partialled-out side fits, then side-specific fits on y - X gamma
+    d, o = c.at(0)
+    w = triangular(d / 500.0)
+    use = (w > 0) & np.isfinite(d)
+    sides = [np.flatnonzero(use & c.treated), np.flatnonzero(use & ~c.treated)]
+    A = B = 0.0
+    for i in sides:
+        R = poly_basis(c.s[i] / 500, o[i] / 500, 1)
+        G = np.linalg.inv((R.T * w[i]) @ R)
+        uz = (R.T * w[i]) @ X[i]
+        A += (X[i] * w[i]) @ X[i] - uz @ G @ uz
+        B += (X[i] * w[i]) @ y[i] - uz @ G @ ((R.T * w[i]) @ y[i])
+    ya = y - (B / A) * X
+    t1, t0 = (wls(poly_basis(c.s[i] / 500, o[i] / 500, 1), ya[i], w[i]).beta[0] for i in sides)
+    assert adj["tau"][0] == pytest.approx(t1 - t0, rel=1e-8)
+
+
+def test_constant_covariate_is_dropped(coords, city):
+    y = city.obs["outcome"].to_numpy()
+    a = rdnet.rdnet(y, coords, h=600.0, cbands=False).table
+    b = rdnet.rdnet(y, coords, h=600.0, covs=np.ones(len(y)), cbands=False).table
+    np.testing.assert_allclose(a["tau"], b["tau"])
+
+
+def test_derivative_targets_exact_without_noise(big_coords):
+    _, c = big_coords
+    s, T = c.s, c.treated.astype(float)
+    y = 0.001 * s + 0.003 * s * T + 1e-9 * np.random.default_rng(0).normal(size=c.n_obs)
+    k = rdnet.rdnet(y, c, h=500.0, p=2, deriv=(1, 0), cbands=False).table
+    np.testing.assert_allclose(k["tau"], 0.003, rtol=1e-4)
+    np.testing.assert_allclose(k["tau_bc"], 0.003, rtol=1e-4)
+    tv = rdnet.rdnet(y, c, h=500.0, p=2, tangvec=(1.0, 0.0), cbands=False).table
+    np.testing.assert_allclose(tv["tau"], k["tau"])
+    # a jump that grows along the boundary: d tau / d o = 0.002. Parcels that reach
+    # the boundary at the highway node (via a ramp, not along 60th St) are left out.
+    arc = c.crossing_arc
+    y2 = np.where(arc >= 399.0, (0.5 + 0.002 * arc) * T, np.nan)
+    g = rdnet.rdnet(y2 + 1e-9 * np.random.default_rng(1).normal(size=c.n_obs), c, h=600.0, p=1, deriv=(0, 1), cbands=False).table
+    np.testing.assert_allclose(g["tau"], 0.002, rtol=1e-3)
+
+
+def test_derivative_input_validation(coords, city):
+    y = city.obs["outcome"].to_numpy()
+    with pytest.raises(ValueError):
+        rdnet.rdnet(y, coords, p=1, deriv=(2, 0))
+    with pytest.raises(ValueError):
+        rdnet.rdnet(y, coords, deriv=(1, 0), tangvec=(1, 0))
+    with pytest.raises(ValueError):
+        rdnet.rdnet(y, coords, pooled=True, deriv=(1, 0))
+
+
+@pytest.mark.parametrize("sel,base", [("cerrd", "mserd"), ("certwo", "msetwo")])
+def test_cer_bandwidths_shrink_mse(coords, city, sel, base):
+    from rdnet.bandwidth import cer_factor
+
+    y = city.obs["outcome"].to_numpy()
+    m = rdnet.rdbwnet(y, coords, bwselect=base, bwcheck=1)
+    c = rdnet.rdbwnet(y, coords, bwselect=sel, bwcheck=1)
+    ok = (m["status"] == "ok") & (c["h0"] > c["hmin0"] + 1e-9)
+    assert ok.any()
+    ratio = (c.loc[ok, "h0"] / m.loc[ok, "h0"]).to_numpy()
+    assert np.all(ratio < 1)
+    if sel == "cerrd":
+        np.testing.assert_allclose(ratio, cer_factor(len(np.unique(coords.xy, axis=0)), 1), rtol=1e-8)
+
+
+def test_bandwidth_with_derivative_and_covariates(big_coords):
+    city, c = big_coords
+    y = city.obs["outcome"].to_numpy()
+    X = np.random.default_rng(0).normal(size=c.n_obs)
+    for kw in ({"p": 2, "deriv": (1, 0)}, {"p": 2, "tangvec": (0.0, 1.0)}, {"covs": X}):
+        bw = rdnet.rdbwnet(y, c, **kw)
+        assert (bw.loc[bw["status"] == "ok", "h0"] > 0).all()
+    res = rdnet.rdnet(y, c, covs=X, bwselect="certwo", conley_cutoff=200.0, seed=0)
+    assert (res.table["status"] == "ok").sum() >= 3
+
+
+def test_conley_default_uses_wider_auxiliary_fit(coords, city):
+    y = city.obs["outcome"].to_numpy()
+    a = rdnet.rdnet(y, coords, h=600.0, conley_cutoff=150.0, cbands=False).table
+    b = rdnet.rdnet(y, coords, h=600.0, conley_cutoff=150.0, conley_resid_scale=3.0, cbands=False).table
+    c = rdnet.rdnet(y, coords, h=600.0, conley_cutoff=150.0, conley_resid_order=3, cbands=False).table
+    np.testing.assert_allclose(a["se_rb"], b["se_rb"])
+    assert not np.allclose(a["se_rb"].dropna(), c["se_rb"].dropna())

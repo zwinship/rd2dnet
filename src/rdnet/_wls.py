@@ -35,12 +35,15 @@ class Fit:
     def k(self) -> int:
         return len(self.beta)
 
-    def loadings(self, coef: int = 0) -> np.ndarray:
-        """Weights ``a_i`` with ``beta_coef = sum_i a_i y_i``."""
-        return (self.X @ self.Ginv[coef]) * self.w
+    def _row(self, coef) -> np.ndarray:
+        return self.Ginv[coef] if np.ndim(coef) == 0 else self.Ginv @ np.asarray(coef, dtype=float)
 
-    def influence(self, coef: int = 0, vce: str = "hc1") -> np.ndarray:
-        """Per-observation influence ``psi_i`` with ``beta_coef - truth ~ sum_i psi_i``."""
+    def loadings(self, coef=0) -> np.ndarray:
+        """Weights ``a_i`` with ``c' beta = sum_i a_i y_i`` (``coef`` an index or a contrast ``c``)."""
+        return (self.X @ self._row(coef)) * self.w
+
+    def influence(self, coef=0, vce: str = "hc1") -> np.ndarray:
+        """Per-observation influence ``psi_i`` with ``c' beta - truth ~ sum_i psi_i``."""
         e = self.resid
         if vce == "hc1":
             e = e * np.sqrt(self.n / max(self.n - self.k, 1))
@@ -48,7 +51,7 @@ class Fit:
             e = e / np.sqrt(np.clip(1 - self.leverage, 1e-12, None))
         elif vce == "hc3":
             e = e / np.clip(1 - self.leverage, 1e-12, None)
-        return (self.X @ self.Ginv[coef]) * self.w * e
+        return (self.X @ self._row(coef)) * self.w * e
 
     def coef_cov(self, vce: str = "hc1") -> np.ndarray:
         """Sandwich covariance of all coefficients (heteroskedasticity-robust)."""

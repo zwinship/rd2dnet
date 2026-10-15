@@ -10,13 +10,14 @@ Robust bias-corrected inference uses the order ``q = p + 1`` fit, as in rd2d.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ._wls import VCE_TYPES, poly_basis, variance, wls
+from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
 from .bandwidth import default_min_obs, rdbwnet
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
@@ -99,6 +100,28 @@ def _bandwidth_matrix(h, J: int) -> np.ndarray:
     raise ValueError("h must be a scalar, (h0, h1), one value per evaluation point, or a (J, 2) array")
 
 
+def _deriv_vector(order: int, deriv, tangvec_j):
+    """Target vector over the order-``order`` basis, and the derivative order it picks."""
+    exps = poly_exponents(order)
+    vec = np.zeros(len(exps))
+    if tangvec_j is not None:
+        vec[exps.index((1, 0))], vec[exps.index((0, 1))] = tangvec_j
+        return vec, 1
+    a, c = deriv
+    vec[exps.index((a, c))] = math.factorial(a) * math.factorial(c)
+    return vec, a + c
+
+
+def _design(us, uo, Ti, order, Zi, pooled):
+    """Joint local design: side-specific polynomials (or pooled slopes) plus common covariates."""
+    R = poly_basis(us, uo, order)
+    if pooled:
+        X = np.column_stack([np.ones(len(us)), Ti, R[:, 1:]])
+    else:
+        X = np.column_stack([R * Ti[:, None], R * (1.0 - Ti)[:, None]])
+    return X if Zi is None else np.column_stack([X, Zi])
+
+
 def rdnet(
     y,
     coords: NetworkCoordinates,
@@ -106,13 +129,17 @@ def rdnet(
     h=None,
     p: int = 1,
     q: int | None = None,
+    deriv=(0, 0),
+    tangvec=None,
+    covs=None,
     kernel="triangular",
     bwselect: str = "mserd",
     vce: str = "hc1",
     cluster=None,
     conley_cutoff: float | None = None,
     conley_distance: str = "network",
-    conley_resid_scale: float = 2.0,
+    conley_resid_scale: float = 3.0,
+    conley_resid_order: int | None = None,
     fuzzy=None,
     weights=None,
     pooled: bool = False,
@@ -136,23 +163,33 @@ def rdnet(
         Bandwidth in metric units: scalar, ``(h_control, h_treated)``, one value
         per evaluation point, a ``(J, 2)`` array, or ``None`` to select with
         :func:`rdbwnet` using ``bwselect`` (``"mserd"``, ``"msetwo"``,
-        ``"imserd"``, ``"imsetwo"``).
+        ``"imserd"``, ``"imsetwo"``, or the coverage-error-optimal ``"cerrd"``,
+        ``"certwo"``, ``"icerrd"``, ``"icertwo"``).
     p, q
         Polynomial order for estimation and for bias-corrected inference (default ``p + 1``).
+    deriv
+        ``(a, c)``: estimate the jump in ``d^(a+c) mu / ds^a do^c`` instead of the
+        level. ``(1, 0)`` is the jump in the slope across the boundary (a kink),
+        ``(0, 1)`` the jump in the slope along it. Requires ``a + c <= p``.
+    tangvec
+        Direction ``(t_s, t_o)`` (or one per evaluation point, shape ``(J, 2)``):
+        estimate the jump in the directional derivative ``t_s d/ds + t_o d/do``.
+    covs
+        Covariates (``n x m``) entering the local fit with coefficients common to
+        both sides (rd2d's ``covs_eff``). Locally constant covariates are dropped.
     kernel
         ``"triangular"``, ``"epanechnikov"``, ``"uniform"``, ``"gaussian"`` or a callable.
     vce
-        ``"hc0"``–``"hc3"``; ``"cluster"`` (with ``cluster``) or ``"conley"`` (with
+        ``"hc0"``-``"hc3"``; ``"cluster"`` (with ``cluster``) or ``"conley"`` (with
         ``conley_cutoff``) are implied when those are given.
     conley_cutoff, conley_distance
         Spatial HAC with Bartlett weights over network (default) or Euclidean
         distance. Used for pointwise errors and for the uniform band.
-    conley_resid_scale
-        Conley residuals come from an order-``q`` fit at ``conley_resid_scale * h``
-        on each side. Residuals from the estimation fit itself absorb spatially
-        correlated shocks at scales below ``h``, which makes the HAC variance
-        far too small; a smoother auxiliary fit keeps them. Set to 1 to use the
-        estimation bandwidth.
+    conley_resid_scale, conley_resid_order
+        Conley residuals come from an auxiliary fit of order ``conley_resid_order``
+        (default ``q``) at ``conley_resid_scale * h`` (default 3). Residuals from the
+        estimation fit itself absorb spatially correlated shocks at scales below
+        ``h``, which makes the HAC variance far too small.
     fuzzy
         Treatment take-up ``D``. The estimand becomes the ratio of the outcome
         jump to the take-up jump at each boundary point.
@@ -160,7 +197,7 @@ def rdnet(
         Non-negative intensity weights (e.g. floor area) multiplying the kernel.
     pooled
         Fit one regression ``y ~ 1 + T + poly(s, o)`` with common slopes instead
-        of separate side-specific polynomials.
+        of separate side-specific polynomials (levels only).
     """
     y = np.asarray(y, dtype=float)
     if y.shape != (coords.n_obs,):
@@ -168,6 +205,19 @@ def rdnet(
     q = p + 1 if q is None else int(q)
     if p < 0 or q < p:
         raise ValueError("need 0 <= p <= q")
+    J = coords.n_eval
+    deriv = tuple(int(v) for v in deriv)
+    if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:
+        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
+    tang = None
+    if tangvec is not None:
+        if sum(deriv) != 0:
+            raise ValueError("give either deriv or tangvec, not both")
+        if p < 1:
+            raise ValueError("tangvec needs p >= 1")
+        tang = np.broadcast_to(np.asarray(tangvec, dtype=float), (J, 2))
+    if pooled and (sum(deriv) or tang is not None):
+        raise ValueError("pooled=True estimates level jumps only")
     kfun = get_kernel(kernel)
     kname = kernel if isinstance(kernel, str) else getattr(kernel, "__name__", "custom")
     intensity = np.ones_like(y) if weights is None else np.asarray(weights, dtype=float)
@@ -178,6 +228,13 @@ def rdnet(
         D = np.asarray(fuzzy, dtype=float)
         if D.shape != y.shape:
             raise ValueError("fuzzy must have one value per observation")
+    Z = None
+    if covs is not None:
+        Z = np.asarray(covs, dtype=float)
+        if Z.ndim == 1:
+            Z = Z[:, None]
+        if Z.shape[0] != len(y):
+            raise ValueError("covs must have one row per observation")
     if cluster is not None:
         vce = "cluster"
         cluster = np.asarray(cluster)
@@ -193,20 +250,27 @@ def rdnet(
         raise ValueError("conley_distance must be 'network' or 'euclidean'")
     base_vce = vce if vce in ("hc1", "hc2", "hc3") else "hc0"
     min_obs = default_min_obs(q) if min_obs is None else int(min_obs)
+    aux_order = q if conley_resid_order is None else int(conley_resid_order)
 
-    J = coords.n_eval
     bw = None
     if h is None:
-        bw = rdbwnet(y, coords, p=p, kernel=kernel, bwselect=bwselect, vce=base_vce, cluster=cluster,
-                     fuzzy=D, weights=weights, bwcheck=min_obs, scaleregul=scaleregul, scalebiascrct=scalebiascrct)
+        bw = rdbwnet(y, coords, p=p, deriv=deriv, tangvec=tangvec, covs=Z, kernel=kernel, bwselect=bwselect,
+                     vce=base_vce, cluster=cluster, fuzzy=D, weights=weights, bwcheck=min_obs,
+                     scaleregul=scaleregul, scalebiascrct=scalebiascrct)
         H = bw[["h0", "h1"]].to_numpy(dtype=float)
     else:
         H = _bandwidth_matrix(h, J)
 
     z = stats.norm.ppf(0.5 + level / 200)
     T = coords.treated
+    Tf = T.astype(float)
     s = coords.s
-    finite = np.isfinite(s) & np.isfinite(y) & (np.isfinite(D) if D is not None else True)
+    finite = np.isfinite(s) & np.isfinite(y)
+    if D is not None:
+        finite &= np.isfinite(D)
+    if Z is not None:
+        finite &= np.all(np.isfinite(Z), axis=1)
+    targets = [y] if D is None else [y, D]
     rows = []
     psi_store: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for j in range(J):
@@ -223,47 +287,54 @@ def rdnet(
             rec["status"] = "no bandwidth"
             continue
         d, o = coords.at(j)
+        base = np.isfinite(d) & np.isfinite(o) & finite & (intensity > 0)
         hside = np.where(T, H[j, 1], H[j, 0])
         w = kfun(d / hside) * intensity
-        use = (w > 0) & np.isfinite(d) & np.isfinite(o) & finite
+        use = (w > 0) & base
         i1, i0 = np.flatnonzero(use & T), np.flatnonzero(use & ~T)
         rec["n1"], rec["n0"] = len(i1), len(i0)
         if min(len(i1), len(i0)) < min_obs:
             rec["status"] = "insufficient"
             continue
         idx = np.r_[i1, i0]
-        us, uo = s / hside, o / hside
-        base = np.isfinite(d) & np.isfinite(o) & finite & (intensity > 0)
+        zcols = None
+        if Z is not None:
+            zcols = np.ptp(Z[idx], axis=0) > 1e-12  # drop locally constant covariates
+            if not zcols.any():
+                zcols = None
+        Zi = None if zcols is None else Z[idx][:, zcols]
 
-        def aux_resid(target, side_idx, treated_side):
-            """Residuals from a smoother order-q fit, for the Conley HAC."""
-            hs = H[j, int(treated_side)] * conley_resid_scale
+        aux = None
+        if vce == "conley":
+            hs = hside * conley_resid_scale
             wk = kfun(d / hs) * intensity
-            m = np.flatnonzero((wk > 0) & base & (T == treated_side))
-            fa = wls(poly_basis(s[m] / hs, o[m] / hs, q), target[m], wk[m])
-            return target[side_idx] - poly_basis(s[side_idx] / hs, o[side_idx] / hs, q) @ fa.beta
+            m = np.flatnonzero((wk > 0) & base)
+            Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
+                         None if zcols is None else Z[m][:, zcols], False)
+            Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False)
+            aux = (Xa, wk[m], m, Xi)
+
         try:
             out = {}
             for order in (p, q):
+                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
+                c = np.zeros(X.shape[1])
+                if pooled:
+                    c[1] = 1.0
+                else:
+                    vec, v = _deriv_vector(order, deriv, None if tang is None else tang[j])
+                    k = len(vec)
+                    c[:k], c[k:2 * k] = vec / H[j, 1] ** v, -vec / H[j, 0] ** v
                 jumps, psis = [], []
-                for target in ([y] if D is None else [y, D]):
-                    r_aux = None
-                    if vce == "conley":
-                        r_aux = np.r_[aux_resid(target, i1, True), aux_resid(target, i0, False)]
-                    if pooled:
-                        X = np.column_stack([np.ones(len(idx)), T[idx].astype(float),
-                                             poly_basis(us[idx], uo[idx], order)[:, 1:]])
-                        f = wls(X, target[idx], w[idx])
-                        jumps.append(f.beta[1])
-                        psis.append(f.influence(1, base_vce) if r_aux is None else f.loadings(1) * r_aux)
+                for target in targets:
+                    f = wls(X, target[idx], w[idx])
+                    jumps.append(float(c @ f.beta))
+                    if aux is None:
+                        psis.append(f.influence(c, base_vce))
                     else:
-                        f1 = wls(poly_basis(us[i1], uo[i1], order), target[i1], w[i1])
-                        f0 = wls(poly_basis(us[i0], uo[i0], order), target[i0], w[i0])
-                        jumps.append(f1.beta[0] - f0.beta[0])
-                        if r_aux is None:
-                            psis.append(np.r_[f1.influence(0, base_vce), -f0.influence(0, base_vce)])
-                        else:
-                            psis.append(np.r_[f1.loadings(0), -f0.loadings(0)] * r_aux)
+                        Xa, wa, m, Xi = aux
+                        r_aux = target[idx] - Xi @ wls(Xa, target[m], wa).beta
+                        psis.append(f.loadings(c) * r_aux)
                 if D is None:
                     tau, psi, extra = jumps[0], psis[0], {}
                 else:

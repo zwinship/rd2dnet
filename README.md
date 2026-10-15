@@ -86,8 +86,17 @@ offline. You can also pass your own graph:
 - **Bandwidths** (`rdbwnet`): a port of rd2d's two-stage direct plug-in. It uses a
   rule-of-thumb pilot, a separate pilot bandwidth for the bias, regularisation
   (`scaleregul`) and a higher-order bias term (`scalebiascrct`). `bwselect` takes
-  `mserd`, `msetwo` (one bandwidth per side), `imserd` or `imsetwo`. You can also
+  `mserd`, `msetwo` (one bandwidth per side), `imserd` or `imsetwo`, plus the
+  coverage-error-optimal `cerrd`, `certwo`, `icerrd` and `icertwo`. You can also
   pass `h` as a scalar, `(h_control, h_treated)`, or one value per evaluation point.
+- **Covariates** (`covs=`): the coefficients are common to both sides, as in rd2d's
+  `covs_eff`, and estimated in one joint local regression whose influence function
+  accounts for estimating them. The point estimate matches rd2d's plug-in exactly.
+  Covariates that are constant in a local sample are dropped there.
+- **Derivative targets**: `deriv=(1, 0)` gives the jump in the slope *across* the
+  boundary (a kink) and `deriv=(0, 1)` the jump in the slope *along* it.
+  `tangvec=(t_s, t_o)` gives any directional derivative. Bandwidth selection adapts,
+  as in rd2d.
 - **Fuzzy designs**: `rdnet(y, coords, fuzzy=D)` estimates the ratio of the outcome
   jump to the take-up jump at each boundary point. It reports the first stage `fs`
   and `fs_se`, and selects the bandwidth from the linearised outcome, as rd2d does.
@@ -95,9 +104,10 @@ offline. You can also pass your own graph:
   spatial HAC over **network** or Euclidean distance). Conley is computed block by
   block, so memory stays bounded, and it also drives the uniform band's joint
   covariance across boundary points. Conley residuals come from a smoother
-  auxiliary fit (`conley_resid_scale`, default 2 × h). Residuals from the estimation
-  fit itself absorb spatially correlated shocks and make the HAC variance far too
-  small (see Validation).
+  auxiliary fit (`conley_resid_scale`, default 3 × h, and `conley_resid_order`,
+  default q). Residuals from the estimation fit itself absorb spatially correlated
+  shocks and make the HAC variance far too small. The default was chosen by
+  simulation across five error designs (see Validation).
 - `weights`: parcel intensity (floor-area ratio (FAR), building height) multiplies the
   kernel weights.
 - `pooled=True` gives the common-slope model `y ~ 1 + T + s + o`. The default is
@@ -115,23 +125,33 @@ offline. You can also pass your own graph:
 
 | check | result |
 |---|---|
-| robust 95% CI, pointwise coverage | 0.927 (n = 4,000), 0.939 (n = 16,000) |
-| uniform 95% band coverage | 0.880 (n = 4,000), 0.933 (n = 16,000) |
+| robust 95% CI, pointwise coverage | 0.925 (n = 4,000), 0.940 (n = 16,000) |
+| uniform 95% band coverage | 0.873 (n = 4,000), 0.940 (n = 16,000) |
 | first stage, fuzzy design | unbiased; HC standard error matches Monte Carlo sd within 5% |
+| kink (`deriv=(1, 0)`) | exact without noise; unbiased, standard error matches Monte Carlo sd, coverage 0.94–0.955 |
 | density test size at 5%, `network` / `none` (no-park city) | 0.030 / 0.065 |
 | density test size at 5%, `network` / `none` (park city, masked) | 0.025 / 0.085 |
-| pointwise coverage under spatially correlated errors, HC1 → Conley (4 designs) | 0.80–0.89 → 0.89–0.91 |
+
+Spatially correlated errors (n = 8,000, h = 500 m, Conley cutoff = 2 × correlation scale;
+each cell is pointwise / uniform-band coverage):
+
+| error design | HC1 | Conley (default) |
+|---|---|---|
+| independent | 0.917 / 0.842 | 0.962 / 0.958 |
+| smooth field, 100 m | 0.825 / 0.617 | 0.927 / 0.808 |
+| smooth field, 200 m | 0.895 / 0.825 | 0.955 / 0.933 |
+| block shocks, 150 m | 0.900 / 0.800 | 0.958 / 0.950 |
+| block shocks, 300 m | 0.885 / 0.858 | 0.958 / 0.883 |
 
 **Known limitations.**
 - Coverage is below nominal when local samples are small (about 150 observations
-  per side) and improves with n.
-- Under spatially correlated errors the uniform band still under-covers (0.75–0.83)
-  with either variance estimator.
-- Residual-based HAC cannot fully separate spatially correlated noise from the
-  regression function at scales below the bandwidth. `conley_resid_scale` controls
-  that trade-off.
-- Not yet ported from rd2d: covariate adjustment (`covs_eff`), derivative and
-  tangent targets (`deriv`, `tangvec`), and coverage-error-optimal (CER) bandwidths.
+  per side) and improves with n. rd2d notes the same.
+- Conley standard errors are conservative (up to about 1.5 × the true sd) when the
+  spatial correlation scale is close to the bandwidth. A residual-based HAC cannot
+  fully separate correlated noise from the regression function at that scale, and
+  the default errs toward wider intervals.
+- The uniform band is weakest for short-range smooth correlation (0.81). Pointwise
+  coverage there is 0.93.
 
 ## Development
 

@@ -85,3 +85,13 @@ def test_pairwise_distances_symmetric(coords):
     np.testing.assert_allclose(D, D.T)
     assert np.all(np.diag(D) == 0)
     assert np.all(D >= 0)
+
+
+def test_point_on_same_segment_as_eval_point(grid):
+    """Distance along a shared segment is direct, not routed out to an endpoint and back."""
+    G, bnd = grid
+    c = rdnet.network_coordinates(rdnet.NetworkGraph(G), bnd, [[120.0, 210.0], [120.0, 190.0]], eval_points=[200.0])
+    d, o = c.at(0)  # evaluation point at x = 150 on the boundary street
+    np.testing.assert_allclose(d, [10.0 + 30.0, 10.0 + 30.0])
+    np.testing.assert_allclose(o, [-30.0, -30.0])
+    np.testing.assert_allclose(np.abs(c.s), [10.0, 10.0])

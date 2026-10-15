@@ -27,6 +27,8 @@ all evaluation points. Fuzzy designs use the linearised outcome
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -34,7 +36,7 @@ from ._wls import poly_basis, poly_exponents
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
-BWSELECT = ("mserd", "msetwo", "imserd", "imsetwo")
+BWSELECT = ("mserd", "msetwo", "imserd", "imsetwo", "cerrd", "certwo", "icerrd", "icertwo")
 
 # (mu_2(K)^2, R(K)) style constants used by rd2d's rule of thumb.
 _ROT_CONST = {
@@ -124,13 +126,13 @@ class _Side:
             cov = invG @ self._sigma(R * w[:, None], resd, h, cl) @ invG
         return beta, cov
 
-    def coeff(self, dn: float, p: int) -> np.ndarray:
-        """Projection of the degree p+1 terms onto the intercept: rd2d's ``vec_q``."""
+    def coeff(self, dn: float, p: int, vec: np.ndarray) -> np.ndarray:
+        """Projection of the degree p+1 terms onto the target ``vec``: rd2d's ``vec_q``."""
         R, w, _, _ = self.design(dn, p + 1)
         k = _n_terms(p)
         Rp, S = R[:, :k], R[:, k:]
         invG = _inv_gram((Rp.T * w) @ Rp)
-        tail = invG[0] @ ((Rp.T * w) @ S)
+        tail = vec @ invG @ ((Rp.T * w) @ S)
         return np.r_[np.zeros(k), tail]
 
     def consts(self, p: int, vec: np.ndarray, dn: float, bn1: float, bn2: float | None, vce: str, y=None) -> dict:
@@ -155,6 +157,28 @@ class _Side:
         return {"V": V, "B": B, "Reg1": reg1, "Reg2": reg2}
 
 
+def cer_factor(n: int, p: int) -> float:
+    """rd2d's shrinkage from MSE-optimal to coverage-error-optimal bandwidth."""
+    n = max(int(n), 1)
+    return n ** (1.0 / (2.0 * p + 4.0) - 1.0 / (p + 4.0))
+
+
+def _covariate_gamma(sides, Zs, dns, p, outcomes) -> np.ndarray:
+    """Covariate coefficients common to both sides, partialling out side-specific polynomials."""
+    A = 0.0
+    b = 0.0
+    for sd, Zt, dn, yt in zip(sides, Zs, dns, outcomes):
+        w = sd.kfun(sd.d / dn) / dn**2 * sd.om
+        k = w > 0
+        R = poly_basis(sd.s[k] / dn, sd.o[k] / dn, p)
+        W, Zk, yk = w[k], Zt[k], yt[k]
+        invG = np.linalg.pinv((R.T * W) @ R, rcond=1e-12)
+        uz = (R.T * W) @ Zk
+        A = A + (Zk.T * W) @ Zk - uz.T @ invG @ uz
+        b = b + (Zk.T * W) @ yk - uz.T @ invG @ ((R.T * W) @ yk)
+    return np.linalg.lstsq(A, b, rcond=None)[0]
+
+
 def _kth(d: np.ndarray, k: int) -> float:
     k = int(min(max(k, 1), d.size))
     return float(np.partition(d, k - 1)[k - 1])
@@ -165,6 +189,9 @@ def rdbwnet(
     coords: NetworkCoordinates,
     *,
     p: int = 1,
+    deriv=(0, 0),
+    tangvec=None,
+    covs=None,
     kernel="triangular",
     bwselect: str = "mserd",
     vce: str = "hc1",
@@ -176,6 +203,11 @@ def rdbwnet(
     scalebiascrct: float = 1.0,
 ) -> pd.DataFrame:
     """Select bandwidths (in metric units) at each evaluation point.
+
+    ``deriv``/``tangvec`` target a derivative jump and ``covs`` are partialled
+    out (with coefficients common to both sides, estimated at the pilot
+    bandwidth), as in rd2d. The ``cer*`` variants shrink the MSE-optimal
+    bandwidth by rd2d's coverage-error rate factor ``n^(1/(2p+4) - 1/(p+4))``.
 
     Returns one row per evaluation point with the control/treated bandwidths
     ``h0``/``h1``, the pilots ``dn``, ``bn0``, ``bn1``, the MSE constants and the
@@ -192,10 +224,22 @@ def rdbwnet(
     om = np.ones_like(y) if weights is None else np.asarray(weights, dtype=float)
     D = None if fuzzy is None else np.asarray(fuzzy, dtype=float)
     cl = None if cluster is None else np.asarray(cluster)
+    Z = None
+    if covs is not None:
+        Z = np.asarray(covs, dtype=float)
+        Z = Z[:, None] if Z.ndim == 1 else Z
     bwcheck = default_min_obs(p + 1) if bwcheck is None else int(bwcheck)
     T, s = coords.treated, coords.s
     n_eff = len(np.unique(coords.xy[np.isfinite(s)], axis=0))
-    e0 = np.r_[1.0, np.zeros(_n_terms(p) - 1)]
+    n_eff_side = [len(np.unique(coords.xy[np.isfinite(s) & (T == t)], axis=0)) for t in (False, True)]
+    exps = poly_exponents(p)
+    deriv = tuple(int(v) for v in deriv)
+    if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:
+        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
+    tang = None if tangvec is None else np.broadcast_to(np.asarray(tangvec, dtype=float), (coords.n_eval, 2))
+    v_ord = 1 if tang is not None else sum(deriv)
+    e_deriv = np.zeros(len(exps))
+    e_deriv[exps.index(deriv)] = math.factorial(deriv[0]) * math.factorial(deriv[1])
     expo_b = 1.0 / (2 * p + 6)
 
     rows = []
@@ -205,10 +249,16 @@ def rdbwnet(
         if coords.eval_masked[j]:
             rec["status"] = "masked"
             continue
+        vec = e_deriv.copy()
+        if tang is not None:
+            vec[:] = 0.0
+            vec[exps.index((1, 0))], vec[exps.index((0, 1))] = tang[j]
         d, o = coords.at(j)
         ok = np.isfinite(d) & np.isfinite(o) & np.isfinite(s) & np.isfinite(y) & (om > 0)
         if D is not None:
             ok &= np.isfinite(D)
+        if Z is not None:
+            ok &= np.all(np.isfinite(Z), axis=1)
         masks = [ok & ~T, ok & T]
         if min(m.sum() for m in masks) < bwcheck:
             rec["status"] = "insufficient"
@@ -219,25 +269,36 @@ def rdbwnet(
         dns = [min(max(dn, lo), hi) for lo, hi in bounds]
         thr = [float(np.median(sd.d)) for sd in sides]
         try:
+            Dside = [None if D is None else D[m] for m in masks]
+            if Z is not None:
+                zc = np.ptp(Z[ok], axis=0) > 1e-12
+                if zc.any():
+                    Zs = [Z[m][:, zc] for m in masks]
+                    g_y = _covariate_gamma(sides, Zs, dns, p, [sd.y for sd in sides])
+                    for t, sd in enumerate(sides):
+                        sd.y = sd.y - Zs[t] @ g_y
+                    if D is not None:
+                        g_d = _covariate_gamma(sides, Zs, dns, p, Dside)
+                        Dside = [Dside[t] - Zs[t] @ g_d for t in (0, 1)]
             ybw = [None, None]
             if D is not None:
                 itt = fs = 0.0
                 for t, sd in enumerate(sides):
                     sgn = 1.0 if t == 1 else -1.0
-                    itt += sgn * sd.lm(dns[t], p)[0][0]
-                    fs += sgn * sd.lm(dns[t], p, y=D[masks[t]])[0][0]
+                    itt += sgn * float(vec @ sd.lm(dns[t], p)[0])
+                    fs += sgn * float(vec @ sd.lm(dns[t], p, y=Dside[t])[0])
                 if np.isfinite(fs) and abs(fs) > 1e-8:
-                    ybw = [y[m] / fs - itt / fs**2 * D[m] for m in masks]
+                    ybw = [sides[t].y / fs - itt / fs**2 * Dside[t] for t in (0, 1)]
             hc, bn = [], []
             for t, sd in enumerate(sides):
-                vq = sd.coeff(dns[t], p)
+                vq = sd.coeff(dns[t], p, vec)
                 bc = sd.consts(p + 1, vq, dns[t], thr[t], None, vce, y=ybw[t])
                 if not (bc["V"] > 0 and bc["Reg1"] >= 0 and np.isfinite(bc["B"])):
                     raise np.linalg.LinAlgError("invalid bias-pilot constants")
                 b_t = ((2 + 2 * (p + 1)) * bc["V"] / (2 * (bc["B"] ** 2 + scaleregul * bc["Reg1"]))) ** expo_b
                 b_t = min(max(b_t, bounds[t][0]), bounds[t][1])
                 bn.append(b_t)
-                hc.append(sd.consts(p, e0, dns[t], b_t, thr[t], vce, y=ybw[t]))
+                hc.append(sd.consts(p, vec, dns[t], b_t, thr[t], vce, y=ybw[t]))
                 if not (hc[-1]["V"] > 0 and hc[-1]["Reg1"] >= 0 and np.isfinite(hc[-1]["B"])):
                     raise np.linalg.LinAlgError("invalid MSE constants")
         except (np.linalg.LinAlgError, ValueError, FloatingPointError):
@@ -259,17 +320,24 @@ def rdbwnet(
     g = out.loc[good]
     Bc = [g[f"B{t}"] + scalebiascrct * g[f"Reg2{t}"].fillna(0.0) for t in (0, 1)]
     expo = 1.0 / (2 * p + 4)
-    if bwselect in ("mserd", "imserd"):
-        num = 2 * (g["V0"] + g["V1"])
-        den = (2 * p + 2) * ((Bc[0] - Bc[1]) ** 2 + scaleregul * (g["Reg10"] + g["Reg11"]))
-        h = (num.mean() / den.mean()) ** expo if bwselect == "imserd" else (num / den) ** expo
+    base = {"cerrd": "mserd", "certwo": "msetwo", "icerrd": "imserd", "icertwo": "imsetwo"}.get(bwselect, bwselect)
+    cer = bwselect != base
+    num_c, den_c = 2 + 2 * v_ord, 2 * p + 2 - 2 * v_ord
+    if base in ("mserd", "imserd"):
+        num = num_c * (g["V0"] + g["V1"])
+        den = den_c * ((Bc[0] - Bc[1]) ** 2 + scaleregul * (g["Reg10"] + g["Reg11"]))
+        h = (num.mean() / den.mean()) ** expo if base == "imserd" else (num / den) ** expo
+        if cer:
+            h = h * cer_factor(n_eff, p)
         h = np.clip(h, np.maximum(g["hmin0"], g["hmin1"]), np.maximum(g["hmax0"], g["hmax1"]))
         out.loc[good, "h0"] = out.loc[good, "h1"] = h
     else:
         for t in (0, 1):
-            num = 2 * g[f"V{t}"]
-            den = (2 * p + 2) * (Bc[t] ** 2 + scaleregul * g[f"Reg1{t}"])
-            h = (num.mean() / den.mean()) ** expo if bwselect == "imsetwo" else (num / den) ** expo
+            num = num_c * g[f"V{t}"]
+            den = den_c * (Bc[t] ** 2 + scaleregul * g[f"Reg1{t}"])
+            h = (num.mean() / den.mean()) ** expo if base == "imsetwo" else (num / den) ** expo
+            if cer:
+                h = h * cer_factor(n_eff_side[t], p)
             out.loc[good, f"h{t}"] = np.clip(h, g[f"hmin{t}"], g[f"hmax{t}"])
     out["h"] = np.where(np.isclose(out["h0"], out["h1"]), out["h0"], np.nan)
     return out

@@ -132,13 +132,28 @@ class NetworkCoordinates:
             self._rows[j] = np.minimum(e.cost_u[j] + D[0], e.cost_v[j] + D[1])
         return self._rows[j]
 
+    def _along_eval_edge(self, loc: Snap, j: int) -> np.ndarray:
+        """Direct distance for locations on the same segment as evaluation point ``j`` (else inf)."""
+        e = self.eval_snap
+        u0, v0 = e.u[j], e.v[j]
+        out = np.full(len(loc.u), np.inf)
+        if u0 == v0:
+            return out
+        same = (loc.u == u0) & (loc.v == v0)
+        rev = (loc.u == v0) & (loc.v == u0)
+        out[same] = np.abs(loc.cost_u[same] - e.cost_u[j])
+        out[rev] = np.abs(loc.cost_u[rev] - e.cost_v[j])
+        return out
+
     def at(self, j: int) -> tuple[np.ndarray, np.ndarray]:
         """Kernel distance ``d_i(b_j)`` and lateral offset ``o_i(b_j)`` for every observation."""
         D = self.node_row(j)
         d = self.snap.to_nodes(D[None, :], self.depth_cost)[0]
+        d = np.minimum(d, self.depth_cost + self._along_eval_edge(self.snap, j))
         sign = np.sign(self.crossing_arc - self.eval_node_arc[j])
         c = self.crossing
         reach = np.minimum(c.cost_u + D[c.u], c.cost_v + D[c.v])
+        reach = np.minimum(reach, self._along_eval_edge(c, j))
         o = np.where(self.crossing_node >= 0, sign * reach, np.nan)
         return d, o
 
