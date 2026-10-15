@@ -166,6 +166,8 @@ pytest                          # offline; `pytest -m online` runs the live OSM 
 On Windows, check that `python` is your real interpreter and not one bundled with
 another app (such as Inkscape). `py -0p` lists the installed interpreters.
 
+See [ROADMAP.md](ROADMAP.md) for planned next steps.
+
 ## References
 
 - Cattaneo, Titiunik & Yu. *rd2d: Causal Inference in Boundary Discontinuity Designs.* arXiv:2505.07989.
