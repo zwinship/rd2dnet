@@ -50,7 +50,7 @@ class RDNetResult:
     def summary(self) -> str:
         t = self.table
         lines = [
-            f"rdnet: network boundary discontinuity estimates ({'fuzzy' if self.fuzzy else 'sharp'})",
+            f"rd2dnet: network boundary discontinuity estimates ({'fuzzy' if self.fuzzy else 'sharp'})",
             f"  metric={self.metric}  kernel={self.kernel}  p={self.p}  q={self.q}  vce={self.vce}",
             f"  evaluation points: {len(t)}  estimated: {int((t['status'] == 'ok').sum())}",
         ]
@@ -158,7 +158,7 @@ def rdnet(
     y
         Outcome, one value per observation in ``coords``.
     coords
-        Output of :func:`rdnet.network_coordinates`.
+        Output of :func:`rd2dnet.network_coordinates`.
     h
         Bandwidth in metric units: scalar, ``(h_control, h_treated)``, one value
         per evaluation point, a ``(J, 2)`` array, or ``None`` to select with

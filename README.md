@@ -1,18 +1,29 @@
-# rdnet
+# rd2dnet
 
-Boundary discontinuity designs on street networks. `rdnet` adapts the location-based
+Boundary discontinuity designs on street networks. `rd2dnet` adapts the location-based
 boundary discontinuity framework of [`rd2d`](https://github.com/rdpackages/rd2d)
 (Cattaneo, Titiunik & Yu) from Euclidean coordinates to **network-native coordinates**
 and **user-defined network metrics**. The motivating application is a congestion pricing
 boundary like Manhattan's 60th Street.
 
+> **Built on rd2d.** `rd2dnet` is a direct extension of the boundary discontinuity
+> methodology and software of **Matias D. Cattaneo, Rocío Titiunik and Ruiqi Rae Yu**
+> ([rd2d](https://github.com/rdpackages/rd2d), part of the
+> [rdpackages](https://rdpackages.github.io/) project). The estimands, side-specific local
+> polynomial estimation, robust bias-corrected inference, uniform bands and the
+> bandwidth selector (a port of `rdbw2d`'s direct plug-in) follow their work. The
+> density test follows Cattaneo, Jansson and Ma's `rddensity`. What is new here is
+> carrying that framework over to network coordinates and user-defined network
+> metrics. If you use `rd2dnet`, please cite the rd2d papers listed under
+> [References](#references), as well as this package.
+
 ## Method
 
 `rd2d` fits a local polynomial in `(X1 - b1, X2 - b2)` on each side of the boundary at
-every evaluation point `b`, using kernel weights based on Euclidean distance. `rdnet`
+every evaluation point `b`, using kernel weights based on Euclidean distance. `rd2dnet`
 replaces both pieces:
 
-| | rd2d | rdnet |
+| | rd2d | rd2dnet |
 |---|---|---|
 | coordinates | `(X1 - b1, X2 - b2)` | `s_i`: signed network distance to the boundary (negative on the control side)<br>`o_i(b)`: signed offset along the boundary from `b` to where `i` reaches it |
 | kernel distance | `‖X_i - b‖` | `d_i(b)`: shortest-path distance from `b` to `i` |
@@ -28,18 +39,18 @@ Each `NetworkGraph` carries the metric that defines distance on it. Distance her
 **dissimilarity**. It does not have to be metres.
 
 ```python
-import rdnet
-from rdnet import EdgeCost, TransitionCost, Precomputed, travel_time, node_contrast
+import rd2dnet
+from rd2dnet import EdgeCost, TransitionCost, Precomputed, travel_time, node_contrast
 
-rdnet.NetworkGraph(G, "length")                      # metres along streets
-rdnet.NetworkGraph(G, travel_time())                 # seconds, from speed_kph
-rdnet.NetworkGraph(G, node_contrast("far", 50.0))    # length + 50 * |land-use change|
-rdnet.NetworkGraph(G, lambda u, v, d: ...)           # any non-negative edge cost
-rdnet.NetworkGraph(G, Precomputed(D, nodes))         # your own node-by-node matrix
+rd2dnet.NetworkGraph(G, "length")                      # metres along streets
+rd2dnet.NetworkGraph(G, travel_time())                 # seconds, from speed_kph
+rd2dnet.NetworkGraph(G, node_contrast("far", 50.0))    # length + 50 * |land-use change|
+rd2dnet.NetworkGraph(G, lambda u, v, d: ...)           # any non-negative edge cost
+rd2dnet.NetworkGraph(G, Precomputed(D, nodes))         # your own node-by-node matrix
 
 # Switching road class costs extra. Ramps are transparent connectors, so
 # highway -> ramp -> highway is close while highway -> ramp -> local street is far.
-rdnet.NetworkGraph(G, TransitionCost(
+rd2dnet.NetworkGraph(G, TransitionCost(
     "length", class_attr="highway",
     penalty={("motorway", "residential"): 2000.0},   # or default_penalty=..., or a callable
     connectors={"motorway_link", "trunk_link"},
@@ -52,25 +63,25 @@ metric's units. Treatment side is always geographic.
 ## Quick start
 
 ```python
-import rdnet
-from rdnet.datasets import load_mock_midtown   # bundled, works offline
+import rd2dnet
+from rd2dnet.datasets import load_mock_midtown   # bundled, works offline
 
 city = load_mock_midtown()
 net = city.network("length")
-coords = rdnet.network_coordinates(net, city.boundary, city.obs[["x", "y"]], n_eval=21)
+coords = rd2dnet.network_coordinates(net, city.boundary, city.obs[["x", "y"]], n_eval=21)
 
-res = rdnet.rdnet(city.obs["outcome"], coords,
+res = rd2dnet.rdnet(city.obs["outcome"], coords,
                   weights=city.obs["far"],          # intensity / floor-area scaling
                   cluster=city.obs["block"])        # or conley_cutoff=150.0
 print(res)          # pointwise BATEC table
 res.plot()
 
-rdnet.rdbwnet(city.obs["outcome"], coords)          # bandwidths
-print(rdnet.density(coords))                         # sorting test per metre of street
-rdnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design (take_up = your 0/1 or share)
+rd2dnet.rdbwnet(city.obs["outcome"], coords)          # bandwidths
+print(rd2dnet.density(coords))                         # sorting test per metre of street
+rd2dnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design (take_up = your 0/1 or share)
 ```
 
-For real data, use `rdnet.NetworkGraph.from_place("Manhattan, New York")`, which needs
+For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, which needs
 `pip install -e .[osm]`. It falls back to the bundled mock network with a warning when
 offline. You can also pass your own graph:
 `NetworkGraph(G)`, `NetworkGraph.from_adjacency(A, coords)` or `NetworkGraph.from_igraph(g)`.
@@ -156,7 +167,7 @@ each cell is pointwise / uniform-band coverage):
 ## Development
 
 ```bash
-git clone https://github.com/zwinship/rdnet.git && cd rdnet
+git clone https://github.com/zwinship/rd2dnet.git && cd rd2dnet
 python -m venv .venv
 .venv\Scripts\activate          # Windows   (source .venv/bin/activate on macOS/Linux)
 pip install -e ".[dev]"
@@ -170,6 +181,38 @@ See [ROADMAP.md](ROADMAP.md) for planned next steps.
 
 ## References
 
-- Cattaneo, Titiunik & Yu. *rd2d: Causal Inference in Boundary Discontinuity Designs.* arXiv:2505.07989.
-- McCrary (2008). *Manipulation of the running variable in the regression discontinuity design.*
-- Conley (1999). *GMM estimation with cross sectional dependence.*
+`rd2dnet` builds directly on the following work. Please cite it.
+
+**rd2d (Cattaneo, Titiunik and Yu)**, see https://rdpackages.github.io/rd2d/
+
+- Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). rd2d: Causal Inference in Boundary
+  Discontinuity Designs. Working paper. arXiv:2505.07989.
+- Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). Boundary Discontinuity Designs:
+  Theory and Practice. *Advances in Economics and Econometrics: Thirteenth World
+  Congress*, Cambridge University Press, Vol. 1, Ch. 2, to appear.
+- Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). Estimation and Inference in Boundary
+  Discontinuity Designs: Location-Based Methods. *Journal of the American Statistical
+  Association*, revise and resubmit.
+- Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). Estimation and Inference in Boundary
+  Discontinuity Designs: Distance-Based Methods. *Journal of Econometrics* 256(A): 106266.
+- Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). Estimation and Inference in Boundary
+  Discontinuity Designs: Pooling-Based Methods. Working paper.
+
+**Density test (rddensity)**
+
+- Cattaneo, M. D., Jansson, M. and Ma, X. (2020). Simple Local Polynomial Density
+  Estimators. *Journal of the American Statistical Association* 115(531): 1449–1455.
+- Cattaneo, M. D., Jansson, M. and Ma, X. (2018). Manipulation Testing Based on Density
+  Discontinuity. *Stata Journal* 18(1): 234–261.
+
+**Robust bias-corrected inference and spatial HAC**
+
+- Calonico, S., Cattaneo, M. D. and Titiunik, R. (2014). Robust Nonparametric Confidence
+  Intervals for Regression-Discontinuity Designs. *Econometrica* 82(6): 2295–2326.
+- Conley, T. G. (1999). GMM Estimation with Cross Sectional Dependence. *Journal of
+  Econometrics* 92(1): 1–45.
+
+## License
+
+GPL-3.0-only, the same license as rd2d and rddensity, from which parts of the
+implementation are ported. See [LICENSE](LICENSE).

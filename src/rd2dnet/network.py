@@ -48,7 +48,7 @@ class NetworkGraph:
         A networkx graph whose nodes carry projected coordinates.
     metric
         How distance is measured: an edge attribute name (``"length"``), a callable
-        ``f(u, v, data)``, a :class:`~rdnet.metrics.NetworkMetric`, or a square
+        ``f(u, v, data)``, a :class:`~rd2dnet.metrics.NetworkMetric`, or a square
         node-by-node matrix.
     direction
         ``"both"`` treats every edge as two-way (pedestrian access, the default);

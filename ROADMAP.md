@@ -50,11 +50,37 @@ Everything has only been run on the 450-node mock grid. A real city is about 50,
     Overlapping samples would need cross-run covariance, which rd2d doesn't offer either.
 - Fill out docstrings. Add GitHub Actions CI running `pytest` on push.
 
+## 4. Release and ports (after 1-3)
+
+Done already: renamed to `rd2dnet` (`rdnet` was taken on PyPI by an unrelated
+deep-learning model; `rd2dnet` is free on PyPI and CRAN as of 2026-10-15), GPL-3.0
+LICENSE added (required, because the bandwidth and density code are ported from rd2d
+and rddensity, both GPL-3.0-only), and rd2d/rddensity attribution and references added
+to the README and module docstrings.
+
+- [ ] Contact Cattaneo, Titiunik and Yu (rdpackages) before a public release, as a
+      courtesy: the package builds directly on their method and code.
+- [ ] Make the GitHub repo public when ready.
+- [ ] **PyPI**: no review; live within minutes. `python -m build`, `twine check dist/*`
+      (both passed on 2026-10-15), then `twine upload dist/*`. Try TestPyPI first.
+- [ ] Optional peer review: pyOpenSci (about 1-3 months), JOSS (about 1-3 months), or
+      Journal of Statistical Software (often a year or more).
+- [ ] **R port -> CRAN**: first response in days to about 2 weeks; a revision round is
+      common for new packages. Needs a clean `R CMD check --as-cran`, every export
+      documented, fast examples, offline tests (the bundled mock city covers this) and
+      the license. Likely stack: igraph or dodgr, sf, osmdata, testthat. Estimate: one
+      to a few weeks; most of the effort is numerical parity with Python.
+- [ ] **Stata port -> SSC** (submit to Kit Baum): light review; posted within days to
+      a couple of weeks. The Stata Journal is peer-reviewed and takes months to over a
+      year. Options: native Mata, which needs a hand-written Dijkstra and user-supplied
+      edge lists (weeks of work), or a wrapper calling the Python package via Stata
+      16+'s Python integration (fast to build, but users need a working Python).
+
 ## Getting started on another machine
 
 ```bash
 gh auth login                      # once per machine
-git clone https://github.com/zwinship/rdnet.git && cd rdnet
+git clone https://github.com/zwinship/rd2dnet.git && cd rd2dnet
 python -m venv .venv
 .venv\Scripts\activate            # Windows (source .venv/bin/activate elsewhere)
 pip install -e ".[dev]"

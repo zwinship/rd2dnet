@@ -1,5 +1,8 @@
 """Data-driven bandwidth selection for network boundary discontinuity estimation.
 
+Ported from rd2d (Cattaneo, Titiunik and Yu; GPL-3.0; ``rd2d/location.py``,
+``rdbw2d``) and adapted to network coordinates.
+
 A port of rd2d's direct plug-in (``rdbw2d(method="dpi")``) to network
 coordinates. Kernel weights are ``K(d_i(b)/h) / h**2`` with ``d`` the network
 distance (rd2d's radial kernel) and the local basis is in ``(s/h, o/h)``.

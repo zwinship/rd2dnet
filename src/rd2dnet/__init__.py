@@ -1,16 +1,19 @@
-"""rdnet: boundary discontinuity designs on street networks.
+"""rd2dnet: boundary discontinuity designs on street networks.
 
-Extends the location-based boundary discontinuity framework of rd2d
-(Cattaneo, Titiunik and Yu) from Euclidean coordinates to network-native
-coordinates and user-defined network metrics.
+A direct extension of the location-based boundary discontinuity framework and
+software of rd2d (Cattaneo, Titiunik and Yu; https://rdpackages.github.io/rd2d/)
+from Euclidean coordinates to network-native coordinates and user-defined
+network metrics. Please cite the rd2d papers when using this package.
+
+Licensed under GPL-3.0-only, like rd2d and rddensity, from which parts are ported.
 
 Typical workflow::
 
-    import rdnet
-    net = rdnet.NetworkGraph(G, metric="length")          # or travel time, transitions, ...
-    bnd = rdnet.Boundary(line, treated_region=zone)
-    coords = rdnet.network_coordinates(net, bnd, points)
-    res = rdnet.rdnet(y, coords)
+    import rd2dnet
+    net = rd2dnet.NetworkGraph(G, metric="length")          # or travel time, transitions, ...
+    bnd = rd2dnet.Boundary(line, treated_region=zone)
+    coords = rd2dnet.network_coordinates(net, bnd, points)
+    res = rd2dnet.rdnet(y, coords)
     print(res)
 """
 

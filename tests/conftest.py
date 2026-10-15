@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString, box
 
-import rdnet
-from rdnet.datasets import load_mock_midtown
+import rd2dnet
+from rd2dnet.datasets import load_mock_midtown
 
 
 @pytest.fixture(scope="session")
@@ -14,7 +14,7 @@ def city():
 
 @pytest.fixture(scope="session")
 def coords(city):
-    return rdnet.network_coordinates(city.network("length"), city.boundary, city.obs[["x", "y"]], n_eval=21)
+    return rd2dnet.network_coordinates(city.network("length"), city.boundary, city.obs[["x", "y"]], n_eval=21)
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def grid():
     for u, v, d in G.edges(data=True):
         d["length"] = 100.0
     line = LineString([(-50, 200), (450, 200)])
-    bnd = rdnet.Boundary(line, treated_region=box(-1e3, -1e3, 1e3, 200))
+    bnd = rd2dnet.Boundary(line, treated_region=box(-1e3, -1e3, 1e3, 200))
     return G, bnd
 
 

@@ -1,5 +1,8 @@
 """Network-adapted density (sorting) test at the boundary.
 
+The estimator and jackknife variance are ported from rddensity (Cattaneo,
+Jansson and Ma; GPL-3.0; ``rddensity/funs.py``) and adapted to networks.
+
 Uses the local polynomial density estimator of Cattaneo, Jansson and Ma
 (2020; the ``rddensity`` package) on the signed network distance ``s``: the
 empirical CDF is regressed on a polynomial in ``s`` separately on each side
@@ -60,7 +63,7 @@ class DensityResult:
 
     def __str__(self) -> str:
         return (
-            f"rdnet density test ({self.normalize}): jump={self.diff:.3g} (bc {self.diff_bc:.3g}) "
+            f"rd2dnet density test ({self.normalize}): jump={self.diff:.3g} (bc {self.diff_bc:.3g}) "
             f"se={self.se:.3g} z={self.z:.3f} p={self.pvalue:.4f} log-ratio={self.theta:.3f} "
             f"[n={self.n_left}/{self.n_right}, in window {self.n_left_h}/{self.n_right_h}, "
             f"h={self.h_left:.1f}/{self.h_right:.1f}]"
