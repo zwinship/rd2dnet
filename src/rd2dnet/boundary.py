@@ -9,6 +9,8 @@ import shapely
 from shapely.geometry import LineString
 from shapely.geometry.base import BaseGeometry
 
+from ._parallel import chunked
+
 
 class Boundary:
     """A boundary line separating treated from control locations.
@@ -73,12 +75,12 @@ class Boundary:
     def distance(self, xy) -> np.ndarray:
         """Euclidean distance from each point to the boundary line."""
         xy = self._xy(xy)
-        return shapely.distance(self.line, shapely.points(xy))
+        return chunked(lambda a: shapely.distance(self.line, shapely.points(a)), len(xy), xy)
 
     def project(self, xy) -> np.ndarray:
         """Arc-length position of each point's projection onto the line."""
         xy = self._xy(xy)
-        return shapely.line_locate_point(self.line, shapely.points(xy))
+        return chunked(lambda a: shapely.line_locate_point(self.line, shapely.points(a)), len(xy), xy)
 
     def interpolate(self, arc) -> np.ndarray:
         """(x, y) coordinates at the given arc-length positions."""
@@ -88,9 +90,9 @@ class Boundary:
     def is_treated(self, xy) -> np.ndarray:
         xy = self._xy(xy)
         if self.treated_region is not None:
-            return shapely.contains_xy(self.treated_region, xy[:, 0], xy[:, 1]) | (
-                shapely.distance(self.treated_region, shapely.points(xy)) <= self.tol
-            )
+            region, tol = self.treated_region, self.tol
+            return chunked(lambda a: shapely.contains_xy(region, a[:, 0], a[:, 1])
+                           | (shapely.distance(region, shapely.points(a)) <= tol), len(xy), xy)
         arc = self.project(xy)
         eps = min(1e-3, self.length * 1e-6)
         a = self.interpolate(np.clip(arc - eps, 0, self.length))

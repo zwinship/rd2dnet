@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
 
@@ -15,7 +16,18 @@ def poly_exponents(p: int) -> list[tuple[int, int]]:
 
 
 def poly_basis(s: np.ndarray, o: np.ndarray, p: int) -> np.ndarray:
-    return np.column_stack([s**a * o**c for a, c in poly_exponents(p)])
+    """Columns ``s**a * o**c`` in :func:`poly_exponents` order; lower orders are column prefixes."""
+    s = np.asarray(s, dtype=float)
+    o = np.asarray(o, dtype=float)
+    exps = poly_exponents(p)
+    out = np.empty((len(exps), len(s))).T  # column-major: each term is contiguous
+    sp, op = [np.ones_like(s)], [np.ones_like(o)]
+    for _ in range(p):
+        sp.append(sp[-1] * s)
+        op.append(op[-1] * o)
+    for k, (a, c) in enumerate(exps):
+        np.multiply(sp[a], op[c], out=out[:, k])
+    return out
 
 
 @dataclass
@@ -23,9 +35,13 @@ class Fit:
     beta: np.ndarray
     Ginv: np.ndarray
     resid: np.ndarray
-    leverage: np.ndarray
     X: np.ndarray
     w: np.ndarray
+
+    @cached_property
+    def leverage(self) -> np.ndarray:
+        """Diagonal of the weighted hat matrix (computed only for HC2/HC3)."""
+        return self.w * np.einsum("ij,jk,ik->i", self.X, self.Ginv, self.X)
 
     @property
     def n(self) -> int:
@@ -71,8 +87,7 @@ def wls(X: np.ndarray, y: np.ndarray, w: np.ndarray) -> Fit:
     Ginv = (Ginv + Ginv.T) / 2
     beta = Ginv @ (XtW @ y)
     resid = y - X @ beta
-    lev = w * np.einsum("ij,jk,ik->i", X, Ginv, X)
-    return Fit(beta, Ginv, resid, lev, X, w)
+    return Fit(beta, Ginv, resid, X, w)
 
 
 def variance(psi: np.ndarray, vce: str, *, cluster: np.ndarray | None = None, K: np.ndarray | None = None) -> float:

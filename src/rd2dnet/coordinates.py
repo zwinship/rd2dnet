@@ -269,7 +269,8 @@ class NetworkCoordinates:
         nodes, ninv = np.unique(np.r_[eu, ev], return_inverse=True)
         pu, pv = ninv[:m], ninv[m:]
         nn = len(nodes)
-        # Node pairs (a, b) with network distance a -> b below the cutoff.
+        # Node pairs (a, b) with network distance a -> b below the cutoff,
+        # stored as D + cutoff so that zero distances survive in sparse form.
         src_per = max(1, int(max_cells) // max(self.network.n_nodes, 1))
         ra, rb, dab = [], [], []
         for s0 in range(0, nn, src_per):
@@ -277,35 +278,40 @@ class NetworkCoordinates:
             a, b = np.nonzero(Dn < cutoff)
             ra.append(a + s0)
             rb.append(b)
-            dab.append(Dn[a, b])
-        ra, rb, dab = np.concatenate(ra), np.concatenate(rb), np.concatenate(dab)
-        key = ra * nn + rb
-        order = np.argsort(key)
-        key, dab = key[order], dab[order]
-        NP = sparse.csr_matrix((np.ones(len(ra)), (ra, rb)), shape=(nn, nn))
-        A = sparse.csr_matrix((np.ones(2 * m), (np.r_[np.arange(m), np.arange(m)], np.r_[pu, pv])), shape=(m, nn))
-        AT = A.T.tocsr()
-
-        def lookup(a, b):
-            q = a * nn + b
-            pos = np.minimum(np.searchsorted(key, q), len(key) - 1)
-            return np.where(key[pos] == q, dab[pos], np.inf)
-
-        for r0 in range(0, m, rows_per):
-            r1 = min(m, r0 + rows_per)
-            C = (A[r0:r1] @ NP @ AT).tocoo()
-            i, j = C.row + r0, C.col
-            d = np.full(len(i), np.inf)
-            for na, ca in ((pu, cu), (pv, cv)):
-                for nb, cb in ((pu, cu), (pv, cv)):
-                    d = np.minimum(d, ca[i] + lookup(na[i], nb[j]) + cb[j])
-            same = (eu[i] == eu[j]) & (ev[i] == ev[j])
-            d = np.where(same, np.minimum(d, np.abs(cu[i] - cu[j])), d)
-            d = d + dep[i] + dep[j]
-            d[i == j] = 0.0
-            k = 1.0 - d / cutoff
-            keep = k > 0
-            yield r0, r1, sparse.csr_matrix((k[keep], (i[keep] - r0, j[keep])), shape=(r1 - r0, m))
+            dab.append(Dn[a, b] + cutoff)
+        ND = sparse.csr_matrix((np.concatenate(dab), (np.concatenate(ra), np.concatenate(rb))), shape=(nn, nn))
+        rng = np.arange(m)
+        Au = sparse.csr_matrix((np.ones(m), (rng, pu)), shape=(m, nn))
+        Av = sparse.csr_matrix((np.ones(m), (rng, pv)), shape=(m, nn))
+        AuT, AvT = Au.T.tocsr(), Av.T.tocsr()
+        # Each location has one u and one v endpoint, so (A_a ND A_b')[i, j] is the
+        # single term D(a_i, b_j) + cutoff. Rows are blocked by their candidate count.
+        pat = ND.copy()
+        pat.data[:] = 1.0
+        both = Au + Av
+        per_row = both @ (pat @ (both.T @ np.ones(m)))
+        budget = max(1, int(max_cells) // 4)
+        cuts = np.searchsorted(np.cumsum(per_row), np.arange(budget, per_row.sum() + budget, budget), side="right")
+        bounds = np.unique(np.r_[0, np.clip(cuts, 1, m), m])
+        for r0, r1 in zip(bounds[:-1], bounds[1:]):
+            K = None
+            for Aa, ca, a_is_u in ((Au, cu, True), (Av, cv, False)):
+                left = Aa[r0:r1] @ ND
+                for ATb, cb, b_is_u in ((AuT, cu, True), (AvT, cv, False)):
+                    M = (left @ ATb).tocoo()
+                    i, j = M.row + r0, M.col
+                    d = (M.data - cutoff) + ca[i] + cb[j]
+                    if a_is_u and b_is_u:  # every same-edge pair and i == j shows up here (D(u, u) = 0)
+                        same = (eu[i] == eu[j]) & (ev[i] == ev[j])
+                        d = np.where(same, np.minimum(d, np.abs(cu[i] - cu[j])), d)
+                    d = d + dep[i] + dep[j]
+                    if a_is_u and b_is_u:
+                        d[i == j] = 0.0
+                    k = 1.0 - d / cutoff
+                    keep = k > 0
+                    Kc = sparse.csr_matrix((k[keep], (i[keep] - r0, j[keep])), shape=(r1 - r0, m))
+                    K = Kc if K is None else K.maximum(Kc)  # kernel at the shortest distance
+            yield r0, r1, K
 
 
 def network_coordinates(

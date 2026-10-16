@@ -148,3 +148,18 @@ def test_sparse_hac_directed_network_and_euclidean(grid):
     diff = c.xy[idx][:, None, :] - c.xy[idx][None, :, :]
     K = np.clip(1 - np.sqrt((diff**2).sum(-1)) / 150.0, 0, None)
     np.testing.assert_allclose(c.hac_quadratic(idx, Psi, 150.0, distance="euclidean"), Psi.T @ K @ Psi, rtol=1e-10)
+
+
+def test_threaded_geometry_matches_serial(city, monkeypatch):
+    from rd2dnet import _parallel
+
+    xy = city.obs[["x", "y"]].to_numpy()
+    monkeypatch.setenv("RD2DNET_NUM_THREADS", "1")
+    a = rd2dnet.network_coordinates(city.network(), city.boundary, xy, n_eval=7)
+    monkeypatch.setattr(_parallel, "MIN_CHUNK", 50)
+    monkeypatch.setenv("RD2DNET_NUM_THREADS", "8")
+    assert _parallel.n_threads(len(xy)) == 8
+    b = rd2dnet.network_coordinates(city.network(), city.boundary, xy, n_eval=7)
+    for attr in ("s", "treated", "crossing_arc"):
+        np.testing.assert_array_equal(getattr(a, attr), getattr(b, attr))
+    np.testing.assert_array_equal(a.snap.cost_u, b.snap.cost_u)

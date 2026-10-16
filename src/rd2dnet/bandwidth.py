@@ -85,14 +85,21 @@ class _Side:
     def __init__(self, s, o, d, y, om, kfun, cluster=None):
         self.s, self.o, self.d, self.y, self.om, self.kfun = s, o, d, y, om, kfun
         self.cluster = cluster
+        self._basis: dict[float, tuple] = {}
 
     def design(self, h: float, order: int, y=None):
-        w = self.kfun(self.d / h) / h**2 * self.om
-        keep = w > 0
-        R = poly_basis(self.s[keep] / h, self.o[keep] / h, order)
+        # Kernel weights and the basis depend only on h; the order-``order``
+        # basis is a column prefix of any higher-order one, so cache per h.
+        hit = self._basis.get(h)
+        if hit is None or hit[3] < order:
+            w = self.kfun(self.d / h) / h**2 * self.om
+            keep = np.flatnonzero(w > 0)
+            hit = (keep, w[keep], poly_basis(self.s[keep] / h, self.o[keep] / h, order), order)
+            self._basis[h] = hit
+        keep, w, R, _ = hit
         yy = (self.y if y is None else y)[keep]
         cl = None if self.cluster is None else self.cluster[keep]
-        return R, w[keep], yy, cl
+        return R[:, :_n_terms(order)], w, yy, cl
 
     @staticmethod
     def _sigma(WR, resd, h, cl):
@@ -233,8 +240,9 @@ def rdbwnet(
         Z = Z[:, None] if Z.ndim == 1 else Z
     bwcheck = default_min_obs(p + 1) if bwcheck is None else int(bwcheck)
     T, s = coords.treated, coords.s
-    n_eff = len(np.unique(coords.xy[np.isfinite(s)], axis=0))
-    n_eff_side = [len(np.unique(coords.xy[np.isfinite(s) & (T == t)], axis=0)) for t in (False, True)]
+    # Effective sample sizes count distinct locations (mass points count once), as in rd2d.
+    n_eff = len(np.unique(coords.loc[np.isfinite(s)]))
+    n_eff_side = [len(np.unique(coords.loc[np.isfinite(s) & (T == t)])) for t in (False, True)]
     exps = poly_exponents(p)
     deriv = tuple(int(v) for v in deriv)
     if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:

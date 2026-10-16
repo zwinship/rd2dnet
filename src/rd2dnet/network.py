@@ -13,6 +13,7 @@ import shapely
 from shapely.geometry import LineString, Point
 from shapely.ops import substring
 
+from ._parallel import chunked
 from .metrics import NetworkMetric, as_metric
 
 _DIRECTIONS = ("both", "out", "in")
@@ -200,11 +201,15 @@ class NetworkGraph:
             raise ValueError("no network edges available for snapping")
         geoms = E["geometry"].to_numpy()
         tree = shapely.STRtree(geoms)
-        pts = shapely.points(xy)
-        (pi, ei), dist = tree.query_nearest(pts, return_distance=True, all_matches=False)
-        order = np.argsort(pi)
-        ei, dist = ei[order], dist[order]
-        frac = shapely.line_locate_point(geoms[ei], pts, normalized=True)
+
+        def nearest(pts_xy):
+            pts = shapely.points(pts_xy)
+            (pi, ei), dist = tree.query_nearest(pts, return_distance=True, all_matches=False)
+            order = np.argsort(pi)
+            ei, dist = ei[order], dist[order]
+            return ei, dist, shapely.line_locate_point(geoms[ei], pts, normalized=True)
+
+        ei, dist, frac = chunked(nearest, len(xy), xy)
         cost = E["cost"].to_numpy()[ei]
         return Snap(
             E["u"].to_numpy()[ei],
