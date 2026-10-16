@@ -32,6 +32,11 @@ class RDNetResult:
     robust ``se_rb``, the robust confidence interval, and (if requested) the
     uniform confidence band ``cb_lo``/``cb_hi``. Fuzzy designs add the
     intention-to-treat jump ``itt`` and first stage ``fs`` (with ``fs_se``).
+
+    ``cov`` is the ``J x J`` covariance of ``tau_bc`` across evaluation points
+    (rd2d's ``params_cov``), with NaN rows and columns for points that were not
+    estimated; its diagonal is ``se_rb**2``. ``crit`` is the uniform critical
+    value it implies. Both drive the uniform band, :meth:`wbate` and :meth:`lbate`.
     """
 
     table: pd.DataFrame
@@ -42,24 +47,79 @@ class RDNetResult:
     level: float
     metric: str
     fuzzy: bool = False
-    cb_crit: float | None = None
-    cb_cov: np.ndarray | None = field(default=None, repr=False)
+    crit: float | None = None
+    cov: np.ndarray | None = field(default=None, repr=False)
     bandwidths: pd.DataFrame | None = None
     coords: NetworkCoordinates | None = field(default=None, repr=False)
 
-    def summary(self) -> str:
+    def _ok(self) -> np.ndarray:
+        return (self.table["status"] == "ok").to_numpy()
+
+    def wbate(self, weights) -> pd.Series:
+        """Weighted boundary average treatment effect ``w' tau`` (rd2d's WBATE).
+
+        ``weights`` has one entry per evaluation point and is normalised to sum
+        to one. Points that were not estimated (masked, insufficient, ...) must
+        get weight 0. The standard error is ``sqrt(w' cov w)``, so it accounts
+        for the correlation between nearby evaluation points.
+        """
+        J = len(self.table)
+        w = np.asarray(weights, dtype=float)
+        if w.shape != (J,):
+            raise ValueError(f"WBATE weights must have one entry per evaluation point ({J})")
+        if not np.all(np.isfinite(w)):
+            raise ValueError("WBATE weights must be finite")
+        if w.sum() == 0:
+            raise ValueError("WBATE weights must have a nonzero sum")
+        ok = self._ok()
+        bad = np.flatnonzero(~ok & (w != 0))
+        if len(bad):
+            raise ValueError(f"WBATE puts weight on evaluation points that were not estimated: {bad.tolist()}; "
+                             "give them weight 0")
+        w = (w / w.sum())[ok]
+        t = self.table.loc[ok]
+        tau_q = float(w @ t["tau_bc"].to_numpy())
+        se = float(np.sqrt(max(w @ self.cov[np.ix_(ok, ok)] @ w, 0.0)))
+        z = stats.norm.ppf(0.5 + self.level / 200)
+        return pd.Series(dict(tau=float(w @ t["tau"].to_numpy()), tau_bc=tau_q, se_rb=se,
+                              ci_lo=tau_q - z * se, ci_hi=tau_q + z * se,
+                              pvalue=2 * stats.norm.sf(abs(tau_q / se)) if se > 0 else np.nan), name="WBATE")
+
+    def lbate(self) -> pd.Series:
+        """Largest boundary average treatment effect ``max_j tau(b_j)`` (rd2d's LBATE).
+
+        The confidence interval is ``[max_j (tau_bc - crit * se_rb), max_j (tau_bc + crit * se_rb)]``
+        over the estimated points, with ``crit`` the uniform critical value, so
+        it inherits the uniform band's joint coverage.
+        """
+        ok = self._ok()
+        if not ok.any() or self.crit is None:
+            raise ValueError("LBATE needs at least one estimated evaluation point")
+        t = self.table.loc[ok]
+        lo = t["tau_bc"] - self.crit * t["se_rb"]
+        hi = t["tau_bc"] + self.crit * t["se_rb"]
+        return pd.Series(dict(tau=t["tau"].max(), tau_bc=t["tau_bc"].max(), se_rb=np.nan,
+                              ci_lo=lo.max(), ci_hi=hi.max(), pvalue=np.nan), name="LBATE")
+
+    def summary(self, *, wbate=None, lbate: bool = False) -> str:
+        """Text table of the pointwise estimates, optionally with WBATE/LBATE rows."""
         t = self.table
         lines = [
             f"rd2dnet: network boundary discontinuity estimates ({'fuzzy' if self.fuzzy else 'sharp'})",
             f"  metric={self.metric}  kernel={self.kernel}  p={self.p}  q={self.q}  vce={self.vce}",
-            f"  evaluation points: {len(t)}  estimated: {int((t['status'] == 'ok').sum())}",
+            f"  evaluation points: {len(t)}  estimated: {int(self._ok().sum())}",
         ]
-        if self.cb_crit is not None:
-            lines.append(f"  uniform band critical value: {self.cb_crit:.3f}")
+        if "cb_lo" in t:
+            lines.append(f"  uniform band critical value: {self.crit:.3f}")
         cols = ["arc", "h0", "h1", "n0", "n1", "tau", "se", "tau_bc", "ci_lo", "ci_hi", "pvalue", "status"]
         if self.fuzzy:
             cols.insert(5, "fs")
-        lines.append(t[cols].to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+        fmt = lambda v: f"{v:.3f}"  # noqa: E731
+        lines.append(t[cols].to_string(index=False, float_format=fmt))
+        agg = ([self.wbate(wbate)] if wbate is not None else []) + ([self.lbate()] if lbate else [])
+        if agg:
+            lines += ["", "aggregate effects (tau_bc and CI are bias-corrected):",
+                      pd.DataFrame(agg).to_string(float_format=fmt, na_rep="")]
         return "\n".join(lines)
 
     def __str__(self) -> str:
@@ -372,17 +432,24 @@ def rdnet(
     table = pd.DataFrame(rows)
     table["h"] = np.where(np.isclose(table["h0"], table["h1"]), table["h0"], np.nan)
     crit = cov = None
-    if cbands and len(psi_store) >= 2:
-        cov = _joint_covariance(psi_store, coords, vce, cluster, conley_cutoff, conley_distance)
-        crit = _uniform_critical_value(cov, level, repp, seed)
-        table["cb_lo"] = table["tau_bc"] - crit * table["se_rb"]
-        table["cb_hi"] = table["tau_bc"] + crit * table["se_rb"]
-    return RDNetResult(table, p, q, kname, vce, level, repr(coords.network.metric), D is not None,
-                       crit, cov, bw, coords)
+    if psi_store:
+        cov = _joint_covariance(psi_store, coords, vce, cluster, conley_cutoff, conley_distance, J)
+        ok = np.isfinite(np.diag(cov))
+        crit = _uniform_critical_value(cov[np.ix_(ok, ok)], level, repp, seed)
+        if cbands:
+            table["cb_lo"] = table["tau_bc"] - crit * table["se_rb"]
+            table["cb_hi"] = table["tau_bc"] + crit * table["se_rb"]
+    return RDNetResult(table, p, q, kname, vce, level, repr(coords.network.metric), fuzzy=D is not None,
+                       crit=crit, cov=cov, bandwidths=bw, coords=coords)
 
 
-def _joint_covariance(psi_store, coords, vce, cluster, cutoff, distance) -> np.ndarray:
-    """Covariance of the bias-corrected estimates across evaluation points."""
+def _joint_covariance(psi_store, coords, vce, cluster, cutoff, distance, J) -> np.ndarray:
+    """``J x J`` covariance of the bias-corrected estimates, NaN where a point was not estimated.
+
+    Its diagonal reproduces the pointwise variances exactly. For clustering, the
+    small-sample factor ``g / (g - 1)`` uses each point's own number of local
+    clusters, as the pointwise standard errors do.
+    """
     keys = sorted(psi_store)
     union = np.unique(np.concatenate([psi_store[j][0] for j in keys]))
     pos = np.full(coords.n_obs, -1)
@@ -392,14 +459,19 @@ def _joint_covariance(psi_store, coords, vce, cluster, cutoff, distance) -> np.n
         idx, psi = psi_store[j]
         Psi[pos[idx], c] = psi
     if vce == "conley":
-        return coords.hac_quadratic(union, Psi, cutoff, distance)
-    if vce == "cluster":
+        V = coords.hac_quadratic(union, Psi, cutoff, distance)
+    elif vce == "cluster":
         _, codes = np.unique(cluster[union], return_inverse=True)
         G = np.zeros((codes.max() + 1, len(keys)))
         np.add.at(G, codes, Psi)
-        g = G.shape[0]
-        return G.T @ G * (g / (g - 1) if g > 1 else 1.0)
-    return Psi.T @ Psi
+        g = np.array([len(np.unique(cluster[psi_store[j][0]])) for j in keys], dtype=float)
+        f = np.sqrt(np.where(g > 1, g / np.maximum(g - 1, 1), 1.0))
+        V = (G.T @ G) * np.outer(f, f)
+    else:
+        V = Psi.T @ Psi
+    out = np.full((J, J), np.nan)
+    out[np.ix_(keys, keys)] = V
+    return out
 
 
 def _uniform_critical_value(Sigma, level, repp, seed) -> float:

@@ -165,9 +165,9 @@ def test_conley_uniform_band_uses_hac(coords, city):
     cl = rd2dnet.rdnet(y, coords, h=600.0, conley_cutoff=1e-9, conley_resid_scale=1.0, seed=0)
     # A vanishing cutoff makes the HAC kernel diagonal: identical to HC0.
     np.testing.assert_allclose(cl.table["se_rb"], hc.table["se_rb"], rtol=1e-8)
-    np.testing.assert_allclose(cl.cb_cov, hc.cb_cov, rtol=1e-8)
+    np.testing.assert_allclose(cl.cov, hc.cov, rtol=1e-8)
     wide = rd2dnet.rdnet(y, coords, h=600.0, conley_cutoff=300.0, seed=0)
-    assert wide.cb_crit is not None and np.isfinite(wide.table["cb_lo"]).any()
+    assert wide.crit is not None and np.isfinite(wide.table["cb_lo"]).any()
 
 
 def test_hac_quadratic_blocking_invariant(coords):
@@ -309,3 +309,53 @@ def test_conley_default_uses_wider_auxiliary_fit(coords, city):
     c = rd2dnet.rdnet(y, coords, h=600.0, conley_cutoff=150.0, conley_resid_order=3, cbands=False).table
     np.testing.assert_allclose(a["se_rb"], b["se_rb"])
     assert not np.allclose(a["se_rb"].dropna(), c["se_rb"].dropna())
+
+
+@pytest.mark.parametrize("vce", ["hc1", "cluster", "conley"])
+def test_joint_covariance_is_full_and_matches_pointwise(coords, city, vce):
+    y = city.obs["outcome"].to_numpy()
+    kw = {"cluster": city.obs["block"].to_numpy()} if vce == "cluster" else {}
+    kw.update(conley_cutoff=150.0) if vce == "conley" else None
+    res = rd2dnet.rdnet(y, coords, h=600.0, vce=vce, cbands=False, seed=0, **kw)
+    ok = res.table["status"].eq("ok").to_numpy()
+    assert res.cov.shape == (coords.n_eval, coords.n_eval) and not ok.all()
+    assert np.isnan(res.cov[~ok]).all() and np.isnan(res.cov[:, ~ok]).all()
+    np.testing.assert_allclose(np.sqrt(np.diag(res.cov)[ok]), res.table.loc[ok, "se_rb"], rtol=1e-10)
+    assert "cb_lo" not in res.table and res.crit > 1.96  # stored without bands, for LBATE
+
+
+def test_wbate_one_hot_and_uniform(coords, city):
+    res = rd2dnet.rdnet(city.obs["outcome"].to_numpy(), coords, h=600.0, seed=0)
+    t, ok = res.table, res.table["status"].eq("ok").to_numpy()
+    j = int(np.flatnonzero(ok)[2])
+    w = np.zeros(coords.n_eval)
+    w[j] = 5.0  # normalised to one
+    one = res.wbate(w)
+    for a, b in [("tau", "tau"), ("tau_bc", "tau_bc"), ("se_rb", "se_rb"), ("ci_lo", "ci_lo"),
+                 ("ci_hi", "ci_hi"), ("pvalue", "pvalue")]:
+        np.testing.assert_allclose(one[a], t.loc[j, b], rtol=1e-10)
+    avg = res.wbate(ok.astype(float))
+    np.testing.assert_allclose(avg["tau_bc"], t.loc[ok, "tau_bc"].mean())
+    Sigma = res.cov[np.ix_(ok, ok)]
+    np.testing.assert_allclose(avg["se_rb"], np.sqrt(Sigma.sum()) / ok.sum())
+    # positively correlated neighbours: averaging helps less than independence would suggest
+    assert avg["se_rb"] > np.sqrt((t.loc[ok, "se_rb"] ** 2).sum()) / ok.sum()
+    with pytest.raises(ValueError, match="not estimated"):
+        res.wbate(np.ones(coords.n_eval))
+    for bad in (np.ones(3), np.zeros(coords.n_eval), np.r_[np.nan, ok[1:]]):
+        with pytest.raises(ValueError):
+            res.wbate(bad)
+
+
+def test_lbate(coords, city):
+    res = rd2dnet.rdnet(city.obs["outcome"].to_numpy(), coords, h=600.0, seed=0)
+    t = res.table[res.table["status"] == "ok"]
+    lb = res.lbate()
+    assert lb["tau_bc"] == t["tau_bc"].max() and lb["tau"] == t["tau"].max()
+    assert lb["ci_lo"] <= lb["tau_bc"] <= lb["ci_hi"]
+    np.testing.assert_allclose([lb["ci_lo"], lb["ci_hi"]], [t["cb_lo"].max(), t["cb_hi"].max()])
+    # same interval without bands in the table (same seed, same critical value)
+    nb = rd2dnet.rdnet(city.obs["outcome"].to_numpy(), coords, h=600.0, seed=0, cbands=False).lbate()
+    np.testing.assert_allclose(nb[["ci_lo", "ci_hi"]], lb[["ci_lo", "ci_hi"]])
+    text = res.summary(wbate=res.table["status"].eq("ok").astype(float), lbate=True)
+    assert "WBATE" in text and "LBATE" in text
