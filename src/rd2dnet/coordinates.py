@@ -151,6 +151,17 @@ class NetworkCoordinates:
             self._rows[j] = np.minimum(e.cost_u[j] + D[0], e.cost_v[j] + D[1])
         return self._rows[j]
 
+    def node_rows(self, js) -> None:
+        """Compute and cache :meth:`node_row` for several evaluation points in one search."""
+        js = [j for j in js if j not in self._rows]
+        if not js:
+            return
+        e = self.eval_snap
+        D = self.network.distances_from(np.r_[e.u[js], e.v[js]])
+        k = len(js)
+        for r, j in enumerate(js):
+            self._rows[j] = np.minimum(e.cost_u[j] + D[r], e.cost_v[j] + D[k + r])
+
     def _along_eval_edge(self, loc: Snap, j: int) -> np.ndarray:
         """Direct distance for locations on the same segment as evaluation point ``j`` (else inf)."""
         e = self.eval_snap
@@ -269,16 +280,22 @@ class NetworkCoordinates:
         nodes, ninv = np.unique(np.r_[eu, ev], return_inverse=True)
         pu, pv = ninv[:m], ninv[m:]
         nn = len(nodes)
-        # Node pairs (a, b) with network distance a -> b below the cutoff,
-        # stored as D + cutoff so that zero distances survive in sparse form.
-        src_per = max(1, int(max_cells) // max(self.network.n_nodes, 1))
+        # Node pairs (a, b) with network distance a -> b below the cutoff, stored
+        # as D + cutoff so that zero distances survive in sparse form. Sources are
+        # taken in Z-order blocks so each block's bounded search stays local.
+        npos = np.full(self.network.n_nodes, -1, dtype=np.int64)
+        npos[nodes] = np.arange(nn)
+        ordered = np.argsort(_zorder(self.network.coords[nodes]), kind="stable")
+        engine = self.network.engine
         ra, rb, dab = [], [], []
-        for s0 in range(0, nn, src_per):
-            Dn = self.network.distances_from(nodes[s0:s0 + src_per], limit=cutoff)[:, nodes]
-            a, b = np.nonzero(Dn < cutoff)
-            ra.append(a + s0)
-            rb.append(b)
-            dab.append(Dn[a, b] + cutoff)
+        for s0 in range(0, nn, 512):
+            blk = ordered[s0:s0 + 512]
+            i, node, dist = engine.pairs_within(nodes[blk], cutoff)
+            t = npos[node]
+            keep = t >= 0
+            ra.append(blk[i[keep]])
+            rb.append(t[keep])
+            dab.append(dist[keep] + cutoff)
         ND = sparse.csr_matrix((np.concatenate(dab), (np.concatenate(ra), np.concatenate(rb))), shape=(nn, nn))
         rng = np.arange(m)
         Au = sparse.csr_matrix((np.ones(m), (rng, pu)), shape=(m, nn))
@@ -450,6 +467,17 @@ def network_coordinates(
         masked,
         loc=loc,
     )
+
+
+def _zorder(xy: np.ndarray) -> np.ndarray:
+    """Morton (Z-order) key of 2-D points: nearby points get nearby keys."""
+    lo, hi = xy.min(axis=0), xy.max(axis=0)
+    q = ((xy - lo) / np.maximum(hi - lo, 1e-12) * 65535).astype(np.uint64)
+    key = np.zeros(len(xy), dtype=np.uint64)
+    for b in range(16):
+        bit = np.uint64(1 << b)
+        key |= ((q[:, 0] & bit) << np.uint64(b)) | ((q[:, 1] & bit) << np.uint64(b + 1))
+    return key
 
 
 def _unique_locations(xy: np.ndarray, T: np.ndarray | None):

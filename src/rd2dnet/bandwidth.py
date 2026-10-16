@@ -31,10 +31,12 @@ all evaluation points. Fuzzy designs use the linearised outcome
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
 
+from ._parallel import n_threads
 from ._wls import poly_basis, poly_exponents
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
@@ -253,13 +255,11 @@ def rdbwnet(
     e_deriv[exps.index(deriv)] = math.factorial(deriv[0]) * math.factorial(deriv[1])
     expo_b = 1.0 / (2 * p + 6)
 
-    rows = []
-    for j in range(coords.n_eval):
+    def point(j):
         rec = {"eval": j, "arc": coords.eval_arc[j], "status": "ok"}
-        rows.append(rec)
         if coords.eval_masked[j]:
             rec["status"] = "masked"
-            continue
+            return rec
         vec = e_deriv.copy()
         if tang is not None:
             vec[:] = 0.0
@@ -273,7 +273,7 @@ def rdbwnet(
         masks = [ok & ~T, ok & T]
         if min(m.sum() for m in masks) < bwcheck:
             rec["status"] = "insufficient"
-            continue
+            return rec
         sides = [_Side(s[m], o[m], d[m], y[m], om[m], kfun, None if cl is None else cl[m]) for m in masks]
         dn = _rot(s[ok], o[ok], kname, n_eff)
         bounds = [(_kth(sd.d, bwcheck), float(sd.d.max())) for sd in sides]
@@ -314,12 +314,25 @@ def rdbwnet(
                     raise np.linalg.LinAlgError("invalid MSE constants")
         except (np.linalg.LinAlgError, ValueError, FloatingPointError):
             rec["status"] = "singular"
-            continue
+            return rec
         rec.update(dn=dn, bn0=bn[0], bn1=bn[1], n0=int(masks[0].sum()), n1=int(masks[1].sum()),
                    hmin0=bounds[0][0], hmin1=bounds[1][0], hmax0=bounds[0][1], hmax1=bounds[1][1])
         for t in (0, 1):
             for k, v in hc[t].items():
                 rec[f"{k}{t}"] = v
+        return rec
+
+    # Evaluation points are independent; numpy releases the GIL on the large
+    # array operations, so big samples run points in parallel threads. Beyond
+    # about four threads memory bandwidth, not compute, is the limit (and each
+    # thread holds O(n) temporaries), hence the cap.
+    k = min(n_threads(coords.n_obs), coords.n_eval, 4)
+    if k > 1:
+        coords.node_rows(range(coords.n_eval))
+        with ThreadPoolExecutor(k) as ex:
+            rows = list(ex.map(point, range(coords.n_eval)))
+    else:
+        rows = [point(j) for j in range(coords.n_eval)]
 
     out = pd.DataFrame(rows)
     good = out["status"] == "ok"

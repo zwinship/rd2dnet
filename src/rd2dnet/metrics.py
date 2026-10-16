@@ -120,6 +120,33 @@ class Engine:
         np.minimum.at(out.T, self.state_node, D.T)
         return out
 
+    def pairs_within(self, sources, limit: float):
+        """``(i, node, dist)`` for every node closer than ``limit`` to ``sources[i]``.
+
+        Paths shorter than ``limit`` only visit nodes within ``limit`` of their
+        source, so one bounded multi-source search finds the region the
+        sources can reach and the per-source searches run on that induced
+        subgraph. Cost scales with the reached region, not the whole network;
+        pass spatially clustered sources.
+        """
+        sources = np.atleast_1d(np.asarray(sources, dtype=np.int64))
+        st = self.start_state[sources]
+        reach = dijkstra(self.csr, directed=True, indices=st, limit=limit, min_only=True)
+        sub = np.flatnonzero(reach < limit)
+        pos = np.full(self.csr.shape[0], -1, dtype=np.int64)
+        pos[sub] = np.arange(len(sub))
+        S = self.csr[sub][:, sub]
+        D = np.atleast_2d(dijkstra(S, directed=True, indices=pos[st], limit=limit))
+        i, c = np.nonzero(D < limit)
+        d = D[i, c]
+        node = self.state_node[sub[c]]
+        if not self.identity:  # several states per node: keep the shortest
+            order = np.lexsort((d, node, i))
+            i, node, d = i[order], node[order], d[order]
+            first = np.r_[True, (i[1:] != i[:-1]) | (node[1:] != node[:-1])]
+            i, node, d = i[first], node[first], d[first]
+        return i, node, d
+
     def nearest(self, sources):
         """Distance from the nearest source to every node, and which source it was."""
         sources = np.atleast_1d(np.asarray(sources, dtype=np.int64))
@@ -157,6 +184,11 @@ class DenseEngine:
         out = self.D[np.atleast_1d(sources)].astype(float, copy=True)
         out[out > limit] = np.inf
         return out
+
+    def pairs_within(self, sources, limit: float):
+        D = self.D[np.atleast_1d(sources)]
+        i, node = np.nonzero(D < limit)
+        return i, node, D[i, node]
 
     def nearest(self, sources):
         sources = np.atleast_1d(np.asarray(sources, dtype=np.int64))

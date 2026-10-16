@@ -119,3 +119,25 @@ def test_as_metric_coercion():
     assert isinstance(as_metric(np.zeros((2, 2))), Precomputed)
     with pytest.raises(TypeError):
         as_metric(3)
+
+
+@pytest.mark.parametrize("kind", ["edge", "transition", "precomputed"])
+def test_pairs_within_matches_full_dijkstra(city, kind):
+    G = city.graph
+    if kind == "edge":
+        net = rd2dnet.NetworkGraph(G, "length")
+    elif kind == "transition":
+        net = rd2dnet.NetworkGraph(G, rd2dnet.TransitionCost("length", class_attr="highway", default_penalty=120.0,
+                                                            connectors={"motorway_link"}))
+    else:
+        D = rd2dnet.NetworkGraph(G, "length").distances_from(np.arange(G.number_of_nodes()))
+        net = rd2dnet.NetworkGraph(G, rd2dnet.Precomputed(D))
+    src = np.arange(0, net.n_nodes, 7)
+    full = net.distances_from(src)
+    i, node, d = net.engine.pairs_within(src, 400.0)
+    ref = np.argwhere(full < 400.0)
+    np.testing.assert_array_equal(np.lexsort((node, i)).size, len(ref))
+    got = np.zeros_like(full, dtype=bool)
+    got[i, node] = True
+    np.testing.assert_array_equal(got, full < 400.0)
+    np.testing.assert_allclose(d, full[i, node])
