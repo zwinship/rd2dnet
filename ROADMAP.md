@@ -1,28 +1,18 @@
 # Roadmap
 
-Status as of 2026-10-15: core package done and validated on the mock city (75 tests passing,
-Monte Carlo results in the README). Three agreed next steps remain. Scope rule: add a feature
+Status as of 2026-10-16: core package and rd2d aggregate effects done and validated on the
+mock city (80 tests passing, Monte Carlo results in the README). Steps 2-4 remain. Scope rule: add a feature
 only if rd2d has it. Everything else is documented as a recipe, not built in.
 
-## 1. rd2d parity: aggregate effects
+## 1. rd2d parity: aggregate effects (done 2026-10-16)
 
-rd2d's `summary()` (`rd2d/results.py`, `_append_aggregate_rows`) offers:
-
-- **WBATE**: weighted boundary average treatment effect, `w' tau_q` with
-  `se = sqrt(w' Sigma w)`, where `Sigma` is the covariance of the bias-corrected
-  estimates across evaluation points.
-- **LBATE**: largest BATE. The point estimate is `max_j tau_j`; the CI is
-  `[max_j (tau_q - cval * se), max_j (tau_q + cval * se)]` with `cval` the
-  uniform-band critical value.
-
-To do in rdnet:
-- Always store the joint covariance across evaluation points on `RDNetResult`. It is
-  currently `cb_cov`, which is only computed when `cbands=True` and only over `ok`
-  points. Make it J x J with NaN rows for points that weren't estimated, as rd2d's
-  `params_cov` does.
-- Add `RDNetResult.wbate(weights)` and `RDNetResult.lbate()` (or `summary(WBATE=..., LBATE=...)`).
-- Tests: WBATE with one-hot weights equals that point's estimate and SE; LBATE CI
-  contains the max of the pointwise estimates.
+`RDNetResult.wbate(weights)`, `RDNetResult.lbate()` and `summary(wbate=, lbate=)`, matching
+rd2d's `summary(WBATE=, LBATE=)` (`rd2d/results.py`, `_append_aggregate_rows`).
+`RDNetResult.cov` (was `cb_cov`) is always the J x J covariance with NaN rows for points
+not estimated, as rd2d's `params_cov`; `crit` (was `cb_crit`) is stored even without bands.
+The cluster covariance now uses each point's own `g/(g-1)` so its diagonal equals
+`se_rb**2`. Unlike rd2d (which drops aggregate SEs if any point is missing), masked points
+take weight 0. Tests and Monte Carlo results are in the README.
 
 ## 2. Engineering: scale
 

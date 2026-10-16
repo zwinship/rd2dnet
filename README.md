@@ -123,6 +123,15 @@ offline. You can also pass your own graph:
   kernel weights.
 - `pooled=True` gives the common-slope model `y ~ 1 + T + s + o`. The default is
   side-specific fits, as in rd2d.
+- **Aggregate effects**: `res.wbate(weights)` gives the weighted boundary average
+  treatment effect `w' tau` (weights normalised to sum to one) with
+  `se = sqrt(w' Sigma w)`, and `res.lbate()` the largest effect `max_j tau(b_j)` with
+  the interval `[max_j(tau_bc - c se), max_j(tau_bc + c se)]`, `c` the uniform critical
+  value. Both follow rd2d's `summary(WBATE=, LBATE=)`; `res.summary(wbate=w, lbate=True)`
+  prints them. `res.cov` always holds the J x J covariance `Sigma` of the bias-corrected
+  estimates across evaluation points (NaN for points not estimated; its diagonal is
+  `se_rb**2`), so aggregates account for the correlation between nearby points.
+  Masked or unestimated points need weight 0.
 - **Density test** (`density`): the local polynomial density estimator of
   Cattaneo, Jansson & Ma (as in `rddensity`), with jackknife standard errors and
   bias-corrected inference. The default `normalize="network"` measures position in
@@ -140,6 +149,9 @@ offline. You can also pass your own graph:
 | uniform 95% band coverage | 0.873 (n = 4,000), 0.940 (n = 16,000) |
 | first stage, fuzzy design | unbiased; HC standard error matches Monte Carlo sd within 5% |
 | kink (`deriv=(1, 0)`) | exact without noise; unbiased, standard error matches Monte Carlo sd, coverage 0.94–0.955 |
+| WBATE (equal weights), 95% CI coverage | 0.910 (n = 4,000), 0.947 (n = 16,000); ignoring the cross-point covariance gives 0.717 / 0.774 |
+| WBATE standard error vs Monte Carlo sd | 0.128 vs 0.129 (n = 16,000); median 0.237 vs robust sd 0.262 (n = 4,000) |
+| LBATE 95% CI coverage | 0.982 (n = 4,000), 0.997 (n = 16,000): conservative by construction |
 | density test size at 5%, `network` / `none` (no-park city) | 0.030 / 0.065 |
 | density test size at 5%, `network` / `none` (park city, masked) | 0.025 / 0.085 |
 
@@ -163,6 +175,14 @@ each cell is pointwise / uniform-band coverage):
   the default errs toward wider intervals.
 - The uniform band is weakest for short-range smooth correlation (0.81). Pointwise
   coverage there is 0.93.
+- At n = 4,000 the WBATE error is heavy-tailed (a few replications with tiny local
+  samples, max error about 8 with matching large standard errors). The plain Monte Carlo
+  sd (0.42) then exceeds the mean SE (0.25); on the robust scale the SE is about 10%
+  too small, and coverage is 0.91.
+- The LBATE interval inherits the uniform band's joint coverage and is conservative
+  for the maximum (0.98-1.00). Its point estimate `max_j tau_bc` is biased upward in
+  small samples (+0.42 at n = 4,000, +0.05 at n = 16,000), as any maximum of noisy
+  estimates is.
 
 ## Development
 
