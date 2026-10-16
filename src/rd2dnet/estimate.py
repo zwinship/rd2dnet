@@ -333,6 +333,14 @@ def rdnet(
     targets = [y] if D is None else [y, D]
     rows = []
     psi_store: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    # Conley: all variances come from one HAC pass over every local sample at the end.
+    hac_cols: list[tuple[int, str, np.ndarray, np.ndarray]] = []
+    conley = vce == "conley"
+
+    def local_var(idx, psi):
+        if conley:
+            return np.nan
+        return variance(psi, vce, cluster=None if cluster is None else cluster[idx])
     for j in range(J):
         rec = dict(eval=j, arc=coords.eval_arc[j], node_arc=coords.eval_node_arc[j], h0=H[j, 0], h1=H[j, 1],
                    n0=0, n1=0, tau=np.nan, se=np.nan, tau_bc=np.nan, se_rb=np.nan,
@@ -404,36 +412,52 @@ def rdnet(
                     tau = itt / fs
                     psi = (psis[0] - tau * psis[1]) / fs
                     extra = {"itt": itt, "fs": fs, "_psi_fs": psis[1]}
-                if vce == "conley":
-                    var = float(coords.hac_quadratic(idx, psi, conley_cutoff, conley_distance)[0, 0])
-                else:
-                    var = variance(psi, vce, cluster=None if cluster is None else cluster[idx])
-                out[order] = (tau, np.sqrt(max(var, 0.0)), psi, extra)
+                out[order] = (tau, np.sqrt(max(local_var(idx, psi), 0.0)), psi, extra)
         except np.linalg.LinAlgError:
             rec["status"] = "singular"
             continue
         except ZeroDivisionError:
             rec["status"] = "weak first stage"
             continue
-        tau_p, se_p, _, extra = out[p]
+        tau_p, se_p, psi_p, extra = out[p]
         tau_q, se_q, psi_q, _ = out[q]
         if "_psi_fs" in extra:
             psi_fs = extra.pop("_psi_fs")
-            if vce == "conley":
-                v_fs = float(coords.hac_quadratic(idx, psi_fs, conley_cutoff, conley_distance)[0, 0])
-            else:
-                v_fs = variance(psi_fs, vce, cluster=None if cluster is None else cluster[idx])
-            extra["fs_se"] = np.sqrt(max(v_fs, 0.0))
-        rec.update(tau=tau_p, se=se_p, tau_bc=tau_q, se_rb=se_q,
-                   ci_lo=tau_q - z * se_q, ci_hi=tau_q + z * se_q,
-                   pvalue=2 * stats.norm.sf(abs(tau_q / se_q)) if se_q > 0 else np.nan, **extra)
+            extra["fs_se"] = np.sqrt(max(local_var(idx, psi_fs), 0.0))
+            if conley:
+                hac_cols.append((j, "fs_se", idx, psi_fs))
+        if conley:
+            hac_cols += [(j, "se", idx, psi_p), (j, "se_rb", idx, psi_q)]
+        rec.update(tau=tau_p, se=se_p, tau_bc=tau_q, **extra)
+        _set_rb(rec, se_q, z)
         psi_store[j] = (idx, psi_q)
 
     table = pd.DataFrame(rows)
     table["h"] = np.where(np.isclose(table["h0"], table["h1"]), table["h0"], np.nan)
     crit = cov = None
-    if psi_store:
-        cov = _joint_covariance(psi_store, coords, vce, cluster, conley_cutoff, conley_distance, J)
+    if conley and hac_cols:
+        union = np.unique(np.concatenate([c[2] for c in hac_cols]))
+        pos = np.full(coords.n_obs, -1)
+        pos[union] = np.arange(len(union))
+        Psi = np.zeros((len(union), len(hac_cols)))
+        for c, (_, _, idx, psi) in enumerate(hac_cols):
+            Psi[pos[idx], c] = psi
+        V = coords.hac_quadratic(union, Psi, conley_cutoff, conley_distance)
+        se_all = np.sqrt(np.clip(np.diag(V), 0.0, None))
+        for c, (j, name, _, _) in enumerate(hac_cols):
+            if name == "se_rb":
+                _set_rb(rows[j], se_all[c], z)
+            else:
+                rows[j][name] = se_all[c]
+        table = pd.DataFrame(rows)
+        table["h"] = np.where(np.isclose(table["h0"], table["h1"]), table["h0"], np.nan)
+        qc = [c for c, col in enumerate(hac_cols) if col[1] == "se_rb"]
+        qj = [hac_cols[c][0] for c in qc]
+        cov = np.full((J, J), np.nan)
+        cov[np.ix_(qj, qj)] = V[np.ix_(qc, qc)]
+    elif psi_store:
+        cov = _joint_covariance(psi_store, coords, vce, cluster, J)
+    if cov is not None:
         ok = np.isfinite(np.diag(cov))
         crit = _uniform_critical_value(cov[np.ix_(ok, ok)], level, repp, seed)
         if cbands:
@@ -443,12 +467,20 @@ def rdnet(
                        crit=crit, cov=cov, bandwidths=bw, coords=coords)
 
 
-def _joint_covariance(psi_store, coords, vce, cluster, cutoff, distance, J) -> np.ndarray:
+def _set_rb(rec: dict, se_q: float, z: float) -> None:
+    """Robust standard error, confidence interval and p-value from the bias-corrected fit."""
+    tau_q = rec["tau_bc"]
+    rec.update(se_rb=se_q, ci_lo=tau_q - z * se_q, ci_hi=tau_q + z * se_q,
+               pvalue=2 * stats.norm.sf(abs(tau_q / se_q)) if se_q > 0 else np.nan)
+
+
+def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
     """``J x J`` covariance of the bias-corrected estimates, NaN where a point was not estimated.
 
     Its diagonal reproduces the pointwise variances exactly. For clustering, the
     small-sample factor ``g / (g - 1)`` uses each point's own number of local
-    clusters, as the pointwise standard errors do.
+    clusters, as the pointwise standard errors do. (Conley is handled in one
+    HAC pass inside :func:`rdnet`.)
     """
     keys = sorted(psi_store)
     union = np.unique(np.concatenate([psi_store[j][0] for j in keys]))
@@ -458,9 +490,7 @@ def _joint_covariance(psi_store, coords, vce, cluster, cutoff, distance, J) -> n
     for c, j in enumerate(keys):
         idx, psi = psi_store[j]
         Psi[pos[idx], c] = psi
-    if vce == "conley":
-        V = coords.hac_quadratic(union, Psi, cutoff, distance)
-    elif vce == "cluster":
+    if vce == "cluster":
         _, codes = np.unique(cluster[union], return_inverse=True)
         G = np.zeros((codes.max() + 1, len(keys)))
         np.add.at(G, codes, Psi)

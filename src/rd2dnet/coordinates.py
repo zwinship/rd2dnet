@@ -66,6 +66,7 @@ class NetworkCoordinates:
         eval_arc: np.ndarray,
         eval_snap: Snap,
         eval_masked: np.ndarray,
+        loc: np.ndarray | None = None,
     ):
         self.network = network
         self.boundary = boundary
@@ -97,6 +98,19 @@ class NetworkCoordinates:
         self.eval_xy = xy
         self.eval_masked = eval_masked
         self._rows: dict[int, np.ndarray] = {}
+        # Observations at the same location (and side) share all coordinates:
+        # ``loc`` maps each observation to its location and ``_first`` holds one
+        # observation per location, so per-location work is done once.
+        n = len(s)
+        self.loc = np.arange(n) if loc is None else np.asarray(loc)
+        first = np.full(int(self.loc.max()) + 1 if n else 0, -1)
+        first[self.loc[::-1]] = np.arange(n)[::-1]
+        self._first = f = first
+        self._lsnap = Snap(snap.u[f], snap.v[f], snap.cost_u[f], snap.cost_v[f], snap.depth[f])
+        self._ldepth = depth_cost[f]
+        self._lcross = Snap(crossing.u[f], crossing.v[f], crossing.cost_u[f], crossing.cost_v[f], crossing.depth[f])
+        self._lcross_arc = crossing_arc[f]
+        self._lcross_node = crossing_node[f]
 
     def __repr__(self) -> str:
         return (
@@ -111,6 +125,11 @@ class NetworkCoordinates:
     @property
     def n_eval(self) -> int:
         return len(self.eval_arc)
+
+    @property
+    def n_locations(self) -> int:
+        """Number of distinct observation locations (repeated measurements share one)."""
+        return len(self._first)
 
     def eval_table(self) -> pd.DataFrame:
         return pd.DataFrame(
@@ -148,14 +167,15 @@ class NetworkCoordinates:
     def at(self, j: int) -> tuple[np.ndarray, np.ndarray]:
         """Kernel distance ``d_i(b_j)`` and lateral offset ``o_i(b_j)`` for every observation."""
         D = self.node_row(j)
-        d = self.snap.to_nodes(D[None, :], self.depth_cost)[0]
-        d = np.minimum(d, self.depth_cost + self._along_eval_edge(self.snap, j))
-        sign = np.sign(self.crossing_arc - self.eval_node_arc[j])
-        c = self.crossing
+        sn = self._lsnap
+        d = sn.to_nodes(D[None, :], self._ldepth)[0]
+        d = np.minimum(d, self._ldepth + self._along_eval_edge(sn, j))
+        sign = np.sign(self._lcross_arc - self.eval_node_arc[j])
+        c = self._lcross
         reach = np.minimum(c.cost_u + D[c.u], c.cost_v + D[c.v])
         reach = np.minimum(reach, self._along_eval_edge(c, j))
-        o = np.where(self.crossing_node >= 0, sign * reach, np.nan)
-        return d, o
+        o = np.where(self._lcross_node >= 0, sign * reach, np.nan)
+        return d[self.loc], o[self.loc]
 
     def frame(self, j: int | None = None) -> pd.DataFrame:
         """Per-observation coordinates (and, given ``j``, ``d`` and ``o`` at that point)."""
@@ -204,25 +224,88 @@ class NetworkCoordinates:
         """Conley (Bartlett) HAC quadratic form ``Psi' K Psi`` for observations ``idx``.
 
         ``Psi`` has one row per entry of ``idx`` and one column per estimand; the
-        result is the joint covariance matrix of the column sums. The kernel
-        matrix is built block by block so memory stays bounded.
+        result is the joint covariance matrix of the column sums, with
+        ``K_ik = max(0, 1 - d_ik / cutoff)``. Only pairs closer than ``cutoff``
+        are visited: rows of ``Psi`` are first summed by location (``K``
+        depends on location only), node pairs within ``cutoff`` come from
+        Dijkstra searches bounded at ``cutoff``, and the kernel is built in
+        sparse row blocks. Time and memory grow with the number of close
+        pairs, not with ``len(idx)**2``.
         """
         idx = np.asarray(idx)
         Psi = np.asarray(Psi, dtype=float).reshape(len(idx), -1)
         if distance not in ("network", "euclidean"):
             raise ValueError("distance must be 'network' or 'euclidean'")
+        locs, inv = np.unique(self.loc[idx], return_inverse=True)
+        P = np.zeros((len(locs), Psi.shape[1]))
+        np.add.at(P, inv, Psi)
         out = np.zeros((Psi.shape[1], Psi.shape[1]))
-        block = max(1, max_cells // max(len(idx), 1))
-        for start in range(0, len(idx), block):
-            rows = idx[start:start + block]
-            if distance == "network":
-                Dm = self.pairwise(rows, idx, cutoff=cutoff)
-            else:
-                diff = self.xy[rows][:, None, :] - self.xy[idx][None, :, :]
-                Dm = np.sqrt((diff**2).sum(-1))
-            K = np.clip(1.0 - Dm / cutoff, 0.0, None)
-            out += Psi[start:start + block].T @ (K @ Psi)
+        for r0, r1, K in self._kernel_blocks(locs, cutoff, distance, max_cells):
+            out += P[r0:r1].T @ (K @ P)
         return (out + out.T) / 2
+
+    def _kernel_blocks(self, locs, cutoff, distance, max_cells):
+        """Yield ``(r0, r1, K)``: sparse Bartlett kernel rows ``r0:r1`` among locations ``locs``."""
+        from scipy import sparse
+
+        m = len(locs)
+        rows_per = max(1, int(max_cells) // max(m, 1))
+        if distance == "euclidean":
+            from scipy.spatial import cKDTree
+
+            pts = self.xy[self._first[locs]]
+            tree = cKDTree(pts)
+            for r0 in range(0, m, rows_per):
+                r1 = min(m, r0 + rows_per)
+                sdm = cKDTree(pts[r0:r1]).sparse_distance_matrix(tree, cutoff, output_type="ndarray")
+                k = 1.0 - sdm["v"] / cutoff
+                keep = k > 0
+                yield r0, r1, sparse.csr_matrix((k[keep], (sdm["i"][keep], sdm["j"][keep])), shape=(r1 - r0, m))
+            return
+
+        sn = self._lsnap
+        eu, ev = sn.u[locs], sn.v[locs]
+        cu, cv, dep = sn.cost_u[locs], sn.cost_v[locs], self._ldepth[locs]
+        nodes, ninv = np.unique(np.r_[eu, ev], return_inverse=True)
+        pu, pv = ninv[:m], ninv[m:]
+        nn = len(nodes)
+        # Node pairs (a, b) with network distance a -> b below the cutoff.
+        src_per = max(1, int(max_cells) // max(self.network.n_nodes, 1))
+        ra, rb, dab = [], [], []
+        for s0 in range(0, nn, src_per):
+            Dn = self.network.distances_from(nodes[s0:s0 + src_per], limit=cutoff)[:, nodes]
+            a, b = np.nonzero(Dn < cutoff)
+            ra.append(a + s0)
+            rb.append(b)
+            dab.append(Dn[a, b])
+        ra, rb, dab = np.concatenate(ra), np.concatenate(rb), np.concatenate(dab)
+        key = ra * nn + rb
+        order = np.argsort(key)
+        key, dab = key[order], dab[order]
+        NP = sparse.csr_matrix((np.ones(len(ra)), (ra, rb)), shape=(nn, nn))
+        A = sparse.csr_matrix((np.ones(2 * m), (np.r_[np.arange(m), np.arange(m)], np.r_[pu, pv])), shape=(m, nn))
+        AT = A.T.tocsr()
+
+        def lookup(a, b):
+            q = a * nn + b
+            pos = np.minimum(np.searchsorted(key, q), len(key) - 1)
+            return np.where(key[pos] == q, dab[pos], np.inf)
+
+        for r0 in range(0, m, rows_per):
+            r1 = min(m, r0 + rows_per)
+            C = (A[r0:r1] @ NP @ AT).tocoo()
+            i, j = C.row + r0, C.col
+            d = np.full(len(i), np.inf)
+            for na, ca in ((pu, cu), (pv, cv)):
+                for nb, cb in ((pu, cu), (pv, cv)):
+                    d = np.minimum(d, ca[i] + lookup(na[i], nb[j]) + cb[j])
+            same = (eu[i] == eu[j]) & (ev[i] == ev[j])
+            d = np.where(same, np.minimum(d, np.abs(cu[i] - cu[j])), d)
+            d = d + dep[i] + dep[j]
+            d[i == j] = 0.0
+            k = 1.0 - d / cutoff
+            keep = k > 0
+            yield r0, r1, sparse.csr_matrix((k[keep], (i[keep] - r0, j[keep])), shape=(r1 - r0, m))
 
 
 def network_coordinates(
@@ -277,9 +360,13 @@ def network_coordinates(
     if boundary_nodes.size == 0:
         raise ValueError("no network nodes lie on the boundary; check the CRS or increase Boundary(tol=...)")
 
-    T = boundary.is_treated(xy) if treated is None else np.asarray(treated, dtype=bool)
-    if T.shape != (len(xy),):
+    T = None if treated is None else np.asarray(treated, dtype=bool)
+    if T is not None and T.shape != (len(xy),):
         raise ValueError("treated must have one entry per point")
+    # Repeated locations (panels, mass points) are processed once.
+    loc, first = _unique_locations(xy, T)
+    xy_obs, xy = xy, xy[first]
+    T = boundary.is_treated(xy) if T is None else T[first]
 
     # Snap each observation to the network on its own side of the boundary.
     n = len(xy)
@@ -331,17 +418,23 @@ def network_coordinates(
     eval_snap = _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc)
     masked = boundary.is_masked(eval_arc)
 
+    def per_obs(snp_or_arr):
+        if isinstance(snp_or_arr, Snap):
+            a = snp_or_arr
+            return Snap(a.u[loc], a.v[loc], a.cost_u[loc], a.cost_v[loc], a.depth[loc])
+        return snp_or_arr[loc]
+
     return NetworkCoordinates(
         network,
         boundary,
-        xy,
-        T,
-        snapped,
-        depth_cost,
-        s,
-        crossing,
-        cross_arc,
-        cross_loc,
+        xy_obs,
+        per_obs(T),
+        per_obs(snapped),
+        per_obs(depth_cost),
+        per_obs(s),
+        per_obs(crossing),
+        per_obs(cross_arc),
+        per_obs(cross_loc),
         node_T,
         node_on,
         node_dist,
@@ -349,7 +442,31 @@ def network_coordinates(
         eval_arc,
         eval_snap,
         masked,
+        loc=loc,
     )
+
+
+def _unique_locations(xy: np.ndarray, T: np.ndarray | None):
+    """``(loc, first)``: location id of each point and one point per location (by x, y and side).
+
+    Locations are numbered in order of first appearance.
+    """
+    n = len(xy)
+    keys = (xy[:, 1], xy[:, 0]) if T is None else (T, xy[:, 1], xy[:, 0])
+    order = np.lexsort(keys)
+    a = xy[order]
+    new = np.ones(n, dtype=bool)
+    new[1:] = (a[1:, 0] != a[:-1, 0]) | (a[1:, 1] != a[:-1, 1])
+    if T is not None:
+        t = T[order]
+        new[1:] |= t[1:] != t[:-1]
+    loc = np.empty(n, dtype=np.int64)
+    loc[order] = np.cumsum(new) - 1
+    first = order[new]
+    srt = np.argsort(first)
+    rank = np.empty(len(first), dtype=np.int64)
+    rank[srt] = np.arange(len(first))
+    return rank[loc], first[srt]
 
 
 def _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc) -> Snap:

@@ -95,3 +95,56 @@ def test_point_on_same_segment_as_eval_point(grid):
     np.testing.assert_allclose(d, [10.0 + 30.0, 10.0 + 30.0])
     np.testing.assert_allclose(o, [-30.0, -30.0])
     np.testing.assert_allclose(np.abs(c.s), [10.0, 10.0])
+
+
+def _dense_hac(c, idx, Psi, cutoff):
+    """Reference: dense Bartlett kernel; co-located observations are at distance 0."""
+    Dm = c.pairwise(idx, cutoff=cutoff)
+    Dm[c.loc[idx][:, None] == c.loc[idx][None, :]] = 0.0
+    K = np.clip(1 - Dm / cutoff, 0, None)
+    out = Psi.T @ K @ Psi
+    return (out + out.T) / 2
+
+
+def test_repeated_locations_share_coordinates(city):
+    xy = city.obs[["x", "y"]].to_numpy()[:400]
+    rep = np.repeat(xy, 3, axis=0)[np.random.default_rng(0).permutation(1200)]
+    a = rd2dnet.network_coordinates(city.network(), city.boundary, xy, n_eval=9)
+    b = rd2dnet.network_coordinates(city.network(), city.boundary, rep, n_eval=9)
+    assert b.n_locations == 400 and b.n_obs == 1200
+    key = {tuple(p): i for i, p in enumerate(xy)}
+    m = np.array([key[tuple(p)] for p in rep])
+    np.testing.assert_array_equal(b.s, a.s[m])
+    for j in range(9):
+        da, oa = a.at(j)
+        db, ob = b.at(j)
+        np.testing.assert_array_equal(db, da[m])
+        np.testing.assert_array_equal(ob, oa[m])
+
+
+def test_sparse_hac_matches_dense_with_repeats(city):
+    xy = np.repeat(city.obs[["x", "y"]].to_numpy()[:250], 2, axis=0)
+    c = rd2dnet.network_coordinates(city.network(), city.boundary, xy, n_eval=5)
+    idx = np.arange(0, 500, 1)
+    Psi = np.random.default_rng(1).normal(size=(500, 3))
+    for cutoff in (120.0, 400.0):
+        ref = _dense_hac(c, idx, Psi, cutoff)
+        np.testing.assert_allclose(c.hac_quadratic(idx, Psi, cutoff), ref, rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(c.hac_quadratic(idx, Psi, cutoff, max_cells=3 * 500), ref, rtol=1e-10, atol=1e-10)
+
+
+def test_sparse_hac_directed_network_and_euclidean(grid):
+    import networkx as nx
+
+    G, bnd = grid
+    D = nx.DiGraph(G)
+    D.remove_edges_from([(u, v) for u, v in list(D.edges) if u > v and (u + v) % 3 == 0])  # some one-way streets
+    rng = np.random.default_rng(2)
+    pts = rng.uniform(0, 400, (120, 2))
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(D, direction="out"), bnd, pts, n_eval=3)
+    idx = np.flatnonzero(np.isfinite(c.s))
+    Psi = rng.normal(size=(len(idx), 2))
+    np.testing.assert_allclose(c.hac_quadratic(idx, Psi, 150.0), _dense_hac(c, idx, Psi, 150.0), rtol=1e-10, atol=1e-10)
+    diff = c.xy[idx][:, None, :] - c.xy[idx][None, :, :]
+    K = np.clip(1 - np.sqrt((diff**2).sum(-1)) / 150.0, 0, None)
+    np.testing.assert_allclose(c.hac_quadratic(idx, Psi, 150.0, distance="euclidean"), Psi.T @ K @ Psi, rtol=1e-10)
