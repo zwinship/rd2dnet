@@ -87,6 +87,7 @@ class NetworkGraph:
         self.snap_scale = self.metric.default_snap_scale if snap_scale is None else float(snap_scale)
         self._engine = None
         self._edges: pd.DataFrame | None = None
+        self._split: tuple | None = None  # (boundary, split network) cache
 
     def __repr__(self) -> str:
         return (
@@ -136,27 +137,37 @@ class NetworkGraph:
         if self._edges is not None:
             return self._edges
         self.engine  # metrics that need the graph bind it during compile
-        seen: set[tuple[int, int]] = set()
-        rows = []
-        for u, v, data in self.graph.edges(data=True):
-            ui, vi = self.node_index[u], self.node_index[v]
-            if ui == vi or (min(ui, vi), max(ui, vi)) in seen:
-                continue
-            seen.add((min(ui, vi), max(ui, vi)))
-            geom = data.get("geometry")
-            if geom is None:
-                geom = LineString([self.coords[ui], self.coords[vi]])
-            elif Point(geom.coords[0]).distance(Point(self.coords[ui])) > Point(geom.coords[-1]).distance(
-                Point(self.coords[ui])
-            ):
-                geom = LineString(geom.coords[::-1])
-            length = float(data.get("length", geom.length))
-            if self.metric.supports_edge_snapping:
-                cost = self.metric.edge_cost(u, v, data)
-            else:
-                cost = np.nan
-            rows.append((ui, vi, length, cost, geom))
-        self._edges = pd.DataFrame(rows, columns=["u", "v", "length", "cost", "geometry"])
+        from .metrics import _edge_list
+
+        ui, vi, ul, vl, datas = _edge_list(self.graph, self.node_index)
+        # Keep the first edge of each undirected node pair, in graph order.
+        key = np.minimum(ui, vi) * self.n_nodes + np.maximum(ui, vi)
+        _, first = np.unique(key, return_index=True)
+        first = np.sort(first)
+        ui, vi = ui[first], vi[first]
+        datas = [datas[k] for k in first]
+        ul, vl = [ul[k] for k in first], [vl[k] for k in first]
+        geom = np.array([d.get("geometry") for d in datas], dtype=object)
+        missing = np.array([g is None for g in geom], dtype=bool)
+        if missing.any():
+            seg = np.stack([self.coords[ui[missing]], self.coords[vi[missing]]], axis=1)
+            geom[missing] = shapely.linestrings(seg)
+        given = np.flatnonzero(~missing)
+        if given.size:  # orient supplied geometries from u to v
+            g = geom[given]
+            pu = shapely.points(self.coords[ui[given]])
+            flip = shapely.distance(shapely.get_point(g, 0), pu) > shapely.distance(shapely.get_point(g, -1), pu)
+            geom[given[flip]] = shapely.reverse(g[flip])
+        length = np.array([d.get("length", np.nan) for d in datas], dtype=object)
+        length = np.array([np.nan if x is None else float(x if not isinstance(x, (list, tuple)) else x[0])
+                           for x in length], dtype=float)
+        nolen = np.isnan(length)
+        length[nolen] = shapely.length(geom[nolen])
+        if self.metric.supports_edge_snapping:
+            cost = self.metric.edge_costs(ul, vl, datas)
+        else:
+            cost = np.full(len(ui), np.nan)
+        self._edges = pd.DataFrame({"u": ui, "v": vi, "length": length, "cost": cost, "geometry": geom})
         return self._edges
 
     def snap(self, xy, allowed: np.ndarray | None = None, mode: str = "edge") -> Snap:
@@ -218,20 +229,29 @@ class NetworkGraph:
                 stacklevel=2,
             )
             return self
+        if self._split is not None and self._split[0] is boundary:
+            return self._split[1]
         T = boundary.is_treated(self.coords)
         on = boundary.distance(self.coords) <= boundary.tol
+        multi = self.graph.is_multigraph()
+        edges = (list(self.graph.edges(keys=True, data=True)) if multi
+                 else [(u, v, None, d) for u, v, d in self.graph.edges(data=True)])
+        iu = np.fromiter((self.node_index[e[0]] for e in edges), dtype=np.int64, count=len(edges))
+        iv = np.fromiter((self.node_index[e[1]] for e in edges), dtype=np.int64, count=len(edges))
+        cand = np.flatnonzero(~on[iu] & ~on[iv] & (T[iu] != T[iv]))
+        if cand.size == 0:  # nothing to split: reuse this network (and its compiled engine)
+            self.n_crossings_inserted = 0
+            self._split = (boundary, self)
+            return self
         G = self.graph.copy()
-        multi = G.is_multigraph()
-        edges = list(G.edges(keys=True, data=True)) if multi else [(u, v, None, d) for u, v, d in G.edges(data=True)]
         crossing_ids: dict[tuple[float, float], Hashable] = {}
         n_split = 0
-        for u, v, key, data in edges:
-            iu, iv = self.node_index[u], self.node_index[v]
-            if on[iu] or on[iv] or T[iu] == T[iv]:
-                continue
+        for k in cand:
+            u, v, key, data = edges[k]
+            iu_k, iv_k = iu[k], iv[k]
             geom = data.get("geometry")
             if geom is None:
-                geom = LineString([self.coords[iu], self.coords[iv]])
+                geom = LineString([self.coords[iu_k], self.coords[iv_k]])
             hit = geom.intersection(boundary.line)
             if hit.is_empty:
                 continue  # crosses the side partition away from this boundary line
@@ -263,6 +283,7 @@ class NetworkGraph:
             n_split += 1
         out = self._replace_graph(G)
         out.n_crossings_inserted = n_split
+        self._split = (boundary, out)
         return out
 
     # --- constructors --------------------------------------------------------

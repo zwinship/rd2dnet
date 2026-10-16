@@ -42,17 +42,31 @@ def _scalar(value: Any) -> Any:
     return value
 
 
-def _directed_edges(graph, node_index, direction):
-    """Yield ``(ui, vi, u, v, data)`` for every traversable edge direction."""
+def _edge_list(graph, node_index):
+    """``(ui, vi, u_labels, v_labels, datas)`` for every stored edge (self-loops dropped)."""
+    E = [(u, v, d) for u, v, d in graph.edges(data=True) if u != v]
+    ui = np.fromiter((node_index[e[0]] for e in E), dtype=np.int64, count=len(E))
+    vi = np.fromiter((node_index[e[1]] for e in E), dtype=np.int64, count=len(E))
+    return ui, vi, [e[0] for e in E], [e[1] for e in E], [e[2] for e in E]
+
+
+def _orient(graph, direction, ui, vi, *cols):
+    """Expand stored edges to traversable directed arcs: ``(tails, heads, *cols)``."""
     both = (not graph.is_directed()) or direction == "both"
-    for u, v, data in graph.edges(data=True):
-        ui, vi = node_index[u], node_index[v]
-        if ui == vi:
-            continue
-        if both or direction == "out":
-            yield ui, vi, u, v, data
-        if both or direction == "in":
-            yield vi, ui, v, u, data
+    if both:
+        return (np.r_[ui, vi], np.r_[vi, ui], *(np.r_[c, c] for c in cols))
+    if direction == "out":
+        return (ui, vi, *cols)
+    return (vi, ui, *cols)
+
+
+def _check_costs(c: np.ndarray, u_labels, v_labels) -> np.ndarray:
+    bad = np.flatnonzero(np.isnan(c) | (c < 0))
+    if bad.size:
+        k = bad[0]
+        raise ValueError(f"metric produced invalid cost {c[k]!r} for edge ({u_labels[k]!r}, {v_labels[k]!r}); "
+                         "costs must be >= 0")
+    return c
 
 
 def _min_csr(rows, cols, vals, n) -> sparse.csr_matrix:
@@ -167,6 +181,10 @@ class NetworkMetric:
         """Cost of traversing a single edge, used when snapping onto edges."""
         raise NotImplementedError
 
+    def edge_costs(self, u_labels, v_labels, datas) -> np.ndarray:
+        """Vectorised :meth:`edge_cost` over many edges."""
+        return np.array([self.edge_cost(u, v, d) for u, v, d in zip(u_labels, v_labels, datas)], dtype=float)
+
     @property
     def default_snap_scale(self) -> float:
         """Metric cost per unit of straight-line snapping distance."""
@@ -212,16 +230,26 @@ class EdgeCost(NetworkMetric):
             return float(self.cost(u, v, data, graph=self._graph))
         return float(self.cost(u, v, data))
 
+    def edge_costs(self, u_labels, v_labels, datas) -> np.ndarray:
+        if isinstance(self.cost, str):
+            attr = self.cost
+            try:
+                raw = [d[attr] for d in datas]
+            except KeyError:
+                k = next(i for i, d in enumerate(datas) if attr not in d)
+                raise KeyError(f"edge ({u_labels[k]!r}, {v_labels[k]!r}) has no attribute {attr!r}") from None
+            try:
+                return np.asarray(raw, dtype=float)
+            except (TypeError, ValueError):  # OSM list-valued attributes
+                return np.array([float(_scalar(r)) for r in raw])
+        return super().edge_costs(u_labels, v_labels, datas)
+
     def compile(self, graph, node_index, direction):
         self._graph = graph
-        rows, cols, vals = [], [], []
-        for ui, vi, u, v, data in _directed_edges(graph, node_index, direction):
-            c = _check_cost(self.edge_cost(u, v, data), f"edge ({u!r}, {v!r})")
-            if np.isinf(c):
-                continue
-            rows.append(ui)
-            cols.append(vi)
-            vals.append(c)
+        ui, vi, ul, vl, datas = _edge_list(graph, node_index)
+        c = _check_costs(self.edge_costs(ul, vl, datas), ul, vl)
+        fin = np.isfinite(c)
+        rows, cols, vals = _orient(graph, direction, ui[fin], vi[fin], c[fin])
         n = len(node_index)
         idx = np.arange(n)
         return Engine(_min_csr(rows, cols, vals, n), n, idx, idx, identity=True)
@@ -280,72 +308,59 @@ class TransitionCost(NetworkMetric):
             c = 0.0 if a == b else self.default_penalty
         return _check_cost(c, f"transition {a!r} -> {b!r}")
 
+    def edge_costs(self, u_labels, v_labels, datas) -> np.ndarray:
+        return self._base.edge_costs(u_labels, v_labels, datas)
+
     def compile(self, graph, node_index, direction):
         self._base._graph = graph
         n = len(node_index)
-        edges = []  # (tail, head, cost, class, is_connector)
-        for ui, vi, u, v, data in _directed_edges(graph, node_index, direction):
-            c = _check_cost(self.edge_cost(u, v, data), f"edge ({u!r}, {v!r})")
-            if np.isinf(c):
-                continue
-            cls = _scalar(data.get(self.class_attr, self.default_class))
-            edges.append((ui, vi, c, cls, cls in self.connectors))
+        ui, vi, ul, vl, datas = _edge_list(graph, node_index)
+        c = _check_costs(self.edge_costs(ul, vl, datas), ul, vl)
+        cls_raw = np.empty(len(datas), dtype=object)
+        cls_raw[:] = [_scalar(d.get(self.class_attr, self.default_class)) for d in datas]
+        fin = np.isfinite(c)
+        tail, head, cost, ecls = _orient(graph, direction, ui[fin], vi[fin], c[fin], cls_raw[fin])
+        m = len(tail)
+        is_conn = np.fromiter((x in self.connectors for x in ecls), dtype=bool, count=m)
 
-        classes = sorted({e[3] for e in edges if not e[4]}, key=str)
-        class_id = {c: i + 1 for i, c in enumerate(classes)}  # memory 0 = nothing yet
+        classes = sorted({x for x, cn in zip(ecls, is_conn) if not cn}, key=str)
+        class_id = {x: i + 1 for i, x in enumerate(classes)}  # memory 0 = nothing yet
         n_mem = len(classes) + 1
         pen = np.zeros((n_mem, n_mem))
         for a in classes:
             for b in classes:
                 pen[class_id[a], class_id[b]] = self.transition_penalty(a, b)
+        cid = np.fromiter((class_id.get(x, 0) for x in ecls), dtype=np.int64, count=m)
 
         # States: one "standing at node" state per node, one per non-connector
-        # edge, and one per (connector edge, remembered class).
-        state_node = list(range(n))
-        nc_state: dict[int, int] = {}
-        conn_state: dict[tuple[int, int], int] = {}
-        for k, e in enumerate(edges):
-            if not e[4]:
-                nc_state[k] = len(state_node)
-                state_node.append(e[1])
-        for k, e in enumerate(edges):
-            if e[4]:
-                for m in range(n_mem):
-                    conn_state[(k, m)] = len(state_node)
-                    state_node.append(e[1])
+        # arc, and one per (connector arc, remembered class).
+        nc = np.flatnonzero(~is_conn)
+        cn = np.flatnonzero(is_conn)
+        nc_state = np.full(m, -1, dtype=np.int64)
+        nc_state[nc] = n + np.arange(len(nc))
+        conn_base = np.full(m, -1, dtype=np.int64)
+        conn_base[cn] = n + len(nc) + np.arange(len(cn)) * n_mem
+        n_states = n + len(nc) + len(cn) * n_mem
+        state_node = np.empty(n_states, dtype=np.int64)
+        state_node[:n] = np.arange(n)
+        state_node[n:n + len(nc)] = head[nc]
+        state_node[n + len(nc):] = np.repeat(head[cn], n_mem)
 
-        out_edges: list[list[int]] = [[] for _ in range(n)]
-        for k, e in enumerate(edges):
-            out_edges[e[0]].append(k)
-
-        rows, cols, vals = [], [], []
-
-        def emit(from_state: int, at_node: int, mem: int) -> None:
-            for k in out_edges[at_node]:
-                _, _, c, cls, is_conn = edges[k]
-                rows.append(from_state)
-                if is_conn:
-                    cols.append(conn_state[(k, mem)])
-                    vals.append(c)
-                else:
-                    cols.append(nc_state[k])
-                    vals.append(c + pen[mem, class_id[cls]])
-
-        for v in range(n):
-            emit(v, v, 0)
-        for k, s in nc_state.items():
-            emit(s, edges[k][1], class_id[edges[k][3]])
-        for (k, m), s in conn_state.items():
-            emit(s, edges[k][1], m)
-
-        n_states = len(state_node)
-        return Engine(
-            _min_csr(rows, cols, vals, n_states),
-            n,
-            np.arange(n),
-            np.asarray(state_node, dtype=np.int64),
-            identity=False,
-        )
+        # Every state (at node, with remembered class) leaves along each out-arc of its node.
+        from_state = np.r_[np.arange(n), nc_state[nc], (conn_base[cn][:, None] + np.arange(n_mem)).ravel()]
+        from_node = state_node[from_state]
+        from_mem = np.r_[np.zeros(n, dtype=np.int64), cid[nc], np.tile(np.arange(n_mem), len(cn))]
+        order = np.argsort(tail, kind="stable")
+        indptr = np.r_[0, np.cumsum(np.bincount(tail, minlength=n))]
+        deg = indptr[from_node + 1] - indptr[from_node]
+        rows = np.repeat(from_state, deg)
+        mem = np.repeat(from_mem, deg)
+        start = np.repeat(indptr[from_node], deg)
+        k = order[start + (np.arange(deg.sum()) - np.repeat(np.cumsum(deg) - deg, deg))]
+        conn_k = is_conn[k]
+        cols = np.where(conn_k, conn_base[k] + mem, nc_state[k])
+        vals = cost[k] + np.where(conn_k, 0.0, pen[mem, cid[k]])
+        return Engine(_min_csr(rows, cols, vals, n_states), n, np.arange(n), state_node, identity=False)
 
 
 class Precomputed(NetworkMetric):
