@@ -157,20 +157,21 @@ def _street_length_transform(coords: NetworkCoordinates, center, window):
     if center is not None:
         keep &= np.abs(arc - center) <= window
     exact = np.isfinite(cost)
+    med = np.nanmedian(cost[keep]) if np.isfinite(cost[keep]).any() else np.nanmedian(np.abs(nd[u] - nd[v])[keep])
     out = []
     for flag in (False, True):
-        xs, ws = [], []
-        for k in np.flatnonzero(keep & (side == flag)):
-            a, b = nd[u[k]], nd[v[k]]
-            c = cost[k] if exact[k] else abs(b - a)
-            m = max(4, int(np.ceil(16 * c / max(np.nanmedian(cost[keep]), 1e-12))))
-            tt = (np.arange(m) + 0.5) / m
-            xs.append(np.minimum(a + tt * c, b + (1 - tt) * c) if exact[k] else a + tt * (b - a))
-            ws.append(np.full(m, length[k] / m))
-        if not xs:
+        ks = np.flatnonzero(keep & (side == flag))
+        if ks.size == 0:
             raise ValueError("no streets on one side of the boundary in this window")
-        xs, ws = np.concatenate(xs), np.concatenate(ws)
-        order = np.argsort(xs)
+        a, b, ex = nd[u[ks]], nd[v[ks]], exact[ks]
+        c = np.where(ex, cost[ks], np.abs(b - a))
+        # Sample each street at m points (more on long ones) and spread its length over them.
+        m = np.maximum(4, np.ceil(16 * c / max(med, 1e-12)).astype(np.int64))
+        e = np.repeat(np.arange(ks.size), m)
+        tt = (np.arange(m.sum()) - np.repeat(np.cumsum(m) - m, m) + 0.5) / m[e]
+        xs = np.where(ex[e], np.minimum(a[e] + tt * c[e], b[e] + (1 - tt) * c[e]), a[e] + tt * (b[e] - a[e]))
+        ws = (length[ks] / m)[e]
+        order = np.argsort(xs, kind="stable")
         grid, cum = np.r_[0.0, xs[order]], np.r_[0.0, np.cumsum(ws[order])]
         out.append(lambda a, g=grid, c=cum: np.interp(a, g, c))
     return out
