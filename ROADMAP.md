@@ -1,7 +1,7 @@
 # Roadmap
 
-Status as of 2026-10-16: core package and rd2d aggregate effects done and validated on the
-mock city (80 tests passing, Monte Carlo results in the README). Steps 2-4 remain. Scope rule: add a feature
+Status as of 2026-10-16: core package, rd2d aggregate effects and scale work done (87 tests
+passing; Monte Carlo and timing results in the README). Steps 3-4 remain. Scope rule: add a feature
 only if rd2d has it. Everything else is documented as a recipe, not built in.
 
 ## 1. rd2d parity: aggregate effects (done 2026-10-16)
@@ -14,16 +14,18 @@ The cluster covariance now uses each point's own `g/(g-1)` so its diagonal equal
 `se_rb**2`. Unlike rd2d (which drops aggregate SEs if any point is missing), masked points
 take weight 0. Tests and Monte Carlo results are in the README.
 
-## 2. Engineering: scale
+## 2. Engineering: scale (done 2026-10-16)
 
-Everything has only been run on the 450-node mock grid. A real city is about 50,000 nodes.
-- Build a synthetic large grid (for example 200 x 250) with a few thousand to 100k points.
-- Profile `network_coordinates`, `rdnet` (with `vce="hc1"` and `conley`), `rdbwnet`,
-  `density`, and `TransitionCost` (its state-expanded graph is roughly |E| x classes).
-- Likely hot spots: `TransitionCost.compile` (Python loops), `hac_quadratic` (block
-  size, network Dijkstra per block), `_street_length_transform` (Python loop over
-  edges), and `network_coordinates` edge snapping.
-- Optionally run the `online`-marked OSM test once: `pytest -m online`.
+Profiled on synthetic city (50k and 200k nodes), suburb and river networks
+(`benchmarks/`) with up to 5M GPS pings and 10M sensor readings; results in the README's
+Scale section. Fixed: the quadratic density transform and dense Conley HAC (now
+sparse, bounded local Dijkstra, threaded row blocks, one pass per `rdnet` call),
+per-location coordinates for repeated measurements, vectorised metric compilation
+(including `TransitionCost`), edge extraction and boundary splitting, cached
+bandwidth designs, and threaded geometry and evaluation points. Remaining costs are
+inherent: Conley grows with the number of pairs within the cutoff, and rd2d's
+median-distance bias pilot makes `rdbwnet` linear in n per evaluation point.
+Not done: the `online` OSM test.
 
 ## 3. Polish
 

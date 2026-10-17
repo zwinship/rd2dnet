@@ -179,10 +179,61 @@ each cell is pointwise / uniform-band coverage):
   samples, max error about 8 with matching large standard errors). The plain Monte Carlo
   sd (0.42) then exceeds the mean SE (0.25); on the robust scale the SE is about 10%
   too small, and coverage is 0.91.
+- Observations at exactly the same location are at network distance 0 in the Conley
+  kernel (as with `conley_distance="euclidean"`). Before the sparse kernel they were
+  treated as `2 x snapping depth` apart, which understated the correlation between
+  repeated readings at one site.
 - The LBATE interval inherits the uniform band's joint coverage and is conservative
   for the maximum (0.98-1.00). Its point estimate `max_j tau_bc` is biased upward in
   small samples (+0.42 at n = 4,000, +0.05 at n = 16,000), as any maximum of noisy
   estimates is.
+
+## Scale
+
+Timings in seconds on one desktop (AMD Ryzen 7 3700X, 8 cores, 32 GB), 25 evaluation
+points, bandwidths selected by `rdbwnet`, Conley cutoff 150 m (city), 200 m (suburb) or
+1 km (river). The networks are synthetic (`benchmarks/synthetic.py`): a jittered grid
+city with arterials, a motorway with ramps and a park on the boundary; an irregular
+Delaunay suburb with cul-de-sacs and a curved boundary that cuts edges; and a dendritic
+river basin (a tree with edges directed downstream). Observations are uniform
+parcels, GPS-like pings near the streets, or a sensor panel (many readings at a few
+thousand fixed sites).
+
+| network (nodes) | observations | coords | `rdbwnet` | `rdnet` HC1 | cluster | Conley | `density` |
+|---|---|---|---|---|---|---|---|
+| city (50k) | 100k parcels | 2.1 | 0.9 | 0.2 | 0.2 | 1.1 | 0.7 |
+| city (50k) | 1M parcels | 4.5 | 7.1 | 2.9 | 3.3 | 11.8 | 3.9 |
+| city (50k) | 1M GPS pings | 4.0 | 6.5 | 2.7 | 2.7 | 12.9 | 4.1 |
+| city (50k) | 5M GPS pings | 18.1 | 35.9 | 12.7 | 14.0 | 280 | 26.2 |
+| city (50k) | 1M readings, 5k sensors | 1.0 | 5.4 | 1.2 | 1.4 | 4.2 | 3.0 |
+| metro (200k) | 1M parcels | 7.3 | 9.0 | 2.6 | 3.2 | 8.7 | 6.8 |
+| suburb (50k) | 200k parcels | 5.2 | 1.8 | 0.6 | 0.6 | 4.0 | 1.3 |
+| river (50k) | 200k GPS pings | 2.1 | 1.3 | 0.5 | 0.5 | 2.8 | 0.5 |
+| river (50k) | 10M readings, 10k sensors | 2.4 | 62.0 | 10.3 | 10.9 | 24.9 | 8.9 |
+
+Building a 50k-node `TransitionCost` engine takes about 0.6 s (2.4 s for 200k nodes).
+
+How the cost grows:
+- **Coordinates**: snapping and boundary distances are computed once per distinct
+  location (x, y, side), so a panel costs as much as its sites. Snapping and the
+  geometry tests run on threads.
+- **`rdbwnet` and `rdnet`**: linear in n per evaluation point. rd2d's bias pilot uses
+  the median distance, so those fits see about half of each side's sample; this is
+  the largest cost at 10M observations.
+- **Conley**: proportional to the number of location pairs closer than the cutoff.
+  That grows with the square of local density: 5x the observations in the same city
+  is about 25x the pairs (5M pings, roughly 10^9 pairs, takes under 5 minutes). Node
+  pairs come from Dijkstra searches bounded at the cutoff on the local subgraph,
+  and the kernel is assembled in sparse row blocks of bounded memory. With very dense
+  data, a smaller cutoff or clustered standard errors are far cheaper.
+- **Density test**: O(n log n) plus a pass over the edges.
+
+`RD2DNET_NUM_THREADS` caps the number of threads (default: up to 16 for geometry,
+8 for the Conley kernel, 4 for evaluation points in `rdbwnet`; `1` disables
+threading). Threaded results are identical to serial ones.
+
+Reproduce with `python benchmarks/profile_scale.py --net grid_city --n 1000000
+--design gps` (add `--profile STAGE` for a cProfile breakdown).
 
 ## Development
 
