@@ -18,6 +18,16 @@ boundary like Manhattan's 60th Street.
 > [References](#references), as well as this package. `rd2dnet` is an independent
 > project and is not affiliated with or endorsed by the rd2d authors.
 
+## Installation
+
+```bash
+pip install rd2dnet              # core
+pip install "rd2dnet[osm]"       # plus OpenStreetMap download (osmnx, pyproj)
+pip install "rd2dnet[plot]"      # plus plotting (matplotlib)
+```
+
+Requires Python 3.10 or newer. Releases are on [PyPI](https://pypi.org/project/rd2dnet/).
+
 ## Method
 
 `rd2d` fits a local polynomial in `(X1 - b1, X2 - b2)` on each side of the boundary at
