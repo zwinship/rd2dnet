@@ -42,6 +42,8 @@ KERNELS: dict[str, Callable] = {
 
 
 def get_kernel(kernel) -> Callable:
+    """Kernel function by name (``"triangular"``, ``"epanechnikov"``, ``"uniform"``,
+    ``"gaussian"`` or their three-letter abbreviations), or a callable passed through."""
     if callable(kernel):
         return kernel
     try:

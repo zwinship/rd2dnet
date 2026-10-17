@@ -221,9 +221,36 @@ def rdbwnet(
     bandwidth), as in rd2d. The ``cer*`` variants shrink the MSE-optimal
     bandwidth by rd2d's coverage-error rate factor ``n^(1/(2p+4) - 1/(p+4))``.
 
-    Returns one row per evaluation point with the control/treated bandwidths
-    ``h0``/``h1``, the pilots ``dn``, ``bn0``, ``bn1``, the MSE constants and the
-    effective sample sizes.
+    Parameters
+    ----------
+    y
+        Outcome, one value per observation in ``coords``.
+    coords
+        Output of :func:`rd2dnet.network_coordinates`.
+    p
+        Polynomial order of the local fit.
+    deriv, tangvec, covs, kernel, cluster, fuzzy, weights
+        As in :func:`rd2dnet.rdnet`.
+    bwselect
+        ``"mserd"`` (one MSE-optimal bandwidth for both sides), ``"msetwo"``
+        (one per side), ``"imserd"``/``"imsetwo"`` (one bandwidth for all
+        evaluation points), or the coverage-error-optimal ``"cerrd"``,
+        ``"certwo"``, ``"icerrd"``, ``"icertwo"``.
+    vce
+        ``"hc0"``-``"hc3"`` variance used inside the selector (others fall back to ``"hc1"``).
+    bwcheck
+        Every bandwidth is at least the distance to the ``bwcheck``-th nearest
+        observation on each side (default ``20 +`` the number of order-``p + 1`` terms).
+    scaleregul, scalebiascrct
+        Weights on the bias-variance regularisation and the higher-order bias term.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per evaluation point with the control/treated bandwidths
+        ``h0``/``h1`` (and ``h`` when they are equal), the pilots ``dn``,
+        ``bn0``, ``bn1``, the MSE constants (``V``, ``B``, ``Reg1``, ``Reg2`` per
+        side), the bounds ``hmin``/``hmax``, local sample sizes and a ``status``.
     """
     bwselect = bwselect.lower()
     if bwselect not in BWSELECT:

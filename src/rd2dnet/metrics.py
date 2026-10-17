@@ -207,6 +207,11 @@ class NetworkMetric:
     supports_edge_snapping: bool = True
 
     def compile(self, graph, node_index: Mapping[Hashable, int], direction: str):
+        """Build the shortest-path engine for ``graph`` (called once by :class:`NetworkGraph`).
+
+        Subclasses return an object with ``distances(sources, limit)``,
+        ``nearest(sources)`` and ``pairs_within(sources, limit)``.
+        """
         raise NotImplementedError
 
     def edge_cost(self, u, v, data) -> float:
@@ -332,6 +337,7 @@ class TransitionCost(NetworkMetric):
         return self._base.edge_cost(u, v, data)
 
     def transition_penalty(self, a, b) -> float:
+        """Cost of moving from an edge of class ``a`` to one of class ``b``."""
         if callable(self.penalty):
             c = self.penalty(a, b)
         elif (a, b) in self.penalty:

@@ -98,10 +98,12 @@ class NetworkGraph:
 
     @property
     def n_nodes(self) -> int:
+        """Number of network nodes."""
         return len(self.nodes)
 
     @property
     def engine(self):
+        """Shortest-path engine compiled from the metric (built on first use)."""
         if self._engine is None:
             self._engine = self.metric.compile(self.graph, self.node_index, self.direction)
         return self._engine

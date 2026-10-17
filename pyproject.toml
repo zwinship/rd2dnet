@@ -34,7 +34,7 @@ Homepage = "https://github.com/zwinship/rd2dnet"
 osm = ["osmnx>=1.9", "pyproj>=3.5"]
 igraph = ["igraph>=0.11"]
 plot = ["matplotlib>=3.7"]
-dev = ["pytest>=7", "matplotlib>=3.7"]
+dev = ["pytest>=7", "matplotlib>=3.7", "nbformat>=5.7", "nbclient>=0.7", "ipykernel>=6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -43,6 +43,9 @@ where = ["src"]
 "rd2dnet.datasets" = ["data/*.json", "data/*.csv"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-q -m \"not online\""
-markers = ["online: needs internet access (deselected by default; run with -m online)"]
+testpaths = ["tests", "src/rd2dnet"]
+addopts = "-q -m \"not online and not notebook\" --doctest-modules"
+markers = [
+    "online: needs internet access (deselected by default; run with -m online)",
+    "notebook: executes examples/tutorial.ipynb (deselected by default; run with -m notebook)",
+]

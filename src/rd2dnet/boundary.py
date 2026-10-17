@@ -65,6 +65,7 @@ class Boundary:
 
     @property
     def length(self) -> float:
+        """Length of the boundary line."""
         return float(self.line.length)
 
     @staticmethod
@@ -88,6 +89,7 @@ class Boundary:
         return shapely.get_coordinates(pts)
 
     def is_treated(self, xy) -> np.ndarray:
+        """Whether each point lies on the treated side (inside ``treated_region`` or on ``treated_side``)."""
         xy = self._xy(xy)
         if self.treated_region is not None:
             region, tol = self.treated_region, self.tol
@@ -104,6 +106,7 @@ class Boundary:
         return left if self.treated_side == "left" else ~left
 
     def is_masked(self, arc) -> np.ndarray:
+        """Whether each arc-length position falls in a masked stretch of the boundary."""
         arc = np.atleast_1d(np.asarray(arc, dtype=float))
         out = np.zeros(arc.shape, dtype=bool)
         for a, b in self.mask_arcs:

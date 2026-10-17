@@ -219,6 +219,15 @@ def density(
         MSE-optimal choices, for both sides. ``"each"``: separate bandwidths.
         On street grids the density of ``s`` is jagged, and unequal bandwidths
         let unequal smoothing bias pass for a discontinuity.
+    scaleregul
+        Weight on the variance of the bias estimate in the bandwidth rule.
+
+    Returns
+    -------
+    DensityResult
+        The density jump at the boundary (order ``p`` and bias-corrected), its
+        jackknife standard error, z statistic and p-value, the side-wise
+        densities, bandwidths and sample sizes.
     """
     if normalize not in ("none", "network"):
         raise ValueError("normalize must be 'none' or 'network'")

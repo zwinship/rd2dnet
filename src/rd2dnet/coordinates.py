@@ -47,6 +47,24 @@ class NetworkCoordinates:
 
     Build with :func:`network_coordinates`. Distances from each evaluation point
     are computed on demand and cached.
+
+    Attributes
+    ----------
+    s
+        Signed network distance to the boundary (positive on the treated side,
+        NaN if the boundary cannot be reached).
+    treated
+        Treatment indicator per observation.
+    xy
+        Observation coordinates.
+    crossing_arc
+        Arc-length position where each observation reaches the boundary.
+    eval_arc, eval_node_arc, eval_xy, eval_masked
+        Requested and snapped evaluation points, and whether each is masked.
+    loc
+        Location id of each observation (repeated coordinates share one).
+    network, boundary
+        The (boundary-split) network and the boundary.
     """
 
     def __init__(
@@ -122,10 +140,12 @@ class NetworkCoordinates:
 
     @property
     def n_obs(self) -> int:
+        """Number of observations."""
         return len(self.s)
 
     @property
     def n_eval(self) -> int:
+        """Number of evaluation points."""
         return len(self.eval_arc)
 
     @property
@@ -134,6 +154,7 @@ class NetworkCoordinates:
         return len(self._first)
 
     def eval_table(self) -> pd.DataFrame:
+        """Evaluation points: requested and snapped arc position, nearest node, coordinates, mask."""
         return pd.DataFrame(
             {
                 "arc": self.eval_arc,
@@ -386,8 +407,19 @@ def network_coordinates(
         when no such segment exists.
     snap
         ``"edge"`` (attach to the nearest street segment) or ``"node"``.
+    lonlat
+        Points are longitude/latitude; project them into the network's CRS
+        (requires pyproj).
     split_edges
         Insert nodes where edges cross the boundary (recommended).
+
+    Returns
+    -------
+    NetworkCoordinates
+        Signed boundary distances ``s``, treatment indicators, where each
+        observation reaches the boundary, and the evaluation points; kernel
+        distances and lateral offsets at evaluation point ``j`` come from
+        :meth:`NetworkCoordinates.at`. Repeated locations are processed once.
     """
     xy = _points_array(points)
     if lonlat:
