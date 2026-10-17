@@ -19,12 +19,14 @@ local polynomial.
 from __future__ import annotations
 
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from typing import Sequence
 
 import numpy as np
 import pandas as pd
 
 from .boundary import Boundary
+from ._parallel import n_threads
 from .network import NetworkGraph, Snap, project_lonlat
 
 
@@ -250,13 +252,26 @@ class NetworkCoordinates:
         locs, inv = np.unique(self.loc[idx], return_inverse=True)
         P = np.zeros((len(locs), Psi.shape[1]))
         np.add.at(P, inv, Psi)
-        out = np.zeros((Psi.shape[1], Psi.shape[1]))
-        for r0, r1, K in self._kernel_blocks(locs, cutoff, distance, max_cells):
-            out += P[r0:r1].T @ (K @ P)
+        threads = min(n_threads(len(locs)), 8)
+
+        def part(block):
+            r0, r1, make_K = block
+            return P[r0:r1].T @ (make_K() @ P)
+
+        # Row blocks are independent (numpy and scipy.sparse do the work in C,
+        # releasing the GIL), so they run in threads; the memory budget per
+        # block is divided by the thread count.
+        blocks = self._kernel_blocks(locs, cutoff, distance, max(1, int(max_cells) // threads))
+        if threads > 1:
+            with ThreadPoolExecutor(threads) as ex:
+                parts = list(ex.map(part, blocks))
+        else:
+            parts = [part(b) for b in blocks]
+        out = np.sum(parts, axis=0) if parts else np.zeros((Psi.shape[1], Psi.shape[1]))
         return (out + out.T) / 2
 
     def _kernel_blocks(self, locs, cutoff, distance, max_cells):
-        """Yield ``(r0, r1, K)``: sparse Bartlett kernel rows ``r0:r1`` among locations ``locs``."""
+        """Yield ``(r0, r1, make_K)``; ``make_K()`` builds sparse Bartlett kernel rows ``r0:r1``."""
         from scipy import sparse
 
         m = len(locs)
@@ -266,12 +281,15 @@ class NetworkCoordinates:
 
             pts = self.xy[self._first[locs]]
             tree = cKDTree(pts)
-            for r0 in range(0, m, rows_per):
-                r1 = min(m, r0 + rows_per)
+            def make_euclid(r0, r1):
                 sdm = cKDTree(pts[r0:r1]).sparse_distance_matrix(tree, cutoff, output_type="ndarray")
                 k = 1.0 - sdm["v"] / cutoff
                 keep = k > 0
-                yield r0, r1, sparse.csr_matrix((k[keep], (sdm["i"][keep], sdm["j"][keep])), shape=(r1 - r0, m))
+                return sparse.csr_matrix((k[keep], (sdm["i"][keep], sdm["j"][keep])), shape=(r1 - r0, m))
+
+            for r0 in range(0, m, rows_per):
+                r1 = min(m, r0 + rows_per)
+                yield r0, r1, (lambda r0=r0, r1=r1: make_euclid(r0, r1))
             return
 
         sn = self._lsnap
@@ -310,7 +328,7 @@ class NetworkCoordinates:
         budget = max(1, int(max_cells) // 4)
         cuts = np.searchsorted(np.cumsum(per_row), np.arange(budget, per_row.sum() + budget, budget), side="right")
         bounds = np.unique(np.r_[0, np.clip(cuts, 1, m), m])
-        for r0, r1 in zip(bounds[:-1], bounds[1:]):
+        def make_net(r0, r1):
             K = None
             for Aa, ca, a_is_u in ((Au, cu, True), (Av, cv, False)):
                 left = Aa[r0:r1] @ ND
@@ -328,7 +346,10 @@ class NetworkCoordinates:
                     keep = k > 0
                     Kc = sparse.csr_matrix((k[keep], (i[keep] - r0, j[keep])), shape=(r1 - r0, m))
                     K = Kc if K is None else K.maximum(Kc)  # kernel at the shortest distance
-            yield r0, r1, K
+            return K
+
+        for r0, r1 in zip(bounds[:-1], bounds[1:]):
+            yield r0, r1, (lambda r0=r0, r1=r1: make_net(r0, r1))
 
 
 def network_coordinates(
