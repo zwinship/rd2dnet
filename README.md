@@ -3,8 +3,7 @@
 Boundary discontinuity designs on street networks. `rd2dnet` adapts the location-based
 boundary discontinuity framework of [`rd2d`](https://github.com/rdpackages/rd2d)
 (Cattaneo, Titiunik & Yu) from Euclidean coordinates to **network-native coordinates**
-and **user-defined network metrics**. The motivating application is a congestion pricing
-boundary like Manhattan's 60th Street.
+and **user-defined network metrics**.
 
 > **Built on rd2d.** `rd2dnet` is a direct extension of the boundary discontinuity
 > methodology and software of **Matias D. Cattaneo, Rocío Titiunik and Ruiqi Rae Yu**
@@ -277,8 +276,6 @@ another app (such as Inkscape). `py -0p` lists the installed interpreters.
 GitHub Actions (`.github/workflows/ci.yml`) runs the tests on Python 3.10-3.13 (Linux) and
 3.12 (Windows), executes the tutorial, and builds and checks the distribution.
 `examples/make_tutorial.py` regenerates the notebook.
-
-See [ROADMAP.md](ROADMAP.md) for planned next steps.
 
 ## References
 
