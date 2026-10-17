@@ -53,6 +53,7 @@ class RDNetResult:
     coords: NetworkCoordinates | None = field(default=None, repr=False)
 
     def _ok(self) -> np.ndarray:
+        """Boolean mask of evaluation points that were estimated."""
         return (self.table["status"] == "ok").to_numpy()
 
     def wbate(self, weights) -> pd.Series:
@@ -258,6 +259,44 @@ def rdnet(
     pooled
         Fit one regression ``y ~ 1 + T + poly(s, o)`` with common slopes instead
         of separate side-specific polynomials (levels only).
+    cluster
+        Cluster labels, one per observation; implies ``vce="cluster"``.
+    level
+        Confidence level in percent for intervals and the uniform band.
+    cbands
+        Add the uniform confidence band ``cb_lo``/``cb_hi`` to the table. The
+        joint covariance and its critical value are stored either way.
+    repp
+        Gaussian draws used to simulate the uniform critical value.
+    min_obs
+        Minimum local observations per side at an evaluation point (default
+        ``20 +`` the number of order-``q`` terms); points with fewer are
+        reported as ``"insufficient"``.
+    scaleregul, scalebiascrct
+        Bandwidth-selection regularisation and higher-order bias weights,
+        passed to :func:`rdbwnet` when ``h`` is selected.
+    seed
+        Seed for the critical-value simulation (for reproducible bands and LBATE).
+
+    Returns
+    -------
+    RDNetResult
+        Per-evaluation-point table (``tau``, ``se``, ``tau_bc``, ``se_rb``,
+        ``ci_lo``/``ci_hi``, ``pvalue``, bandwidths, local sample sizes and a
+        ``status``), the joint covariance ``cov``, the uniform critical value
+        ``crit``, and the selected bandwidths. Use :meth:`RDNetResult.wbate`
+        and :meth:`RDNetResult.lbate` for aggregate effects.
+
+    Examples
+    --------
+    >>> import rd2dnet
+    >>> from rd2dnet.datasets import load_mock_midtown
+    >>> city = load_mock_midtown()
+    >>> coords = rd2dnet.network_coordinates(city.network(), city.boundary, city.obs[["x", "y"]], n_eval=9)
+    >>> res = rd2dnet.rdnet(city.obs["outcome"], coords, seed=0)
+    >>> bool(res.wbate(res.table["status"].eq("ok").astype(float))["tau_bc"] > 0)
+    True
+    >>> res.table[["arc", "tau_bc", "ci_lo", "ci_hi", "status"]]  # doctest: +SKIP
     """
     y = np.asarray(y, dtype=float)
     if y.shape != (coords.n_obs,):
@@ -337,10 +376,13 @@ def rdnet(
     hac_cols: list[tuple[int, str, np.ndarray, np.ndarray]] = []
     conley = vce == "conley"
 
-    def local_var(idx, psi):
+    def local_var(idx, psi, k):
         if conley:
             return np.nan
-        return variance(psi, vce, cluster=None if cluster is None else cluster[idx])
+        v = variance(psi, vce, cluster=None if cluster is None else cluster[idx])
+        if vce == "cluster":  # variance() applies g / (g - 1); rd2d's CR1 also has (n - 1) / (n - k)
+            v *= _cluster_dof(len(idx), k, cluster[idx])
+        return v
     for j in range(J):
         rec = dict(eval=j, arc=coords.eval_arc[j], node_arc=coords.eval_node_arc[j], h0=H[j, 0], h1=H[j, 1],
                    n0=0, n1=0, tau=np.nan, se=np.nan, tau_bc=np.nan, se_rb=np.nan,
@@ -383,7 +425,7 @@ def rdnet(
             aux = (Xa, wk[m], m, Xi)
 
         try:
-            out = {}
+            out, ks = {}, {}
             for order in (p, q):
                 X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
                 c = np.zeros(X.shape[1])
@@ -412,7 +454,8 @@ def rdnet(
                     tau = itt / fs
                     psi = (psis[0] - tau * psis[1]) / fs
                     extra = {"itt": itt, "fs": fs, "_psi_fs": psis[1]}
-                out[order] = (tau, np.sqrt(max(local_var(idx, psi), 0.0)), psi, extra)
+                ks[order] = X.shape[1]
+                out[order] = (tau, np.sqrt(max(local_var(idx, psi, ks[order]), 0.0)), psi, extra)
         except np.linalg.LinAlgError:
             rec["status"] = "singular"
             continue
@@ -423,14 +466,14 @@ def rdnet(
         tau_q, se_q, psi_q, _ = out[q]
         if "_psi_fs" in extra:
             psi_fs = extra.pop("_psi_fs")
-            extra["fs_se"] = np.sqrt(max(local_var(idx, psi_fs), 0.0))
+            extra["fs_se"] = np.sqrt(max(local_var(idx, psi_fs, ks[p]), 0.0))
             if conley:
                 hac_cols.append((j, "fs_se", idx, psi_fs))
         if conley:
             hac_cols += [(j, "se", idx, psi_p), (j, "se_rb", idx, psi_q)]
         rec.update(tau=tau_p, se=se_p, tau_bc=tau_q, **extra)
         _set_rb(rec, se_q, z)
-        psi_store[j] = (idx, psi_q)
+        psi_store[j] = (idx, psi_q, ks[q])
 
     table = pd.DataFrame(rows)
     table["h"] = np.where(np.isclose(table["h0"], table["h1"]), table["h0"], np.nan)
@@ -467,6 +510,11 @@ def rdnet(
                        crit=crit, cov=cov, bandwidths=bw, coords=coords)
 
 
+def _cluster_dof(n: int, k: int, cl) -> float:
+    """rd2d's ``(n - 1) / (n - k)`` cluster degrees-of-freedom factor (1 with one cluster or n <= k)."""
+    return (n - 1) / (n - k) if n > k and len(np.unique(cl)) > 1 else 1.0
+
+
 def _set_rb(rec: dict, se_q: float, z: float) -> None:
     """Robust standard error, confidence interval and p-value from the bias-corrected fit."""
     tau_q = rec["tau_bc"]
@@ -478,8 +526,8 @@ def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
     """``J x J`` covariance of the bias-corrected estimates, NaN where a point was not estimated.
 
     Its diagonal reproduces the pointwise variances exactly. For clustering, the
-    small-sample factor ``g / (g - 1)`` uses each point's own number of local
-    clusters, as the pointwise standard errors do. (Conley is handled in one
+    small-sample factor ``(n - 1) / (n - k) * g / (g - 1)`` uses each point's own
+    local sample, as the pointwise standard errors do. (Conley is handled in one
     HAC pass inside :func:`rdnet`.)
     """
     keys = sorted(psi_store)
@@ -488,14 +536,17 @@ def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
     pos[union] = np.arange(len(union))
     Psi = np.zeros((len(union), len(keys)))
     for c, j in enumerate(keys):
-        idx, psi = psi_store[j]
+        idx, psi, _ = psi_store[j]
         Psi[pos[idx], c] = psi
     if vce == "cluster":
         _, codes = np.unique(cluster[union], return_inverse=True)
         G = np.zeros((codes.max() + 1, len(keys)))
         np.add.at(G, codes, Psi)
-        g = np.array([len(np.unique(cluster[psi_store[j][0]])) for j in keys], dtype=float)
-        f = np.sqrt(np.where(g > 1, g / np.maximum(g - 1, 1), 1.0))
+        f = np.empty(len(keys))
+        for c, j in enumerate(keys):
+            idx, _, k = psi_store[j]
+            g = len(np.unique(cluster[idx]))
+            f[c] = np.sqrt((g / (g - 1) if g > 1 else 1.0) * _cluster_dof(len(idx), k, cluster[idx]))
         V = (G.T @ G) * np.outer(f, f)
     else:
         V = Psi.T @ Psi
