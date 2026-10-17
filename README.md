@@ -15,7 +15,8 @@ boundary like Manhattan's 60th Street.
 > density test follows Cattaneo, Jansson and Ma's `rddensity`. What is new here is
 > carrying that framework over to network coordinates and user-defined network
 > metrics. If you use `rd2dnet`, please cite the rd2d papers listed under
-> [References](#references), as well as this package.
+> [References](#references), as well as this package. `rd2dnet` is an independent
+> project and is not affiliated with or endorsed by the rd2d authors.
 
 ## Method
 

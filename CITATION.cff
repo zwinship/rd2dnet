@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: >-
+  If you use rd2dnet, please cite the rd2d papers by Cattaneo, Titiunik and Yu (listed in
+  the README), on which it is built, as well as this software.
+title: "rd2dnet: boundary discontinuity designs on networks"
+type: software
+authors:
+  - family-names: Winship
+    given-names: Zach
+version: 0.1.0
+license: GPL-3.0-only
+repository-code: "https://github.com/zwinship/rd2dnet"
+keywords:
+  - regression discontinuity
+  - boundary discontinuity
+  - rd2d
+  - networks
+  - causal inference
+references:
+  - type: software
+    title: "rd2d: Causal Inference in Boundary Discontinuity Designs"
+    authors:
+      - family-names: Cattaneo
+        given-names: Matias D.
+      - family-names: Titiunik
+        given-names: Rocío
+      - family-names: Yu
+        given-names: Ruiqi Rae
+    url: "https://rdpackages.github.io/rd2d/"

@@ -13,7 +13,12 @@ license-files = ["LICENSE"]
 authors = [{ name = "Zach Winship" }]
 keywords = ["regression discontinuity", "boundary discontinuity", "rd2d", "spatial", "networks", "causal inference"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Mathematics",
@@ -28,6 +33,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/zwinship/rd2dnet"
+Tutorial = "https://github.com/zwinship/rd2dnet/blob/main/examples/tutorial.ipynb"
+Changelog = "https://github.com/zwinship/rd2dnet/blob/main/CHANGELOG.md"
+Issues = "https://github.com/zwinship/rd2dnet/issues"
 "rd2d (upstream method)" = "https://rdpackages.github.io/rd2d/"
 
 [project.optional-dependencies]
