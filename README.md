@@ -81,6 +81,12 @@ print(rd2dnet.density(coords))                         # sorting test per metre 
 rd2dnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design (take_up = your 0/1 or share)
 ```
 
+The tutorial notebook [`examples/tutorial.ipynb`](examples/tutorial.ipynb) walks through
+every feature on the mock city (metrics, coordinates, bandwidths, aggregate effects,
+covariates, fuzzy designs, derivatives, cluster and Conley errors, the density test) and
+the recipes for donut designs, covariate balance, placebo boundaries and
+difference-in-discontinuities.
+
 For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, which needs
 `pip install -e .[osm]`. It falls back to the bundled mock network with a warning when
 offline. You can also pass your own graph:
@@ -111,7 +117,8 @@ offline. You can also pass your own graph:
 - **Fuzzy designs**: `rdnet(y, coords, fuzzy=D)` estimates the ratio of the outcome
   jump to the take-up jump at each boundary point. It reports the first stage `fs`
   and `fs_se`, and selects the bandwidth from the linearised outcome, as rd2d does.
-- **Standard errors** (`vce`): `hc0` to `hc3`, `cluster`, or `conley` (Bartlett
+- **Standard errors** (`vce`): `hc0` to `hc3`, `cluster` (CR1 with rd2d's
+  `(n - 1)/(n - k) * g/(g - 1)` factor), or `conley` (Bartlett
   spatial HAC over **network** or Euclidean distance). Conley is computed block by
   block, so memory stays bounded, and it also drives the uniform band's joint
   covariance across boundary points. Conley residuals come from a smoother
@@ -179,6 +186,13 @@ each cell is pointwise / uniform-band coverage):
   samples, max error about 8 with matching large standard errors). The plain Monte Carlo
   sd (0.42) then exceeds the mean SE (0.25); on the robust scale the SE is about 10%
   too small, and coverage is 0.91.
+- Cluster-robust errors use the local fit's own residuals, as rd2d does. When clusters
+  are small relative to the bandwidth they are too small: clustering by city block
+  (n = 4,000, selected bandwidths, 400 replications) gives 95% coverage of 0.78 with
+  independent errors (HC1: 0.93), and neither HC1 nor cluster errors capture block-level
+  shocks (coverage 0.69 for both; their SEs are about half the Monte Carlo sd). The
+  local polynomial absorbs within-cluster variation, the same effect that motivates
+  the Conley default's wider auxiliary fit. For spatially correlated shocks use Conley.
 - Observations at exactly the same location are at network distance 0 in the Conley
   kernel (as with `conley_distance="euclidean"`). Before the sparse kernel they were
   treated as `2 x snapping depth` apart, which understated the correlation between
@@ -242,11 +256,16 @@ git clone https://github.com/zwinship/rd2dnet.git && cd rd2dnet
 python -m venv .venv
 .venv\Scripts\activate          # Windows   (source .venv/bin/activate on macOS/Linux)
 pip install -e ".[dev]"
-pytest                          # offline; `pytest -m online` runs the live OSM test
+pytest                          # offline, includes doctests; `-m online` runs the live OSM test
+pytest -m notebook              # executes examples/tutorial.ipynb
 ```
 
 On Windows, check that `python` is your real interpreter and not one bundled with
 another app (such as Inkscape). `py -0p` lists the installed interpreters.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the tests on Python 3.10-3.13 (Linux) and
+3.12 (Windows), executes the tutorial, and builds and checks the distribution.
+`examples/make_tutorial.py` regenerates the notebook.
 
 See [ROADMAP.md](ROADMAP.md) for planned next steps.
 
