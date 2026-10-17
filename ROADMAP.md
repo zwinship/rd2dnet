@@ -1,7 +1,7 @@
 # Roadmap
 
 Status as of 2026-10-16: steps 1-3 done (88 tests and doctests passing, tutorial executed in
-CI; Monte Carlo and timing results in the README). Step 4 (release and ports) remains. Scope rule: add a feature
+CI; Monte Carlo and timing results in the README). Python 0.1.0 is on PyPI; the R and Stata ports remain. Scope rule: add a feature
 only if rd2d has it. Everything else is documented as a recipe, not built in.
 
 ## 1. rd2d parity: aggregate effects (done 2026-10-16)
@@ -50,11 +50,13 @@ LICENSE added (required, because the bandwidth and density code are ported from 
 and rddensity, both GPL-3.0-only), and rd2d/rddensity attribution and references added
 to the README and module docstrings.
 
-- [ ] Contact Cattaneo, Titiunik and Yu (rdpackages) before a public release, as a
-      courtesy: the package builds directly on their method and code.
-- [ ] Make the GitHub repo public when ready.
-- [ ] **PyPI**: no review; live within minutes. `python -m build`, `twine check dist/*`
-      (both passed on 2026-10-15), then `twine upload dist/*`. Try TestPyPI first.
+- [x] Contact Cattaneo, Titiunik and Yu (rdpackages) before a public release, as a
+      courtesy (emailed Cattaneo, 2026-10-16).
+- [x] Make the GitHub repo public (2026-10-16).
+- [x] **PyPI**: rd2dnet 0.1.0 released 2026-10-16 (https://pypi.org/project/rd2dnet/) via
+      trusted publishing: publish a GitHub release tagged `v<version>` (matching
+      `pyproject.toml`) and `.github/workflows/release.yml` uploads it. Manual runs of that
+      workflow upload to TestPyPI for a dry run.
 - [ ] Optional peer review: pyOpenSci (about 1-3 months), JOSS (about 1-3 months), or
       Journal of Statistical Software (often a year or more).
 - [ ] **R port -> CRAN**: first response in days to about 2 weeks; a revision round is
