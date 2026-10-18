@@ -27,6 +27,15 @@ pip install "rd2dnet[plot]"      # plus plotting (matplotlib)
 
 Requires Python 3.10 or newer. Releases are on [PyPI](https://pypi.org/project/rd2dnet/).
 
+**R package.** The same methods are available in R, in [`R-package/`](R-package/)
+(same functions in snake case, same numbers on the bundled data):
+
+```r
+remotes::install_github("zwinship/rd2dnet", subdir = "R-package")
+```
+
+See [`R-package/README.md`](R-package/README.md) and `vignette("rd2dnet")`.
+
 ## Method
 
 `rd2d` fits a local polynomial in `(X1 - b1, X2 - b2)` on each side of the boundary at
@@ -98,8 +107,10 @@ the recipes for donut designs, covariate balance, placebo boundaries and
 difference-in-discontinuities.
 
 For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, which needs
-`pip install -e .[osm]`. It falls back to the bundled mock network with a warning when
-offline. You can also pass your own graph:
+`pip install "rd2dnet[osm]"`. The query's top geocoding match is used: its outline when it
+is an area of at least `min_area` (250,000 m² by default), otherwise (a neighbourhood
+mapped as a point, a single building) the streets within `dist` metres of it (1,000 by
+default). It falls back to the bundled mock network with a warning when offline. You can also pass your own graph:
 `NetworkGraph(G)`, `NetworkGraph.from_adjacency(A, coords)` or `NetworkGraph.from_igraph(g)`.
 
 ### Features
@@ -276,6 +287,19 @@ another app (such as Inkscape). `py -0p` lists the installed interpreters.
 GitHub Actions (`.github/workflows/ci.yml`) runs the tests on Python 3.10-3.13 (Linux) and
 3.12 (Windows), executes the tutorial, and builds and checks the distribution.
 `examples/make_tutorial.py` regenerates the notebook.
+
+The R package is developed in `R-package/` (C++ core via Rcpp, roxygen2 documentation,
+testthat tests including parity checks against this package's numbers):
+
+```bash
+cd R-package
+Rscript -e 'Rcpp::compileAttributes(); roxygen2::roxygenise()'
+R CMD build . && R CMD check --as-cran rd2dnet_*.tar.gz
+```
+
+`.github/workflows/R-CMD-check.yml` runs `R CMD check --as-cran` on Linux (R release,
+devel and oldrel), macOS and Windows. `R-package/data-raw/` regenerates the bundled data
+from this package's files.
 
 ## References
 

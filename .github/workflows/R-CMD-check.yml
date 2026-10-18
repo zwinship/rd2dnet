@@ -1,0 +1,46 @@
+name: R-CMD-check
+
+# Checks the R package in R-package/ on the platforms CRAN builds for.
+
+on:
+  push:
+    branches: [main]
+    paths: ["R-package/**", ".github/workflows/R-CMD-check.yml"]
+  pull_request:
+    paths: ["R-package/**", ".github/workflows/R-CMD-check.yml"]
+
+jobs:
+  R-CMD-check:
+    name: R CMD check (${{ matrix.config.os }}, R ${{ matrix.config.r }})
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-latest, r: "release"}
+          - {os: ubuntu-latest, r: "devel", http-user-agent: "release"}
+          - {os: ubuntu-latest, r: "oldrel-1"}
+          - {os: macos-latest, r: "release"}
+          - {os: windows-latest, r: "release"}
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+    steps:
+      - uses: actions/checkout@v5
+      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent }}
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: R-package
+          extra-packages: any::rcmdcheck
+          needs: check
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          working-directory: R-package
+          args: 'c("--no-manual", "--as-cran")'
+          error-on: '"warning"'
+          upload-snapshots: true
