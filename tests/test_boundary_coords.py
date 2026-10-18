@@ -65,7 +65,7 @@ def test_unreachable_points_dropped(grid):
     G.add_node("island", x=1000.0, y=0.0)
     G.add_node("island2", x=1000.0, y=50.0)
     G.add_edge("island", "island2", length=50.0)
-    with pytest.warns(UserWarning, match="cannot reach"):
+    with pytest.warns(UserWarning, match="no network path"):
         c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bnd, [[1000.0, 10.0], [0.0, 0.0]])
     assert np.isnan(c.s[0]) and np.isfinite(c.s[1])
 

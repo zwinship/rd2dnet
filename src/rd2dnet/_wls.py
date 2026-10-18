@@ -10,16 +10,21 @@ import numpy as np
 VCE_TYPES = ("hc0", "hc1", "hc2", "hc3", "cluster", "conley")
 
 
-def poly_exponents(p: int) -> list[tuple[int, int]]:
-    """Exponents ``(a, c)`` of ``s**a * o**c`` for all terms of total degree <= p."""
+def poly_exponents(p: int, dim: int = 2) -> list[tuple[int, int]]:
+    """Exponents ``(a, c)`` of ``s**a * o**c`` for all terms of total degree <= p.
+
+    With ``dim=1`` the basis is a polynomial in ``s`` alone (no offset terms).
+    """
+    if dim == 1:
+        return [(a, 0) for a in range(p + 1)]
     return [(a, k - a) for k in range(p + 1) for a in range(k, -1, -1)]
 
 
-def poly_basis(s: np.ndarray, o: np.ndarray, p: int) -> np.ndarray:
+def poly_basis(s: np.ndarray, o: np.ndarray, p: int, dim: int = 2) -> np.ndarray:
     """Columns ``s**a * o**c`` in :func:`poly_exponents` order; lower orders are column prefixes."""
     s = np.asarray(s, dtype=float)
     o = np.asarray(o, dtype=float)
-    exps = poly_exponents(p)
+    exps = poly_exponents(p, dim)
     out = np.empty((len(exps), len(s))).T  # column-major: each term is contiguous
     sp, op = [np.ones_like(s)], [np.ones_like(o)]
     for _ in range(p):

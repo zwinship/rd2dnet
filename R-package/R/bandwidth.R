@@ -28,8 +28,9 @@
   chol2inv(chol(A))
 }
 
-# rd2d's bivariate normal-reference rule of thumb.
-.rot <- function(s, o, kname, n_eff) {
+# rd2d's bivariate normal-reference rule of thumb (a univariate one with dim = 1).
+.rot <- function(s, o, kname, n_eff, dim = 2) {
+  if (dim == 1) return(1.06 * stats::sd(s) * n_eff^(-1 / 5))
   k <- .ROT_CONST[[kname]] %||% .ROT_CONST$triangular
   mu2 <- k[1]
   l2 <- k[2]
@@ -48,8 +49,9 @@
 # Local data on one side of the boundary at one evaluation point. Kernel
 # weights and the basis depend only on h, and the order-`order` basis is a
 # column prefix of any higher-order one, so they are cached per h.
-.side <- function(s, o, d, y, om, kfun, cluster = NULL) {
+.side <- function(s, o, d, y, om, kfun, cluster = NULL, dim = 2) {
   self <- new.env(parent = emptyenv())
+  self$dim <- dim
   self$s <- s
   self$o <- o
   self$d <- d
@@ -67,13 +69,13 @@
   if (is.null(hit) || hit$order < order) {
     w <- sd$kfun(sd$d / h) / h^2 * sd$om
     keep <- which(w > 0)
-    hit <- list(keep = keep, w = w[keep], R = .poly_basis(sd$s[keep] / h, sd$o[keep] / h, order),
+    hit <- list(keep = keep, w = w[keep], R = .poly_basis(sd$s[keep] / h, sd$o[keep] / h, order, sd$dim),
                 order = order)
     sd$basis[[key]] <- hit
   }
   yy <- (if (is.null(y)) sd$y else y)[hit$keep]
   cl <- if (is.null(sd$cluster)) NULL else sd$cluster[hit$keep]
-  list(R = hit$R[, seq_len(.n_terms(order)), drop = FALSE], w = hit$w, y = yy, cl = cl)
+  list(R = hit$R[, seq_len(.n_terms(order, sd$dim)), drop = FALSE], w = hit$w, y = yy, cl = cl)
 }
 
 .bw_sigma <- function(WR, resd, h, cl) {
@@ -110,7 +112,7 @@
   RtW <- t(R * w)
   invG <- .inv_gram(RtW %*% R)
   beta_s <- drop(invG %*% (RtW %*% ds$y))
-  e <- .poly_exponents(order)
+  e <- .poly_exponents(order, sd$dim)
   beta <- beta_s / h^(e[, "a"] + e[, "c"])
   cov <- NULL
   if (varr) {
@@ -123,7 +125,7 @@
 # Projection of the degree p + 1 terms onto the target `vec`: rd2d's vec_q.
 .side_coeff <- function(sd, dn, p, vec) {
   ds <- .side_design(sd, dn, p + 1)
-  k <- .n_terms(p)
+  k <- .n_terms(p, sd$dim)
   Rp <- ds$R[, seq_len(k), drop = FALSE]
   S <- ds$R[, -seq_len(k), drop = FALSE]
   RtW <- t(Rp * ds$w)
@@ -133,8 +135,8 @@
 
 .side_consts <- function(sd, p, vec, dn, bn1, bn2, vce, y = NULL) {
   ds <- .side_design(sd, dn, p + (if (is.null(bn2)) 1 else 2), y)
-  kp <- .n_terms(p)
-  kp1 <- .n_terms(p + 1)
+  kp <- .n_terms(p, sd$dim)
+  kp1 <- .n_terms(p + 1, sd$dim)
   R <- ds$R
   w <- ds$w
   Rp <- R[, seq_len(kp), drop = FALSE]
@@ -173,7 +175,7 @@
     dn <- dns[t]
     w <- sd$kfun(sd$d / dn) / dn^2 * sd$om
     k <- w > 0
-    R <- .poly_basis(sd$s[k] / dn, sd$o[k] / dn, p)
+    R <- .poly_basis(sd$s[k] / dn, sd$o[k] / dn, p, sd$dim)
     W <- w[k]
     Zk <- Zs[[t]][k, , drop = FALSE]
     yk <- outcomes[[t]][k]
@@ -208,8 +210,8 @@
 #'   `"msetwo"` (one per side), `"imserd"`/`"imsetwo"` (one bandwidth for all
 #'   evaluation points), or the coverage-error-optimal `"cerrd"`, `"certwo"`,
 #'   `"icerrd"`, `"icertwo"`.
-#' @param vce `"hc0"`-`"hc3"` variance used inside the selector (others fall
-#'   back to `"hc1"`).
+#' @param vce `"hc0"`-`"hc3"` variance used inside the selector
+#'   (`"cluster"` and `"conley"` select with `"hc1"`).
 #' @param bwcheck Every bandwidth is at least the distance to the
 #'   `bwcheck`-th nearest observation on each side (default `20 +` the number
 #'   of order-`p + 1` terms).
@@ -220,7 +222,13 @@
 #'   control/treated bandwidths `h0`/`h1` (and `h` when they are equal), the
 #'   pilots `dn`, `bn0`, `bn1`, the MSE constants (`V`, `B`, `Reg1`, `Reg2`
 #'   per side, suffixed 0 for control and 1 for treated), the bounds
-#'   `hmin0`/`hmin1`/`hmax0`/`hmax1`, local sample sizes `n0`/`n1`, and a `status`.
+#'   `hmin0`/`hmin1`/`hmax0`/`hmax1`, the side sample sizes `n0`/`n1`, the
+#'   local `basis` (`"s,o"`, or `"s"` where few boundary crossings leave no
+#'   variation in the offset `o`), and a `status`.
+#'
+#'   [rdnet()] selects with `scaleregul = 3` (as rd2d does for estimation), so
+#'   its bandwidths differ from this function's defaults; they are stored in
+#'   the `bandwidths` element of its result.
 #' @references Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). rd2d: Causal
 #'   Inference in Boundary Discontinuity Designs. arXiv:2505.07989.
 #' @examples
@@ -238,14 +246,17 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   if (!bwselect %in% .BWSELECT) {
     stop(sprintf("bwselect must be one of %s", paste(.BWSELECT, collapse = ", ")), call. = FALSE)
   }
+  if (!vce %in% .VCE_TYPES) {
+    stop("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc1')",
+         call. = FALSE)
+  }
   if (!vce %in% c("hc0", "hc1", "hc2", "hc3")) vce <- "hc1"
-  y <- as.numeric(y)
-  if (length(y) != coords$n_obs) stop("y must have one value per observation", call. = FALSE)
+  y <- .check_obs(y, coords$n_obs, "y")
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "triangular"
-  om <- if (is.null(weights)) rep(1, length(y)) else as.numeric(weights)
-  D <- if (is.null(fuzzy)) NULL else as.numeric(fuzzy)
-  cl <- if (is.null(cluster)) NULL else as.vector(cluster)
+  om <- if (is.null(weights)) rep(1, length(y)) else .check_weights(weights, coords$n_obs)
+  D <- if (is.null(fuzzy)) NULL else .check_obs(fuzzy, coords$n_obs, "fuzzy")
+  cl <- if (is.null(cluster)) NULL else .check_cluster(cluster, coords$n_obs)
   Z <- NULL
   if (!is.null(covs)) {
     Z <- as.matrix(covs)
@@ -265,24 +276,31 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   J <- coords$n_eval
   tang <- if (is.null(tangvec)) NULL else .tangent_matrix(tangvec, J)
   v_ord <- if (!is.null(tang)) 1 else sum(deriv)
-  nt <- .n_terms(p)
-  e_deriv <- rep(0, nt)
-  e_deriv[.exp_index(p, deriv[1], deriv[2])] <- factorial(deriv[1]) * factorial(deriv[2])
   expo_b <- 1 / (2 * p + 6)
-  i10 <- .exp_index(p, 1, 0)
-  i01 <- .exp_index(p, 0, 1)
 
   point <- function(j) {
-    rec <- list(status = "ok")
+    rec <- point_dim(j, 2)
+    if (rec$status == "singular" && deriv[2] == 0 && is.null(tang)) {
+      # Few boundary crossings near this point (a river, rail line or highway
+      # crossing the border): the offset o barely varies, so fit in s alone.
+      rec1 <- point_dim(j, 1)
+      if (rec1$status == "ok") return(rec1)
+    }
+    rec
+  }
+
+  point_dim <- function(j, dim) {
+    rec <- list(status = "ok", basis = if (dim == 2) "s,o" else "s")
     if (coords$eval_masked[j]) {
       rec$status <- "masked"
       return(rec)
     }
-    vec <- e_deriv
+    vec <- rep(0, .n_terms(p, dim))
+    vec[.exp_index(p, deriv[1], deriv[2], dim)] <- factorial(deriv[1]) * factorial(deriv[2])
     if (!is.null(tang)) {
       vec[] <- 0
-      vec[i10] <- tang[j, 1]
-      vec[i01] <- tang[j, 2]
+      vec[.exp_index(p, 1, 0, dim)] <- tang[j, 1]
+      vec[.exp_index(p, 0, 1, dim)] <- tang[j, 2]
     }
     at <- coords_at(coords, j)
     d <- at$d
@@ -295,9 +313,12 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
       rec$status <- "insufficient"
       return(rec)
     }
-    sides <- lapply(masks, function(m) .side(s[m], o[m], d[m], y[m], om[m], kfun, if (is.null(cl)) NULL else cl[m]))
-    dn <- .rot(s[ok], o[ok], kname, n_eff)
-    bounds <- lapply(sides, function(sd) c(.kth(sd$d, bwcheck), max(sd$d)))
+    sides <- lapply(masks, function(m) {
+      .side(s[m], o[m], d[m], y[m], om[m], kfun, if (is.null(cl)) NULL else cl[m], dim)
+    })
+    dn <- .rot(s[ok], o[ok], kname, n_eff, dim)
+    # nudged up so the bwcheck-th observation gets positive kernel weight
+    bounds <- lapply(sides, function(sd) c(.kth(sd$d, bwcheck) * (1 + 1e-9), max(sd$d)))
     dns <- vapply(bounds, function(b) min(max(dn, b[1]), b[2]), numeric(1))
     thr <- vapply(sides, function(sd) stats::median(sd$d), numeric(1))
     res <- tryCatch({
@@ -365,7 +386,8 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   cols <- c("dn", "bn0", "bn1", "n0", "n1", "hmin0", "hmin1", "hmax0", "hmax1",
             "V0", "B0", "Reg10", "Reg20", "V1", "B1", "Reg11", "Reg21")
   out <- data.frame(eval = seq_len(J), arc = coords$eval_arc,
-                    status = vapply(rows, `[[`, "", "status"), stringsAsFactors = FALSE)
+                    status = vapply(rows, `[[`, "", "status"),
+                    basis = vapply(rows, `[[`, "", "basis"), stringsAsFactors = FALSE)
   for (cn in cols) {
     out[[cn]] <- vapply(rows, function(r) if (is.null(r[[cn]])) NA_real_ else as.numeric(r[[cn]]), numeric(1))
   }

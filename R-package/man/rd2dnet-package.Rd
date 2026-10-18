@@ -2,7 +2,6 @@
 % Please edit documentation in R/rd2dnet-package.R
 \docType{package}
 \name{rd2dnet-package}
-\alias{rd2dnet}
 \alias{rd2dnet-package}
 \title{rd2dnet: Boundary Discontinuity Designs on Networks}
 \description{

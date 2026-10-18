@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.2.0
+
+Easier data entry, from testing the package on many kinds of applications (school zones,
+minimum-wage borders, police precincts, river monitoring stations, subway fare zones,
+highway exits, sensor panels).
+
+New:
+
+- `rd2dnet(Y, X, t, b, network)`: the data entry of rd2d (outcome, locations, treatment,
+  boundary points) plus a network. `as_network()` turns graphs, igraph objects and line
+  layers into a `NetworkGraph`.
+- `NetworkGraph.from_lines()`: networks from GIS line layers (GeoDataFrames in any CRS,
+  projected to UTM when in lon/lat), lists of lines, or segment tables with endpoint
+  coordinates; joins line ends within `tol`, optionally splits lines at crossings, keeps
+  attributes, and supports directed lines.
+- `NetworkGraph.from_frames()`: networks from a node table and an edge table.
+- `Boundary.from_points()` (treated side inferred from `t`) and `Boundary.from_region()`
+  (a zone's outline, optionally restricted with `within=`).
+- Distance-only local fits where the network meets the boundary at few points (rivers,
+  rail, highways): the `basis` column reports `"s"` there.
+- `density(unique_locations=True)` for repeated measurements.
+- `RDNetResult.wbate()` defaults to equal weights over the estimated points.
+- `network_coordinates(extensive=...)`.
+
+Fixes:
+
+- Closed-ring boundaries: offsets wrap the shorter way round, and the default evaluation
+  grid no longer repeats the start point.
+- The density test kept control observations at `s = 0` on the treated side.
+- Splitting an edge at the boundary now divides the metric's own cost attribute (such
+  as `weight`), not only `length` and `travel_time`.
+- Parallel edges: snapping uses the cheapest edge, as shortest paths do.
+- The bandwidth floor now gives its k-th observation positive kernel weight, so floored
+  points are no longer reported as `insufficient`.
+- Points with fewer than two clusters on a side get status `few clusters` instead of a
+  zero standard error.
+- `rdnet` reports the selector's reason (`insufficient`, `singular`) instead of
+  `no bandwidth`; `h=(h0, h1)` is always read as control/treated bandwidths.
+- GeoSeries points in another CRS are reprojected to the network's; networks in
+  lon/lat give a warning; a missing metric attribute is reported when the network is
+  built.
+- Input checks: `level` must be a percentage, weights finite, cluster labels complete
+  and of the right length, `treated` boolean or 0/1, `vce` valid in `rdbwnet`.
+- Warnings for evaluation points beyond the boundary's network span, evaluation points
+  that coincide, boundary nodes just outside `tol`, and both `cluster` and
+  `conley_cutoff` given.
+- `travel_time(default_kph=...)` also fills missing (NaN) speeds.
+- `from_igraph` uses `length` when there is no `weight` attribute.
+
 ## 0.1.1
 
 - `NetworkGraph.from_place` now uses Nominatim's top match for the query. osmnx skips

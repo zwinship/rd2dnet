@@ -16,6 +16,7 @@
   weights = NULL,
   bwselect = "common",
   scaleregul = 1,
+  unique_locations = FALSE,
   ...
 )
 }
@@ -26,7 +27,7 @@
 boundary crossing lies within \code{window} (arc length) of evaluation point
 \code{eval_index} (1-based). By default the whole boundary is pooled.}
 
-\item{h}{Bandwidth, scalar or \code{c(h_left, h_right)}, in metric units
+\item{h}{Bandwidth, scalar or \code{c(h_control, h_treated)}, in metric units
 (street-length units with \code{normalize = "network"}). Selected by an MSE
 plug-in rule per side when omitted.}
 
@@ -48,6 +49,11 @@ unequal smoothing bias pass for a discontinuity.}
 
 \item{scaleregul}{Weight on the variance of the bias estimate in the
 bandwidth rule.}
+
+\item{unique_locations}{Count each location once (the first observation
+there). Use this with repeated measurements (panels, repeat sales, sensor
+readings): the sorting question is about where units are, and repeated
+rows at the same place otherwise look like a density spike.}
 
 \item{...}{Ignored.}
 }

@@ -11,7 +11,8 @@ with_boundary_crossings(net, b, extensive = c("length", "travel_time"))
 
 \item{b}{A \code{\link[=boundary]{boundary()}}.}
 
-\item{extensive}{Edge columns that scale with length.}
+\item{extensive}{Edge columns that scale with length. The column the
+metric reads (for example \code{"weight"}) is always split in proportion.}
 }
 \value{
 A network (the same one when nothing needs splitting), with

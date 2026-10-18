@@ -4,7 +4,14 @@
 \alias{network_graph_from_igraph}
 \title{Build a network from an igraph graph}
 \usage{
-network_graph_from_igraph(g, metric = "weight", x = "x", y = "y", ...)
+network_graph_from_igraph(
+  g,
+  metric = "weight",
+  x = "x",
+  y = "y",
+  directed = NULL,
+  ...
+)
 }
 \arguments{
 \item{g}{An \code{igraph} graph.}
@@ -13,14 +20,19 @@ network_graph_from_igraph(g, metric = "weight", x = "x", y = "y", ...)
 
 \item{x, y}{Vertex attributes holding the coordinates.}
 
-\item{...}{Further arguments to \code{\link[=network_graph]{network_graph()}}.}
+\item{directed}{Whether edges are one-way; defaults to whether \code{g} is directed.}
+
+\item{...}{Further arguments to \code{\link[=network_graph]{network_graph()}} (\code{direction}, \code{crs}, ...).}
 }
 \value{
 A \code{\link[=network_graph]{network_graph()}}.
 }
 \description{
-Vertices must carry projected coordinates; vertex names (if any) become
-node ids and edge attributes become edge columns.
+Vertices must carry projected coordinates, as attributes \code{x}/\code{y} or as an
+sf point column \code{geometry} (as in sfnetworks); vertex names (if any) become
+node ids and edge attributes become edge columns. With the default
+\code{metric = "weight"}, a graph without a \code{weight} edge attribute uses
+\code{length} instead.
 }
 \examples{
 \dontshow{if (requireNamespace("igraph", quietly = TRUE)) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}

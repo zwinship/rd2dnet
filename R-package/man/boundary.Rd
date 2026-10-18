@@ -28,13 +28,24 @@ a park) and/or numeric \code{c(start, end)} arc-length intervals along the line.
 Evaluation points touching them are skipped: use this for stretches with
 no mass on one side (Central Park on 60th Street).}
 
-\item{tol}{Distance at which a network node counts as lying on the boundary.}
+\item{tol}{Distance (in the network's coordinate units) at which a network
+node counts as lying on the boundary. Increase it when the boundary
+follows a street but its vertices are not exactly on the street's nodes.}
 }
 \value{
 An object of class \code{rd2dnet_boundary}.
 }
 \description{
 A boundary line, the side that is treated, and optional masked stretches.
+}
+\details{
+Points exactly on the line count as treated with \code{treated_region}
+(and are assigned by \code{treated_side} otherwise); pass \code{treated} to
+\code{\link[=network_coordinates]{network_coordinates()}} to assign them yourself. Everything outside
+\code{treated_region} is control, so restrict the sample to the two
+neighbouring areas first. A closed line (a zone outline, see
+\code{\link[=boundary_from_region]{boundary_from_region()}}) is treated as a ring: offsets along it wrap
+around the shorter way.
 }
 \examples{
 b <- boundary(rbind(c(0, 0), c(100, 0)), treated_side = "left",

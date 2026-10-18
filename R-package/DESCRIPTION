@@ -1,7 +1,7 @@
 Package: rd2dnet
 Type: Package
 Title: Boundary Discontinuity Designs on Networks
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: c(
     person("Zach", "Winship", role = c("aut", "cre", "cph"),
            email = "zachtwinship@gmail.com"),

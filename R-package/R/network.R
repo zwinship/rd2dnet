@@ -5,7 +5,9 @@
 #'
 #' @param edges Data frame with one row per edge: columns `from` and `to`
 #'   (node ids, as in the node id column of `nodes`) plus any edge attributes
-#'   (`length`, `highway`, `speed_kph`, ...). An optional `geometry` column
+#'   (`length`, `highway`, `speed_kph`, ...). Without a `length` column, each
+#'   edge's length is computed from its geometry (or the straight line between
+#'   its endpoints). An optional `geometry` column
 #'   holds each edge's shape as a list of `n x 2` matrices or an sf
 #'   `LINESTRING` column; edges without one are straight segments. Repeated
 #'   node pairs (multigraphs) are allowed; self-loops are ignored.
@@ -26,7 +28,7 @@
 #'   Defaults to the metric's own default (1 for length, 0 otherwise).
 #'
 #' @return An object of class `rd2dnet_network`.
-#' @seealso [network_graph_from_adjacency()], [network_graph_from_igraph()],
+#' @seealso [network_graph_from_lines()], [network_graph_from_adjacency()], [network_graph_from_igraph()],
 #'   [network_graph_from_place()], [network_coordinates()].
 #' @examples
 #' nodes <- data.frame(name = c("a", "b", "c"), x = c(0, 100, 200), y = 0)
@@ -67,7 +69,24 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
   if ("geometry" %in% names(edges)) {
     edges$geometry <- .edge_geometries(edges$geometry)
   }
+  if (!"length" %in% names(edges)) {
+    edges$length <- sqrt(rowSums((coords[from, , drop = FALSE] - coords[to, , drop = FALSE])^2))
+    if ("geometry" %in% names(edges)) {
+      has <- !vapply(edges$geometry, is.null, logical(1))
+      edges$length[has] <- vapply(edges$geometry[has], function(m) .segments(m)$total, numeric(1))
+    }
+  }
+  if (.looks_lonlat(coords, crs)) {
+    warning("the network is in longitude/latitude, so distances are in degrees; project it to a ",
+            "metric CRS first (network_graph_from_lines() does this for sf layers)", call. = FALSE)
+  }
   metric <- as_metric(metric)
+  for (cost in .cost_attributes(metric)) {
+    if (nrow(edges) && !cost %in% names(edges)) {
+      stop(sprintf("edges have no '%s' column for the metric; edge columns available: %s", cost,
+                   paste(setdiff(names(edges), c("from", "to", "geometry")), collapse = ", ")), call. = FALSE)
+    }
+  }
   structure(
     list(
       nodes = nodes,
@@ -83,6 +102,21 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
     ),
     class = "rd2dnet_network"
   )
+}
+
+# Edge columns a metric reads as additive costs (split in proportion when an edge is cut).
+.cost_attributes <- function(metric) {
+  m <- if (inherits(metric, "rd2dnet_transition_cost")) metric$base else metric
+  if (inherits(m, "rd2dnet_edge_cost") && is.character(m$cost) && length(m$cost) == 1) m$cost else character()
+}
+
+# A geographic CRS, or (with no CRS) coordinates that look like lon/lat degrees.
+.looks_lonlat <- function(xy, crs) {
+  if (!is.null(crs)) return(grepl("4326|4269|longlat", crs, ignore.case = TRUE))
+  if (nrow(xy) < 2 || !all(is.finite(xy))) return(FALSE)
+  span <- apply(xy, 2, function(v) diff(range(v)))
+  all(abs(xy[, 1]) <= 180) && all(abs(xy[, 2]) <= 90) && max(span) < 2 && max(abs(xy)) > 2 &&
+    any(xy != round(xy))
 }
 
 .as_id <- function(v, ids) {
@@ -174,7 +208,7 @@ node_distance <- function(net, a, b) {
 
 #' Street segments of a network
 #'
-#' One row per undirected street segment (the first edge of each node pair):
+#' One row per undirected street segment (the cheapest edge of each node pair):
 #' endpoint indices `u` and `v`, geometric `length` (the `length` column, or
 #' the geometry's length), the metric `cost` of traversing it (`NA` for a
 #' precomputed metric), and its `geometry` oriented from `u` to `v`.
@@ -192,7 +226,15 @@ edge_frame <- function(net) {
   }
   E <- .stored_edges(net)
   key <- paste(pmin(E$from, E$to), pmax(E$from, E$to))
-  E <- E[!duplicated(key), , drop = FALSE]
+  if (anyDuplicated(key) && isTRUE(net$metric$supports_edge_snapping)) {
+    # the cheapest of parallel edges, which is the one shortest paths use
+    cost_all <- .edge_costs(net$metric, E, net)
+    ord <- order(match(key, unique(key)), cost_all)
+    keep <- ord[!duplicated(key[ord])]
+    E <- E[sort(keep), , drop = FALSE]
+  } else {
+    E <- E[!duplicated(key), , drop = FALSE]
+  }
   u <- E$from
   v <- E$to
   geom <- if ("geometry" %in% names(E)) E$geometry else vector("list", nrow(E))
@@ -312,7 +354,8 @@ snap_points <- function(net, xy, allowed = NULL, mode = "edge") {
 #'
 #' @param net A [network_graph()].
 #' @param b A [boundary()].
-#' @param extensive Edge columns that scale with length.
+#' @param extensive Edge columns that scale with length. The column the
+#'   metric reads (for example `"weight"`) is always split in proportion.
 #' @return A network (the same one when nothing needs splitting), with
 #'   attribute `"n_crossings_inserted"`.
 #' @examples
@@ -333,6 +376,8 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   if (!is.null(net$cache$split_boundary) && identical(net$cache$split_boundary, b)) {
     return(net$cache$split_net)
   }
+  # the metric's own cost column is always split in proportion
+  extensive <- union(extensive, .cost_attributes(net$metric))
   Tn <- boundary_is_treated(b, net$coords)
   on <- boundary_distance(b, net$coords) <= b$tol
   E <- net$edges
@@ -467,13 +512,17 @@ network_graph_from_adjacency <- function(adjacency, coords, nodes = NULL, direct
 
 #' Build a network from an igraph graph
 #'
-#' Vertices must carry projected coordinates; vertex names (if any) become
-#' node ids and edge attributes become edge columns.
+#' Vertices must carry projected coordinates, as attributes `x`/`y` or as an
+#' sf point column `geometry` (as in sfnetworks); vertex names (if any) become
+#' node ids and edge attributes become edge columns. With the default
+#' `metric = "weight"`, a graph without a `weight` edge attribute uses
+#' `length` instead.
 #'
 #' @param g An `igraph` graph.
 #' @param metric Metric specification, as in [network_graph()].
 #' @param x,y Vertex attributes holding the coordinates.
-#' @param ... Further arguments to [network_graph()].
+#' @param directed Whether edges are one-way; defaults to whether `g` is directed.
+#' @param ... Further arguments to [network_graph()] (`direction`, `crs`, ...).
 #' @return A [network_graph()].
 #' @examplesIf requireNamespace("igraph", quietly = TRUE)
 #' g <- igraph::make_ring(4)
@@ -482,14 +531,33 @@ network_graph_from_adjacency <- function(adjacency, coords, nodes = NULL, direct
 #' igraph::E(g)$weight <- 1
 #' network_graph_from_igraph(g)
 #' @export
-network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", ...) {
+network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", directed = NULL, ...) {
   if (!requireNamespace("igraph", quietly = TRUE)) {
     stop("package 'igraph' is needed", call. = FALSE)
   }
+  eattr <- igraph::edge_attr_names(g)
+  if (identical(metric, "weight") && !"weight" %in% eattr && "length" %in% eattr) metric <- "length"
+  vgeom <- igraph::vertex_attr(g, "geometry")
   df <- igraph::as_data_frame(g, what = "both")
   v <- df$vertices
+  if (!all(c(x, y) %in% names(v)) && !is.null(vgeom)) {
+    xy <- .as_points(vgeom)
+    v$geometry <- NULL
+    v[[x]] <- xy[, 1]
+    v[[y]] <- xy[, 2]
+  }
   if (!"name" %in% names(v)) v <- cbind(name = seq_len(igraph::vcount(g)), v)
-  network_graph(df$edges, v, metric = metric, directed = igraph::is_directed(g), x = x, y = y, ...)
+  e <- df$edges
+  if ("geometry" %in% names(e) && !.is_sf(e$geometry) && !is.list(e$geometry)) e$geometry <- NULL
+  crs <- list(...)$crs
+  if (is.null(crs) && inherits(vgeom, "sfc") && !is.na(sf::st_crs(vgeom))) {
+    epsg <- sf::st_crs(vgeom)$epsg
+    if (!is.null(epsg) && !is.na(epsg)) {
+      return(network_graph(e, v, metric = metric, directed = directed %||% igraph::is_directed(g), x = x, y = y,
+                           crs = paste0("EPSG:", epsg), ...))
+    }
+  }
+  network_graph(e, v, metric = metric, directed = directed %||% igraph::is_directed(g), x = x, y = y, ...)
 }
 
 #' Download an OpenStreetMap street network

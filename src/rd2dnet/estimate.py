@@ -11,6 +11,7 @@ Robust bias-corrected inference uses the order ``q = p + 1`` fit, as in rd2d.
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -18,7 +19,7 @@ import pandas as pd
 from scipy import stats
 
 from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
-from .bandwidth import default_min_obs, rdbwnet
+from .bandwidth import _check_cluster, _check_obs, _check_weights, default_min_obs, rdbwnet
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -56,16 +57,16 @@ class RDNetResult:
         """Boolean mask of evaluation points that were estimated."""
         return (self.table["status"] == "ok").to_numpy()
 
-    def wbate(self, weights) -> pd.Series:
+    def wbate(self, weights=None) -> pd.Series:
         """Weighted boundary average treatment effect ``w' tau`` (rd2d's WBATE).
 
         ``weights`` has one entry per evaluation point and is normalised to sum
-        to one. Points that were not estimated (masked, insufficient, ...) must
-        get weight 0. The standard error is ``sqrt(w' cov w)``, so it accounts
+        to one; by default every estimated point gets equal weight. Points that
+        were not estimated (masked, insufficient, ...) must get weight 0. The standard error is ``sqrt(w' cov w)``, so it accounts
         for the correlation between nearby evaluation points.
         """
         J = len(self.table)
-        w = np.asarray(weights, dtype=float)
+        w = self._ok().astype(float) if weights is None else np.asarray(weights, dtype=float)
         if w.shape != (J,):
             raise ValueError(f"WBATE weights must have one entry per evaluation point ({J})")
         if not np.all(np.isfinite(w)):
@@ -149,10 +150,13 @@ class RDNetResult:
 
 def _bandwidth_matrix(h, J: int) -> np.ndarray:
     """User bandwidths as a (J, 2) array of (control, treated)."""
+    pair = isinstance(h, tuple) and len(h) == 2
     h = np.asarray(h, dtype=float)
+    if np.any(np.isnan(h)) or np.any(h <= 0):
+        raise ValueError("bandwidths must be positive")
     if h.ndim == 0:
         return np.full((J, 2), float(h))
-    if h.shape == (2,) and J != 2:
+    if h.shape == (2,) and (pair or J != 2):
         return np.tile(h, (J, 1))
     if h.shape == (J,):
         return np.column_stack([h, h])
@@ -161,9 +165,9 @@ def _bandwidth_matrix(h, J: int) -> np.ndarray:
     raise ValueError("h must be a scalar, (h0, h1), one value per evaluation point, or a (J, 2) array")
 
 
-def _deriv_vector(order: int, deriv, tangvec_j):
+def _deriv_vector(order: int, deriv, tangvec_j, dim: int = 2):
     """Target vector over the order-``order`` basis, and the derivative order it picks."""
-    exps = poly_exponents(order)
+    exps = poly_exponents(order, dim)
     vec = np.zeros(len(exps))
     if tangvec_j is not None:
         vec[exps.index((1, 0))], vec[exps.index((0, 1))] = tangvec_j
@@ -173,9 +177,9 @@ def _deriv_vector(order: int, deriv, tangvec_j):
     return vec, a + c
 
 
-def _design(us, uo, Ti, order, Zi, pooled):
+def _design(us, uo, Ti, order, Zi, pooled, dim=2):
     """Joint local design: side-specific polynomials (or pooled slopes) plus common covariates."""
-    R = poly_basis(us, uo, order)
+    R = poly_basis(us, uo, order, dim)
     if pooled:
         X = np.column_stack([np.ones(len(us)), Ti, R[:, 1:]])
     else:
@@ -221,11 +225,15 @@ def rdnet(
     coords
         Output of :func:`rd2dnet.network_coordinates`.
     h
-        Bandwidth in metric units: scalar, ``(h_control, h_treated)``, one value
-        per evaluation point, a ``(J, 2)`` array, or ``None`` to select with
+        Bandwidth in metric units: scalar, a tuple ``(h_control, h_treated)``,
+        one value per evaluation point (an array), a ``(J, 2)`` array, or
+        ``None`` to select with
         :func:`rdbwnet` using ``bwselect`` (``"mserd"``, ``"msetwo"``,
         ``"imserd"``, ``"imsetwo"``, or the coverage-error-optimal ``"cerrd"``,
-        ``"certwo"``, ``"icerrd"``, ``"icertwo"``).
+        ``"certwo"``, ``"icerrd"``, ``"icertwo"``). Selection uses
+        ``scaleregul=3``, as rd2d does for estimation, so it differs from a
+        call to :func:`rdbwnet` with its defaults; the selected bandwidths are
+        stored in ``result.bandwidths``.
     p, q
         Polynomial order for estimation and for bias-corrected inference (default ``p + 1``).
     deriv
@@ -260,7 +268,11 @@ def rdnet(
         Fit one regression ``y ~ 1 + T + poly(s, o)`` with common slopes instead
         of separate side-specific polynomials (levels only).
     cluster
-        Cluster labels, one per observation; implies ``vce="cluster"``.
+        Cluster labels, one per observation; implies ``vce="cluster"``. Points
+        with fewer than two clusters on a side get status ``"few clusters"``.
+        With repeated measurements (panels), clusters much smaller than the
+        bandwidth, such as the unit itself, can still understate the variance
+        of spatially correlated shocks; ``conley_cutoff`` is the safer choice.
     level
         Confidence level in percent for intervals and the uniform band.
     cbands
@@ -278,12 +290,24 @@ def rdnet(
     seed
         Seed for the critical-value simulation (for reproducible bands and LBATE).
 
+    Notes
+    -----
+    The local fit is a polynomial in ``(s, o)``. Where the network meets the
+    boundary at only a few points (rivers, rail lines, highways crossing a
+    border), the offset ``o`` hardly varies near an evaluation point and that
+    fit is singular; the point is then fitted in ``s`` alone and its ``basis``
+    column reads ``"s"`` instead of ``"s,o"``.
+
+    ``status`` is ``"ok"``, ``"masked"``, ``"insufficient"`` (fewer than
+    ``min_obs`` observations on a side), ``"few clusters"``, ``"singular"``,
+    ``"weak first stage"`` or ``"no bandwidth"``.
+
     Returns
     -------
     RDNetResult
         Per-evaluation-point table (``tau``, ``se``, ``tau_bc``, ``se_rb``,
-        ``ci_lo``/``ci_hi``, ``pvalue``, bandwidths, local sample sizes and a
-        ``status``), the joint covariance ``cov``, the uniform critical value
+        ``ci_lo``/``ci_hi``, ``pvalue``, bandwidths, local sample sizes, the
+        local ``basis`` and a ``status``), the joint covariance ``cov``, the uniform critical value
         ``crit``, and the selected bandwidths. Use :meth:`RDNetResult.wbate`
         and :meth:`RDNetResult.lbate` for aggregate effects.
 
@@ -298,9 +322,9 @@ def rdnet(
     True
     >>> res.table[["arc", "tau_bc", "ci_lo", "ci_hi", "status"]]  # doctest: +SKIP
     """
-    y = np.asarray(y, dtype=float)
-    if y.shape != (coords.n_obs,):
-        raise ValueError("y must have one value per observation")
+    y = _check_obs(y, coords.n_obs, "y")
+    if not 1 < level < 100:
+        raise ValueError(f"level is a percentage, e.g. 95 (got {level})")
     q = p + 1 if q is None else int(q)
     if p < 0 or q < p:
         raise ValueError("need 0 <= p <= q")
@@ -319,14 +343,8 @@ def rdnet(
         raise ValueError("pooled=True estimates level jumps only")
     kfun = get_kernel(kernel)
     kname = kernel if isinstance(kernel, str) else getattr(kernel, "__name__", "custom")
-    intensity = np.ones_like(y) if weights is None else np.asarray(weights, dtype=float)
-    if np.any(intensity < 0):
-        raise ValueError("weights must be non-negative")
-    D = None
-    if fuzzy is not None:
-        D = np.asarray(fuzzy, dtype=float)
-        if D.shape != y.shape:
-            raise ValueError("fuzzy must have one value per observation")
+    intensity = np.ones_like(y) if weights is None else _check_weights(weights, coords.n_obs)
+    D = None if fuzzy is None else _check_obs(fuzzy, coords.n_obs, "fuzzy")
     Z = None
     if covs is not None:
         Z = np.asarray(covs, dtype=float)
@@ -336,8 +354,11 @@ def rdnet(
             raise ValueError("covs must have one row per observation")
     if cluster is not None:
         vce = "cluster"
-        cluster = np.asarray(cluster)
+        cluster = _check_cluster(cluster, coords.n_obs)
     if conley_cutoff is not None:
+        if cluster is not None:
+            warnings.warn("both cluster and conley_cutoff given: standard errors use Conley; cluster only "
+                          "affects bandwidth selection", stacklevel=2)
         vce = "conley"
     if vce not in VCE_TYPES:
         raise ValueError(f"vce must be one of {VCE_TYPES}")
@@ -357,7 +378,9 @@ def rdnet(
                      vce=base_vce, cluster=cluster, fuzzy=D, weights=weights, bwcheck=min_obs,
                      scaleregul=scaleregul, scalebiascrct=scalebiascrct)
         H = bw[["h0", "h1"]].to_numpy(dtype=float)
+        bases = bw["basis"].tolist() if "basis" in bw else [None] * J
     else:
+        bases = [None] * J
         H = _bandwidth_matrix(h, J)
 
     z = stats.norm.ppf(0.5 + level / 200)
@@ -386,7 +409,7 @@ def rdnet(
     for j in range(J):
         rec = dict(eval=j, arc=coords.eval_arc[j], node_arc=coords.eval_node_arc[j], h0=H[j, 0], h1=H[j, 1],
                    n0=0, n1=0, tau=np.nan, se=np.nan, tau_bc=np.nan, se_rb=np.nan,
-                   ci_lo=np.nan, ci_hi=np.nan, pvalue=np.nan, status="ok")
+                   ci_lo=np.nan, ci_hi=np.nan, pvalue=np.nan, status="ok", basis="")
         if D is not None:
             rec.update(itt=np.nan, fs=np.nan, fs_se=np.nan)
         rows.append(rec)
@@ -394,7 +417,8 @@ def rdnet(
             rec["status"] = "masked"
             continue
         if not (np.all(np.isfinite(H[j])) and np.all(H[j] > 0)):
-            rec["status"] = "no bandwidth"
+            # the selector's reason (insufficient, singular) when it has one
+            rec["status"] = bw["status"].iloc[j] if bw is not None and bw["status"].iloc[j] != "ok" else "no bandwidth"
             continue
         d, o = coords.at(j)
         base = np.isfinite(d) & np.isfinite(o) & finite & (intensity > 0)
@@ -413,26 +437,30 @@ def rdnet(
             if not zcols.any():
                 zcols = None
         Zi = None if zcols is None else Z[idx][:, zcols]
+        if vce == "cluster":
+            g_side = min(len(np.unique(cluster[i1])), len(np.unique(cluster[i0])))
+            if g_side < 2:
+                rec["status"] = "few clusters"
+                continue
 
-        aux = None
-        if vce == "conley":
-            hs = hside * conley_resid_scale
-            wk = kfun(d / hs) * intensity
-            m = np.flatnonzero((wk > 0) & base)
-            Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
-                         None if zcols is None else Z[m][:, zcols], False)
-            Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False)
-            aux = (Xa, wk[m], m, Xi)
-
-        try:
+        def fit(dim):
+            aux = None
+            if vce == "conley":
+                hs = hside * conley_resid_scale
+                wk = kfun(d / hs) * intensity
+                m = np.flatnonzero((wk > 0) & base)
+                Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
+                             None if zcols is None else Z[m][:, zcols], False, dim)
+                Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False, dim)
+                aux = (Xa, wk[m], m, Xi)
             out, ks = {}, {}
             for order in (p, q):
-                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
+                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled, dim)
                 c = np.zeros(X.shape[1])
                 if pooled:
                     c[1] = 1.0
                 else:
-                    vec, v = _deriv_vector(order, deriv, None if tang is None else tang[j])
+                    vec, v = _deriv_vector(order, deriv, None if tang is None else tang[j], dim)
                     k = len(vec)
                     c[:k], c[k:2 * k] = vec / H[j, 1] ** v, -vec / H[j, 0] ** v
                 jumps, psis = [], []
@@ -456,11 +484,28 @@ def rdnet(
                     extra = {"itt": itt, "fs": fs, "_psi_fs": psis[1]}
                 ks[order] = X.shape[1]
                 out[order] = (tau, np.sqrt(max(local_var(idx, psi, ks[order]), 0.0)), psi, extra)
-        except np.linalg.LinAlgError:
-            rec["status"] = "singular"
-            continue
+            return out, ks
+
+        # Few boundary crossings near this point (a river, rail line or highway
+        # crossing the border) leave no variation in the offset o; the fit is
+        # then a polynomial in s alone.
+        dims = {"s,o": (2,), "s": (1,)}.get(bases[j], (2, 1))
+        if deriv[1] > 0 or tang is not None:
+            dims = (2,)
+        out = None
+        try:
+            for dim in dims:
+                try:
+                    out, ks = fit(dim)
+                    rec["basis"] = "s,o" if dim == 2 else "s"
+                    break
+                except np.linalg.LinAlgError:
+                    continue
         except ZeroDivisionError:
             rec["status"] = "weak first stage"
+            continue
+        if out is None:
+            rec["status"] = "singular"
             continue
         tau_p, se_p, psi_p, extra = out[p]
         tau_q, se_q, psi_q, _ = out[q]
@@ -474,7 +519,6 @@ def rdnet(
         rec.update(tau=tau_p, se=se_p, tau_bc=tau_q, **extra)
         _set_rb(rec, se_q, z)
         psi_store[j] = (idx, psi_q, ks[q])
-
     table = pd.DataFrame(rows)
     table["h"] = np.where(np.isclose(table["h0"], table["h1"]), table["h0"], np.nan)
     crit = cov = None
