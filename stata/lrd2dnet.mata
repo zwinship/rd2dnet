@@ -3125,9 +3125,11 @@ real matrix rdn_bandwidth_matrix(real scalar nJ)
     if (st_local("hlist") == "") return(J(0, 0, .))
     hv = strtoreal(tokens(st_local("hlist")))'
     if (rows(hv) == 1) return(J(nJ, 2, hv[1]))
-    if (rows(hv) == 2 & nJ != 2) return(J(nJ, 1, 1) * hv')
+    // two numbers are always (h_control h_treated); with two evaluation
+    // points, give one bandwidth per point through hmatrix()
+    if (rows(hv) == 2) return(J(nJ, 1, 1) * hv')
     if (rows(hv) == nJ) return((hv, hv))
-    _error(503, "h() must be one number, (h_control h_treated), or one value per evaluation point")
+    _error(503, "h() must be one number, (h_control h_treated), or one value per evaluation point (or use hmatrix())")
     return(J(0, 0, .))
 }
 

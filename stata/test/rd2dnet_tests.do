@@ -297,6 +297,41 @@ program define t_river
     rdbwnet y_out
 end
 
+capture program drop t_floor
+program define t_floor
+    * bandwidths at the selector's floor (the distance to the bwcheck-th nearest
+    * observation) must leave that observation inside the kernel, so points
+    * are estimable rather than "insufficient"
+    rdnetmock, clear
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) ///
+        treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
+    rdbwnet outcome
+    matrix W = r(bws)
+    local J = rowsof(W)
+    matrix HF = J(`J', 2, 1000)
+    forvalues j = 1/`J' {
+        if W[`j', 3] == 0 {
+            local f = max(W[`j', 9], W[`j', 10])
+            matrix HF[`j', 1] = `f'
+            matrix HF[`j', 2] = `f'
+        }
+    }
+    rdnet outcome, hmatrix(HF) seed(0)
+    matrix R = e(results)
+    local bad 0
+    forvalues j = 1/`J' {
+        if W[`j', 3] == 0 & R[`j', 15] == 2 local ++bad
+    }
+    rdn_expect `bad' 0 0 "no point at the bandwidth floor is insufficient"
+    * two numbers in h() are (h_control h_treated), whatever the number of points
+    matrix EP = (600 \ 2600)
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) evalpoints(EP)
+    rdnet outcome, h(800 1000)
+    matrix R = e(results)
+    rdn_expect R[2,4] 800 0 "h(800 1000): h0 = 800"
+    rdn_expect R[2,5] 1000 0 "h(800 1000): h1 = 1000"
+end
+
 capture program drop t_errors
 program define t_errors
     rdnetmock, clear
@@ -326,6 +361,7 @@ rdn_block t_metrics
 rdn_block t_options
 rdn_block t_entry
 rdn_block t_river
+rdn_block t_floor
 rdn_block t_errors
 
 di _n "{hline 70}"
