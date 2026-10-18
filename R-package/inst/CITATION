@@ -1,0 +1,45 @@
+bibentry(
+  bibtype = "Manual",
+  header = "rd2dnet is built on rd2d. Please cite the rd2d papers and this package:",
+  title = "{rd2dnet}: Boundary Discontinuity Designs on Networks",
+  author = person("Zach", "Winship"),
+  year = "2026",
+  note = paste("R package version", meta$Version),
+  url = "https://github.com/zwinship/rd2dnet"
+)
+bibentry(
+  bibtype = "Misc",
+  title = "{rd2d}: Causal Inference in Boundary Discontinuity Designs",
+  author = c(person("Matias D.", "Cattaneo"), person("Rocío", "Titiunik"), person("Ruiqi Rae", "Yu")),
+  year = "2026",
+  note = "Working paper",
+  url = "https://arxiv.org/abs/2505.07989"
+)
+bibentry(
+  bibtype = "Article",
+  title = "Estimation and Inference in Boundary Discontinuity Designs: Distance-Based Methods",
+  author = c(person("Matias D.", "Cattaneo"), person("Rocío", "Titiunik"), person("Ruiqi Rae", "Yu")),
+  journal = "Journal of Econometrics",
+  year = "2026",
+  volume = "256",
+  number = "A",
+  pages = "106266"
+)
+bibentry(
+  bibtype = "Unpublished",
+  title = "Estimation and Inference in Boundary Discontinuity Designs: Location-Based Methods",
+  author = c(person("Matias D.", "Cattaneo"), person("Rocío", "Titiunik"), person("Ruiqi Rae", "Yu")),
+  year = "2026",
+  note = "Journal of the American Statistical Association, revise and resubmit"
+)
+bibentry(
+  bibtype = "Article",
+  title = "Simple Local Polynomial Density Estimators",
+  author = c(person("Matias D.", "Cattaneo"), person("Michael", "Jansson"), person("Xinwei", "Ma")),
+  journal = "Journal of the American Statistical Association",
+  year = "2020",
+  volume = "115",
+  number = "531",
+  pages = "1449--1455",
+  doi = "10.1080/01621459.2019.1635480"
+)

@@ -1,0 +1,62 @@
+Package: rd2dnet
+Type: Package
+Title: Boundary Discontinuity Designs on Networks
+Version: 0.1.0
+Authors@R: c(
+    person("Zach", "Winship", role = c("aut", "cre", "cph"),
+           email = "MAINTAINER-EMAIL@example.com"),
+    person("Matias D.", "Cattaneo", role = c("ctb", "cph"),
+           comment = "author of rd2d and rddensity, from which the bandwidth selector and density test are ported"),
+    person("Rocío", "Titiunik", role = c("ctb", "cph"),
+           comment = "author of rd2d, from which the bandwidth selector is ported"),
+    person("Ruiqi Rae", "Yu", role = c("ctb", "cph"),
+           comment = "author of rd2d, from which the bandwidth selector is ported"),
+    person("Michael", "Jansson", role = c("ctb", "cph"),
+           comment = "author of rddensity, from which the density test is ported"),
+    person("Xinwei", "Ma", role = c("ctb", "cph"),
+           comment = "author of rddensity, from which the density test is ported")
+    )
+Description: Estimation and inference for boundary discontinuity designs on
+    street networks. Extends the location-based framework of 'rd2d'
+    (Cattaneo, Titiunik and Yu, <doi:10.48550/arXiv.2505.07989>) from
+    Euclidean coordinates to network-native coordinates (signed network
+    distance to the boundary and offset along it) and user-defined network
+    metrics (edge costs, travel time, road-class transition penalties,
+    precomputed matrices). Provides side-specific local polynomial estimates
+    of boundary average treatment effect curves with robust bias-corrected
+    inference (Calonico, Cattaneo and Titiunik, 2014,
+    <doi:10.3982/ECTA11757>), uniform confidence bands, weighted and largest
+    aggregate effects, fuzzy designs, covariates, derivative targets,
+    heteroskedasticity-robust, cluster and network Conley (1999,
+    <doi:10.1016/S0304-4076(98)00084-0>) standard errors, a port of the
+    'rd2d' direct plug-in bandwidth selector, and a network-normalised
+    version of the local polynomial density test of Cattaneo, Jansson and
+    Ma (2020, <doi:10.1080/01621459.2019.1635480>).
+License: GPL-3
+URL: https://github.com/zwinship/rd2dnet
+BugReports: https://github.com/zwinship/rd2dnet/issues
+Depends:
+    R (>= 4.1.0)
+Imports:
+    graphics,
+    grDevices,
+    methods,
+    Rcpp,
+    stats,
+    utils
+LinkingTo:
+    Rcpp
+Suggests:
+    dodgr,
+    igraph,
+    knitr,
+    Matrix,
+    rmarkdown,
+    sf,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1

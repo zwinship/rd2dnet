@@ -27,6 +27,15 @@ pip install "rd2dnet[plot]"      # plus plotting (matplotlib)
 
 Requires Python 3.10 or newer. Releases are on [PyPI](https://pypi.org/project/rd2dnet/).
 
+**R package.** The same methods are available in R, in [`R-package/`](R-package/)
+(same functions in snake case, same numbers on the bundled data):
+
+```r
+remotes::install_github("zwinship/rd2dnet", subdir = "R-package")
+```
+
+See [`R-package/README.md`](R-package/README.md) and `vignette("rd2dnet")`.
+
 ## Method
 
 `rd2d` fits a local polynomial in `(X1 - b1, X2 - b2)` on each side of the boundary at
@@ -276,6 +285,19 @@ another app (such as Inkscape). `py -0p` lists the installed interpreters.
 GitHub Actions (`.github/workflows/ci.yml`) runs the tests on Python 3.10-3.13 (Linux) and
 3.12 (Windows), executes the tutorial, and builds and checks the distribution.
 `examples/make_tutorial.py` regenerates the notebook.
+
+The R package is developed in `R-package/` (C++ core via Rcpp, roxygen2 documentation,
+testthat tests including parity checks against this package's numbers):
+
+```bash
+cd R-package
+Rscript -e 'Rcpp::compileAttributes(); roxygen2::roxygenise()'
+R CMD build . && R CMD check --as-cran rd2dnet_*.tar.gz
+```
+
+`.github/workflows/R-CMD-check.yml` runs `R CMD check --as-cran` on Linux (R release,
+devel and oldrel), macOS and Windows. `R-package/data-raw/` regenerates the bundled data
+from this package's files.
 
 ## References
 
