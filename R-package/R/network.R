@@ -506,6 +506,11 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", ..
 #'   weighting profile).
 #' @param metric Metric specification, as in [network_graph()].
 #' @param offline_fallback Return the bundled mock network when the download fails.
+#' @param dist,min_area `query` is geocoded with Nominatim and the bounding box
+#'   of its top match is downloaded. When that match is a point (many
+#'   neighbourhoods, such as Midtown Manhattan, are mapped as points) or covers
+#'   less than `min_area` square metres (a single building), the streets
+#'   within `dist` metres of it are downloaded instead, with a warning.
 #' @param ... Further arguments to [network_graph()].
 #' @return A [network_graph()] with `length` (m), `highway`, and
 #'   `travel_time` (s) edge columns.
@@ -516,12 +521,14 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", ..
 #' }
 #' @export
 network_graph_from_place <- function(query = NULL, bbox = NULL, network_type = "walk",
-                                     metric = "length", offline_fallback = TRUE, ...) {
+                                     metric = "length", offline_fallback = TRUE, dist = 1000,
+                                     min_area = 250000, ...) {
   if (is.null(query) && is.null(bbox)) stop("give a place query or a bbox", call. = FALSE)
-  where <- if (!is.null(bbox)) bbox else query
   profile <- switch(network_type, walk = "foot", bike = "bicycle", drive = "motorcar", network_type)
-  res <- tryCatch(.network_from_dodgr(.osm_download(where, profile), metric = metric, ...),
-                  error = function(e) e)
+  res <- tryCatch({
+    where <- if (!is.null(bbox)) as.numeric(bbox) else .place_bbox(query, dist, min_area)
+    .network_from_dodgr(.osm_download(where, profile), metric = metric, ...)
+  }, error = function(e) e)
   if (inherits(res, "error")) {
     if (!offline_fallback) stop(res)
     warning(sprintf("OSM download failed (%s); using the bundled mock Midtown network",
@@ -531,12 +538,47 @@ network_graph_from_place <- function(query = NULL, bbox = NULL, network_type = "
   res
 }
 
+# Bounding box c(xmin, ymin, xmax, ymax) of the top geocoding match for `query`,
+# or a square of half-width `dist` metres around it when the match is a point or
+# covers less than `min_area` square metres.
+.place_bbox <- function(query, dist, min_area) {
+  bb <- .geocode_bbox(query)
+  r <- .bbox_or_radius(bb, dist, min_area)
+  if (r$small) {
+    warning(sprintf("'%s' geocodes to an area of %s m2; using the streets within %s m of it", query,
+                    format(round(r$area), big.mark = ","), format(dist)), call. = FALSE)
+  }
+  r$bbox
+}
+
+# Top Nominatim match as c(xmin, ymin, xmax, ymax) in longitude/latitude.
+.geocode_bbox <- function(query) {
+  if (!requireNamespace("osmdata", quietly = TRUE)) stop("package 'osmdata' is needed", call. = FALSE)
+  m <- osmdata::getbb(query)
+  bb <- c(m[1, 1], m[2, 1], m[1, 2], m[2, 2])
+  if (anyNA(bb)) stop(sprintf("Nominatim found no match for '%s'", query), call. = FALSE)
+  bb
+}
+
+.bbox_or_radius <- function(bb, dist, min_area) {
+  lon0 <- (bb[1] + bb[3]) / 2
+  lat0 <- (bb[2] + bb[4]) / 2
+  mx <- 111320 * cos(lat0 * pi / 180) # metres per degree of longitude
+  my <- 110574 # metres per degree of latitude
+  area <- (bb[3] - bb[1]) * mx * (bb[4] - bb[2]) * my
+  if (area >= min_area) {
+    return(list(bbox = bb, small = FALSE, area = area))
+  }
+  list(bbox = c(lon0 - dist / mx, lat0 - dist / my, lon0 + dist / mx, lat0 + dist / my),
+       small = TRUE, area = area)
+}
+
 # Street network as a dodgr edge table (needs dodgr, osmdata and internet access).
-.osm_download <- function(where, profile) {
+.osm_download <- function(bbox, profile) {
   for (p in c("dodgr", "sf")) {
     if (!requireNamespace(p, quietly = TRUE)) stop(sprintf("package '%s' is needed", p), call. = FALSE)
   }
-  streets <- dodgr::dodgr_streetnet(where, quiet = TRUE)
+  streets <- dodgr::dodgr_streetnet(bbox, expand = 0, quiet = TRUE)
   dodgr::weight_streetnet(streets, wt_profile = profile)
 }
 

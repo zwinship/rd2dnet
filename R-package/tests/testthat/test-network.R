@@ -65,7 +65,7 @@ test_that("networks from igraph", {
 })
 
 test_that("from_place falls back to the mock network offline", {
-  local_mocked_bindings(.osm_download = function(...) stop("no internet"))
+  local_mocked_bindings(.geocode_bbox = function(...) stop("no internet"))
   expect_warning(net <- network_graph_from_place("Manhattan, New York"), "bundled mock")
   expect_equal(net$n_nodes, 450)
   expect_error(network_graph_from_place("Manhattan", offline_fallback = FALSE), "no internet")
@@ -77,11 +77,32 @@ test_that("from_place builds a projected network from a dodgr table", {
   fake <- data.frame(from_id = c("a", "b"), from_lon = c(-73.98, -73.979), from_lat = c(40.76, 40.76),
                      to_id = c("b", "c"), to_lon = c(-73.979, -73.979), to_lat = c(40.76, 40.761),
                      d = c(84.3, 111.2), highway = "residential", time = c(60, 80))
-  local_mocked_bindings(.osm_download = function(...) fake)
-  net <- network_graph_from_place("somewhere")
+  local_mocked_bindings(.geocode_bbox = function(...) c(-74.0, 40.75, -73.97, 40.77),
+                        .osm_download = function(...) fake)
+  expect_no_warning(net <- network_graph_from_place("somewhere"))
   expect_equal(net$n_nodes, 3)
   expect_equal(net$crs, "EPSG:32618")
   expect_equal(node_distance(net, "a", "c"), 84.3 + 111.2)
+})
+
+test_that("from_place downloads a radius around points and small areas", {
+  # a building-sized match (about 100 m x 100 m) becomes a square of half-width dist
+  r <- rd2dnet:::.bbox_or_radius(c(-73.978, 40.752, -73.9768, 40.7529), 800, 250000)
+  expect_true(r$small)
+  expect_equal((r$bbox[4] - r$bbox[2]) * 110574, 1600)
+  big <- rd2dnet:::.bbox_or_radius(c(-74.02, 40.70, -73.93, 40.88), 800, 250000)
+  expect_false(big$small)
+  expect_equal(big$bbox, c(-74.02, 40.70, -73.93, 40.88))
+  seen <- NULL
+  local_mocked_bindings(.geocode_bbox = function(...) c(-73.98, 40.75, -73.98, 40.75),
+                        .osm_download = function(bbox, profile) {
+                          seen <<- bbox
+                          stop("stop here")
+                        })
+  expect_warning(network_graph_from_place("Midtown Manhattan, New York", dist = 500,
+                                          offline_fallback = FALSE),
+                 "within 500 m") |> expect_error("stop here")
+  expect_equal(seen[2], 40.75 - 500 / 110574)
 })
 
 test_that("missing coordinates are an error", {

@@ -10,6 +10,8 @@ network_graph_from_place(
   network_type = "walk",
   metric = "length",
   offline_fallback = TRUE,
+  dist = 1000,
+  min_area = 250000,
   ...
 )
 }
@@ -25,6 +27,12 @@ weighting profile).}
 \item{metric}{Metric specification, as in \code{\link[=network_graph]{network_graph()}}.}
 
 \item{offline_fallback}{Return the bundled mock network when the download fails.}
+
+\item{dist, min_area}{\code{query} is geocoded with Nominatim and the bounding box
+of its top match is downloaded. When that match is a point (many
+neighbourhoods, such as Midtown Manhattan, are mapped as points) or covers
+less than \code{min_area} square metres (a single building), the streets
+within \code{dist} metres of it are downloaded instead, with a warning.}
 
 \item{...}{Further arguments to \code{\link[=network_graph]{network_graph()}}.}
 }

@@ -107,8 +107,10 @@ the recipes for donut designs, covariate balance, placebo boundaries and
 difference-in-discontinuities.
 
 For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, which needs
-`pip install -e .[osm]`. It falls back to the bundled mock network with a warning when
-offline. You can also pass your own graph:
+`pip install "rd2dnet[osm]"`. The query's top geocoding match is used: its outline when it
+is an area of at least `min_area` (250,000 m² by default), otherwise (a neighbourhood
+mapped as a point, a single building) the streets within `dist` metres of it (1,000 by
+default). It falls back to the bundled mock network with a warning when offline. You can also pass your own graph:
 `NetworkGraph(G)`, `NetworkGraph.from_adjacency(A, coords)` or `NetworkGraph.from_igraph(g)`.
 
 ### Features

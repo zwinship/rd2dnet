@@ -43,31 +43,81 @@ def test_from_adjacency():
     assert net.node_distance(0, 2) == pytest.approx(5.0)
 
 
-def test_from_place_offline_fallback(monkeypatch):
+def _fake_osmnx(monkeypatch, geom=None, *, fail=None):
+    """Stand-in for osmnx: geocoding returns ``geom`` (or raises ``fail``) and
+    downloads return the mock city's graph, recording which loader ran."""
     import sys
     import types
 
+    import pandas as pd
+    from shapely.geometry import Point
+
+    from rd2dnet.datasets import make_mock_graph
+
+    calls = []
     fake = types.ModuleType("osmnx")
 
-    def boom(*a, **k):
-        raise ConnectionError("no internet")
+    def geocode_to_gdf(query, which_result=None):
+        if fail is not None:
+            raise fail
+        calls.append(("geocode", which_result))
+        g = geom if geom is not None else Point(-73.98, 40.75)
+        # Polygons are given in metres, so the "projected" area is the shape's own.
+        return pd.DataFrame({"geometry": [g], "display_name": ["Somewhere"], "lat": [40.75], "lon": [-73.98]})
 
-    fake.graph_from_place = boom
+    def loader(name):
+        def load(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return make_mock_graph()
+        return load
+
+    fake.geocode_to_gdf = geocode_to_gdf
+    fake.projection = types.SimpleNamespace(
+        project_gdf=lambda gdf: pd.DataFrame({"area": [gdf.geometry.iloc[0].area]}))
+    fake.graph_from_polygon = loader("polygon")
+    fake.graph_from_point = loader("point")
+    fake.graph_from_bbox = loader("bbox")
     monkeypatch.setitem(sys.modules, "osmnx", fake)
+    return calls
+
+
+def test_from_place_offline_fallback(monkeypatch):
+    _fake_osmnx(monkeypatch, fail=ConnectionError("no internet"))
     with pytest.warns(UserWarning, match="bundled mock"):
         net = rd2dnet.NetworkGraph.from_place("Manhattan, New York")
     assert net.n_nodes == 450
 
 
 def test_from_place_raises_without_fallback(monkeypatch):
-    import sys
-    import types
-
-    fake = types.ModuleType("osmnx")
-    fake.graph_from_place = lambda *a, **k: (_ for _ in ()).throw(ConnectionError("down"))
-    monkeypatch.setitem(sys.modules, "osmnx", fake)
+    _fake_osmnx(monkeypatch, fail=ConnectionError("down"))
     with pytest.raises(ConnectionError):
         rd2dnet.NetworkGraph.from_place("Manhattan", offline_fallback=False)
+
+
+def test_from_place_uses_the_outline_of_a_large_area(monkeypatch):
+    calls = _fake_osmnx(monkeypatch, box(0, 0, 2000, 2000))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        net = rd2dnet.NetworkGraph.from_place("Manhattan, New York")
+    assert net.n_nodes == 450
+    assert calls[0] == ("geocode", 1)  # the top match, not the first polygon further down
+    assert calls[1][0] == "polygon"
+
+
+@pytest.mark.parametrize("geom", [None, box(0, 0, 100, 120)], ids=["point", "building"])
+def test_from_place_uses_a_radius_around_points_and_small_areas(monkeypatch, geom):
+    calls = _fake_osmnx(monkeypatch, geom)
+    with pytest.warns(UserWarning, match="within 800 m"):
+        rd2dnet.NetworkGraph.from_place("Midtown Manhattan, New York", dist=800.0)
+    name, args, kwargs = calls[1]
+    assert name == "point"
+    assert args == ((40.75, -73.98),) and kwargs["dist"] == 800.0
+
+
+def test_from_place_bbox(monkeypatch):
+    calls = _fake_osmnx(monkeypatch)
+    rd2dnet.NetworkGraph.from_place(bbox=(-74.0, 40.7, -73.9, 40.8))
+    assert calls[0][0] == "bbox"
 
 
 def test_missing_coordinates_error():

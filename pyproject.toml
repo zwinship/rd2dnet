@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rd2dnet"
-version = "0.1.0"
+version = "0.1.1"
 description = "Boundary discontinuity designs on street networks: a network-native extension of rd2d (Cattaneo, Titiunik and Yu)"
 readme = "README.md"
 requires-python = ">=3.10"

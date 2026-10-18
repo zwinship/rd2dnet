@@ -313,9 +313,18 @@ class NetworkGraph:
         network_type: str = "walk",
         metric="length",
         offline_fallback: bool = True,
+        dist: float = 1000.0,
+        min_area: float = 250_000.0,
         **kwargs,
     ) -> "NetworkGraph":
         """Download an OpenStreetMap network with OSMnx.
+
+        ``query`` is geocoded with Nominatim and its top match is used. If
+        that match is an area of at least ``min_area`` square metres (a city,
+        borough or district), the streets inside its outline are downloaded.
+        Otherwise (many neighbourhoods, such as Midtown Manhattan, are mapped
+        as points, and a query can also match a single building) the streets
+        within ``dist`` metres of it are downloaded, with a warning.
 
         If OSMnx is missing or the download fails and ``offline_fallback`` is
         true, the bundled mock Midtown network is returned with a warning, so
@@ -327,7 +336,21 @@ class NetworkGraph:
             if bbox is not None:
                 G = ox.graph_from_bbox(bbox, network_type=network_type)
             elif query is not None:
-                G = ox.graph_from_place(query, network_type=network_type)
+                # Top match whatever its geometry: osmnx's default skips points and
+                # can land on a much smaller feature (a building) further down the list.
+                place = ox.geocode_to_gdf(query, which_result=1)
+                geom = place.geometry.iloc[0]
+                is_area = geom.geom_type in ("Polygon", "MultiPolygon")
+                area = float(ox.projection.project_gdf(place).area.iloc[0]) if is_area else 0.0
+                if area >= min_area:
+                    G = ox.graph_from_polygon(geom, network_type=network_type)
+                else:
+                    name = place["display_name"].iloc[0] if "display_name" in place else query
+                    what = f"an area of {area:,.0f} m2" if is_area else f"a {geom.geom_type}"
+                    warnings.warn(f"{query!r} geocodes to {what} ({name}); using the streets within "
+                                  f"{dist:g} m of it", stacklevel=2)
+                    point = (float(place["lat"].iloc[0]), float(place["lon"].iloc[0]))
+                    G = ox.graph_from_point(point, dist=dist, network_type=network_type)
             else:
                 raise ValueError("give a place query or a bbox")
         except ValueError:

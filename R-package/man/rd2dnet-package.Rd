@@ -34,7 +34,7 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Zach Winship \email{MAINTAINER-EMAIL@example.com} [copyright holder]
+\strong{Maintainer}: Zach Winship \email{zachtwinship@gmail.com} [copyright holder]
 
 Other contributors:
 \itemize{

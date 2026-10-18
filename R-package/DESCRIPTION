@@ -51,6 +51,7 @@ Suggests:
     igraph,
     knitr,
     Matrix,
+    osmdata,
     rmarkdown,
     sf,
     testthat (>= 3.0.0)
