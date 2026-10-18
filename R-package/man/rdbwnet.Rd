@@ -36,8 +36,8 @@ rdbwnet(
 evaluation points), or the coverage-error-optimal \code{"cerrd"}, \code{"certwo"},
 \code{"icerrd"}, \code{"icertwo"}.}
 
-\item{vce}{\code{"hc0"}-\code{"hc3"} variance used inside the selector (others fall
-back to \code{"hc1"}).}
+\item{vce}{\code{"hc0"}-\code{"hc3"} variance used inside the selector
+(\code{"cluster"} and \code{"conley"} select with \code{"hc1"}).}
 
 \item{bwcheck}{Every bandwidth is at least the distance to the
 \code{bwcheck}-th nearest observation on each side (default \verb{20 +} the number
@@ -51,7 +51,13 @@ A data frame with one row per evaluation point: the
 control/treated bandwidths \code{h0}/\code{h1} (and \code{h} when they are equal), the
 pilots \code{dn}, \code{bn0}, \code{bn1}, the MSE constants (\code{V}, \code{B}, \code{Reg1}, \code{Reg2}
 per side, suffixed 0 for control and 1 for treated), the bounds
-\code{hmin0}/\code{hmin1}/\code{hmax0}/\code{hmax1}, local sample sizes \code{n0}/\code{n1}, and a \code{status}.
+\code{hmin0}/\code{hmin1}/\code{hmax0}/\code{hmax1}, the side sample sizes \code{n0}/\code{n1}, the
+local \code{basis} (\code{"s,o"}, or \code{"s"} where few boundary crossings leave no
+variation in the offset \code{o}), and a \code{status}.
+
+\code{\link[=rdnet]{rdnet()}} selects with \code{scaleregul = 3} (as rd2d does for estimation), so
+its bandwidths differ from this function's defaults; they are stored in
+the \code{bandwidths} element of its result.
 }
 \description{
 Selects MSE- or coverage-error-optimal bandwidths (in metric units) at each

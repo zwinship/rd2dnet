@@ -91,6 +91,30 @@
   sort(d, partial = k)[k]
 }
 
+.check_obs <- function(v, n, name) {
+  v <- as.numeric(v)
+  if (length(v) != n) {
+    stop(sprintf("%s must have one value per observation (%d), got %d", name, n, length(v)), call. = FALSE)
+  }
+  v
+}
+
+.check_weights <- function(weights, n) {
+  w <- .check_obs(weights, n, "weights")
+  if (!all(is.finite(w)) || any(w < 0)) stop("weights must be finite and non-negative", call. = FALSE)
+  w
+}
+
+.check_cluster <- function(cluster, n) {
+  cl <- as.vector(cluster)
+  if (is.factor(cluster)) cl <- as.character(cluster)
+  if (length(cl) != n) {
+    stop(sprintf("cluster must have one value per observation (%d), got %d", n, length(cl)), call. = FALSE)
+  }
+  if (anyNA(cl)) stop("cluster has missing values", call. = FALSE)
+  cl
+}
+
 # Column sums by group: rowsum() that keeps a matrix.
 .group_sum <- function(X, g) {
   rowsum(as.matrix(X), g, reorder = TRUE)

@@ -13,7 +13,7 @@ edge_frame(net)
 A data frame with a list column \code{geometry}.
 }
 \description{
-One row per undirected street segment (the first edge of each node pair):
+One row per undirected street segment (the cheapest edge of each node pair):
 endpoint indices \code{u} and \code{v}, geometric \code{length} (the \code{length} column, or
 the geometry's length), the metric \code{cost} of traversing it (\code{NA} for a
 precomputed metric), and its \code{geometry} oriented from \code{u} to \code{v}.

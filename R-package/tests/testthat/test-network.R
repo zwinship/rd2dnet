@@ -24,7 +24,7 @@ test_that("splitting keeps edge geometries and coordinates work across the split
   net <- with_boundary_crossings(network_graph(edges, nodes), b)
   expect_equal(attr(net, "n_crossings_inserted"), 1)
   expect_equal(sort(net$edges$length[1:3]), c(50, 100, 150))
-  cc <- network_coordinates(network_graph(edges, nodes), b, rbind(c(0, -50), c(50, 100)))
+  cc <- network_coordinates(network_graph(edges, nodes), b, rbind(c(0, -50), c(50, 100)), n_eval = 1)
   expect_equal(cc$s, c(100, -100))
 })
 

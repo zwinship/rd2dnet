@@ -25,13 +25,16 @@
 #' @param network A [network_graph()], carrying its metric.
 #' @param boundary A [boundary()].
 #' @param points Observation locations: an `n x 2` matrix, a data frame with
-#'   `x`/`y` columns, or sf points, in the network's projected coordinates (or
-#'   longitude/latitude with `lonlat = TRUE`).
-#' @param treated Optional treatment indicator; defaults to the side of the
-#'   boundary each point is on.
+#'   `x`/`y` columns (or exactly two columns), or sf points, in the network's
+#'   projected coordinates (or longitude/latitude with `lonlat = TRUE`). sf
+#'   points in another CRS are transformed to the network's `crs`.
+#' @param treated Optional treatment indicator (logical or 0/1); defaults to
+#'   the side of the boundary each point is on (points on the line count as
+#'   treated with a `treated_region`).
 #' @param eval_points Arc-length positions along the boundary, or a two-column
 #'   matrix of coordinates to project onto it. Defaults to `n_eval` equally
-#'   spaced points spanning the boundary nodes. Each evaluation point is placed
+#'   spaced points spanning the boundary nodes (around the whole ring for a
+#'   closed boundary). Each evaluation point is placed
 #'   on the street segment running along the boundary, or at the nearest
 #'   boundary node when there is none.
 #' @param n_eval Number of default evaluation points.
@@ -39,6 +42,14 @@
 #' @param lonlat Points are longitude/latitude; project them into the
 #'   network's `crs` (requires \pkg{sf}).
 #' @param split_edges Insert nodes where edges cross the boundary (recommended).
+#' @param extensive Edge columns divided in proportion when an edge is split
+#'   at the boundary (the metric's own cost column always is); others are copied.
+#'
+#' @details On a directed network (`direction = "out"`), distances run from
+#'   the boundary to each location, following edge directions: on a river
+#'   drawn downstream, locations upstream of the boundary cannot be reached.
+#'   Use `direction = "in"` for distances from each location to the boundary,
+#'   or `"both"` to ignore direction.
 #'
 #' @return An object of class `rd2dnet_coords`, a list with (among others)
 #'   `s`, `treated`, `xy`, `crossing_arc` (where each observation reaches the
@@ -54,7 +65,8 @@
 #' head(as.data.frame(coords, j = 5))
 #' @export
 network_coordinates <- function(network, boundary, points, treated = NULL, eval_points = NULL,
-                                n_eval = 25, snap = "edge", lonlat = FALSE, split_edges = TRUE) {
+                                n_eval = 25, snap = "edge", lonlat = FALSE, split_edges = TRUE,
+                                extensive = c("length", "travel_time")) {
   .check_network(network)
   .check_boundary(boundary)
   xy <- .as_points(points, network$crs)
@@ -62,20 +74,25 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
     if (is.null(network$crs)) stop("network has no crs to project lon/lat into", call. = FALSE)
     xy <- project_lonlat(xy[, 1], xy[, 2], network$crs)
   }
-  if (split_edges) network <- with_boundary_crossings(network, boundary)
+  if (!all(is.finite(xy))) stop("point coordinates must be finite", call. = FALSE)
+  if (split_edges) network <- with_boundary_crossings(network, boundary, extensive)
 
-  node_on <- boundary_distance(boundary, network$coords) <= boundary$tol
+  bdist <- boundary_distance(boundary, network$coords)
+  node_on <- bdist <= boundary$tol
+  near_tol <- 1e-4 * boundary$length
+  near <- bdist > boundary$tol & bdist <= near_tol
+  if (sum(near) >= 3) {
+    warning(sprintf(paste0("%d network nodes lie within %.3g of the boundary but outside boundary(tol = %g); ",
+                           "if the boundary follows a street, increase tol (in the network's coordinate ",
+                           "units) so they count as on it"), sum(near), near_tol, boundary$tol), call. = FALSE)
+  }
   node_T <- boundary_is_treated(boundary, network$coords) & !node_on
   bnodes <- which(node_on)
   if (!length(bnodes)) {
     stop("no network nodes lie on the boundary; check the coordinates or increase boundary(tol = ...)",
          call. = FALSE)
   }
-  Tin <- NULL
-  if (!is.null(treated)) {
-    Tin <- as.logical(treated)
-    if (length(Tin) != nrow(xy)) stop("treated must have one entry per point", call. = FALSE)
-  }
+  Tin <- if (is.null(treated)) NULL else .as_treated(treated, nrow(xy))
   # Repeated locations (panels, mass points) are processed once.
   ul <- .unique_locations(xy, Tin)
   loc <- ul$loc
@@ -114,8 +131,9 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
   crossing[on_edge] <- ifelse(cu <= cv, u, v)[on_edge]
   unreachable <- !is.finite(dist) | is.na(crossing)
   if (any(unreachable)) {
-    warning(sprintf("%d observations cannot reach the boundary and are dropped",
-                    sum(unreachable[loc])), call. = FALSE)
+    warning(sprintf(paste0("%d observations (%d locations) have no network path to the boundary and are ",
+                           "dropped (disconnected parts of the network, or edge directions)"),
+                    sum(unreachable[loc]), sum(unreachable)), call. = FALSE)
   }
   s <- ifelse(unreachable, NA_real_, ifelse(T_l, dist, -dist))
   crossing[unreachable] <- NA_integer_
@@ -127,15 +145,38 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
   cross_arc[unreachable] <- NA_real_
 
   bnode_arc <- boundary_project(boundary, network$coords[bnodes, , drop = FALSE])
+  closed <- isTRUE(boundary$closed)
   if (is.null(eval_points)) {
-    eval_arc <- seq(min(bnode_arc), max(bnode_arc), length.out = n_eval)
-  } else if (is.matrix(eval_points) || is.data.frame(eval_points) || .is_sf(eval_points)) {
-    eval_arc <- boundary_project(boundary, eval_points)
+    if (closed) { # around the ring, without repeating the start
+      eval_arc <- (min(bnode_arc) + (seq_len(n_eval) - 1) * boundary$length / n_eval) %% boundary$length
+    } else {
+      eval_arc <- seq(min(bnode_arc), max(bnode_arc), length.out = n_eval)
+    }
   } else {
-    eval_arc <- as.numeric(eval_points)
+    if (is.matrix(eval_points) || is.data.frame(eval_points) || .is_sf(eval_points)) {
+      eval_arc <- boundary_project(boundary, eval_points)
+    } else {
+      eval_arc <- as.numeric(eval_points)
+    }
+    if (!length(eval_arc)) stop("eval_points is empty", call. = FALSE)
+    outside <- eval_arc < min(bnode_arc) - 1e-9 | eval_arc > max(bnode_arc) + 1e-9
+    if (any(outside) && !closed) {
+      warning(sprintf(paste0("%d evaluation points lie beyond the first or last place the network meets ",
+                             "the boundary; they are moved to the nearest boundary node"), sum(outside)),
+              call. = FALSE)
+    }
   }
   eval_snap <- .snap_eval_points(network, boundary, eval_arc, node_on, bnodes, bnode_arc)
   masked <- boundary_is_masked(boundary, eval_arc)
+  spot <- paste(pmin(eval_snap$u, eval_snap$v), pmax(eval_snap$u, eval_snap$v),
+                round(ifelse(eval_snap$u <= eval_snap$v, eval_snap$cost_u, eval_snap$cost_v), 6))
+  n_spots <- length(unique(spot[!masked]))
+  if (n_spots < 0.75 * sum(!masked)) { # a few repeats near the ends are harmless
+    warning(sprintf(paste0("the %d evaluation points fall on only %d distinct places (the network meets the ",
+                           "boundary at few points); their estimates repeat, so pass one evaluation point ",
+                           "per crossing, e.g. eval_points = <crossing coordinates>"), sum(!masked), n_spots),
+            call. = FALSE)
+  }
   ecu <- eval_snap$cost_u
   ecv <- eval_snap$cost_v
   tot <- ecu + ecv
@@ -193,6 +234,23 @@ print.rd2dnet_coords <- function(x, ...) {
     stop("expected coordinates created with network_coordinates()", call. = FALSE)
   }
   coords
+}
+
+# Logical treatment indicator from logical or 0/1 input, with checks.
+.as_treated <- function(treated, n) {
+  t <- if (is.factor(treated)) as.character(treated) else treated
+  if (!is.logical(t)) {
+    v <- suppressWarnings(as.numeric(t))
+    if (anyNA(v) || !all(v %in% c(0, 1))) {
+      stop("treated must be logical or 0/1 without missing values", call. = FALSE)
+    }
+    t <- v == 1
+  }
+  if (anyNA(t)) stop("treated must be logical or 0/1 without missing values", call. = FALSE)
+  if (length(t) != n) {
+    stop(sprintf("treated must have one entry per point (%d), got %d", n, length(t)), call. = FALSE)
+  }
+  as.vector(t)
 }
 
 # `(loc, first)`: location id of each point and one point per location (by
@@ -316,7 +374,12 @@ coords_at <- function(coords, j) {
   sn <- coords$lsnap
   d <- coords$ldepth + pmin(sn$cost_u + D[sn$u], sn$cost_v + D[sn$v])
   d <- pmin(d, coords$ldepth + .along_eval_edge(coords, sn, j))
-  sgn <- sign(coords$lcross_arc - coords$eval_node_arc[j])
+  diff <- coords$lcross_arc - coords$eval_node_arc[j]
+  if (isTRUE(coords$boundary$closed)) { # the shorter way round the ring
+    L <- coords$boundary$length
+    diff <- (diff + L / 2) %% L - L / 2
+  }
+  sgn <- sign(diff)
   cr <- coords$lcross
   reach <- pmin(cr$cost_u + D[cr$u], cr$cost_v + D[cr$v])
   reach <- pmin(reach, .along_eval_edge(coords, cr, j))

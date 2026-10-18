@@ -39,9 +39,10 @@ are skipped.}
 
 \item{coords}{Output of \code{\link[=network_coordinates]{network_coordinates()}}.}
 
-\item{h}{Bandwidth in metric units: a scalar, \code{c(h_control, h_treated)},
-one value per evaluation point, a \verb{J x 2} matrix, or \code{NULL} to select with
-\code{\link[=rdbwnet]{rdbwnet()}} using \code{bwselect}.}
+\item{h}{Bandwidth in metric units: a scalar, \code{c(h_control, h_treated)}
+(a length-2 vector always means this), one value per evaluation point, a
+\verb{J x 2} matrix (use this for per-point bandwidths when \code{J = 2}), or
+\code{NULL} to select with \code{\link[=rdbwnet]{rdbwnet()}} using \code{bwselect}.}
 
 \item{p, q}{Polynomial order for estimation and for bias-corrected
 inference (default \code{p + 1}).}
@@ -62,13 +63,20 @@ that are constant in a local sample are dropped there.}
 \item{kernel}{\code{"triangular"}, \code{"epanechnikov"}, \code{"uniform"}, \code{"gaussian"}
 or a function (see \code{\link[=get_kernel]{get_kernel()}}).}
 
-\item{bwselect}{Bandwidth selector used when \code{h} is \code{NULL}; see \code{\link[=rdbwnet]{rdbwnet()}}.}
+\item{bwselect}{Bandwidth selector used when \code{h} is \code{NULL}; see
+\code{\link[=rdbwnet]{rdbwnet()}}. Selection uses \code{scaleregul = 3}, as rd2d does for
+estimation, so it differs from a call to \code{\link[=rdbwnet]{rdbwnet()}} with its defaults;
+the selected bandwidths are stored in the \code{bandwidths} element.}
 
 \item{vce}{\code{"hc0"}-\code{"hc3"}; \code{"cluster"} (with \code{cluster}) and \code{"conley"}
 (with \code{conley_cutoff}) are implied when those are given.}
 
 \item{cluster}{Cluster labels, one per observation; implies \code{vce = "cluster"}
-(CR1 with rd2d's \code{(n - 1)/(n - k) * g/(g - 1)} factor).}
+(CR1 with rd2d's \code{(n - 1)/(n - k) * g/(g - 1)} factor). Points with fewer
+than two clusters on a side get status \code{"few clusters"}. With repeated
+measurements (panels), clusters much smaller than the bandwidth, such as
+the unit itself, can still understate the variance of spatially
+correlated shocks; \code{conley_cutoff} is the safer choice.}
 
 \item{conley_cutoff, conley_distance}{Spatial HAC with Bartlett weights over
 \code{"network"} (default) or \code{"euclidean"} distance, used for pointwise
@@ -89,7 +97,7 @@ multiplying the kernel weights.}
 \item{pooled}{Fit one regression \code{y ~ 1 + T + poly(s, o)} with common
 slopes instead of side-specific polynomials (levels only).}
 
-\item{level}{Confidence level in percent.}
+\item{level}{Confidence level in percent (e.g. 95).}
 
 \item{cbands}{Add the uniform confidence band \code{cb_lo}/\code{cb_hi} to the table.
 The joint covariance and its critical value are stored either way.}
@@ -114,8 +122,10 @@ bandwidths \code{h0}, \code{h1} (and \code{h} when equal), local sample sizes \c
 \code{n1}, the order-\code{p} estimate \code{tau} and its standard error \code{se}, the
 bias-corrected \code{tau_bc} with robust \code{se_rb}, the robust interval
 \code{ci_lo}/\code{ci_hi}, \code{pvalue}, a \code{status} (\code{"ok"}, \code{"masked"},
-\code{"insufficient"}, \code{"singular"}, \code{"no bandwidth"}, \code{"weak first stage"}), and optionally the uniform band \code{cb_lo}/\code{cb_hi}. Fuzzy
-designs add \code{itt}, \code{fs} and \code{fs_se}.}
+\code{"insufficient"} (fewer than \code{min_obs} observations on a side),
+\code{"few clusters"}, \code{"singular"}, \code{"weak first stage"}, \code{"no bandwidth"}), the local \code{basis} (\code{"s,o"} or \code{"s"}, see Details), and
+optionally the uniform band \code{cb_lo}/\code{cb_hi}. Fuzzy designs add \code{itt},
+\code{fs} and \code{fs_se}.}
 \item{\code{cov}}{the \verb{J x J} covariance of \code{tau_bc} across evaluation
 points (rd2d's \code{params_cov}), \code{NA} for points not estimated; its
 diagonal is \code{se_rb^2}.}
@@ -133,6 +143,13 @@ and a uniform confidence band. This carries rd2d's location-based
 estimator over to network coordinates: \verb{(s, o(b))} replace
 \verb{(X1 - b1, X2 - b2)} and the network distance \code{d(b)} replaces the Euclidean
 distance in the kernel.
+}
+\details{
+The local fit is a polynomial in \verb{(s, o)}. Where the network
+meets the boundary at only a few points (rivers, rail lines, highways
+crossing a border), the offset \code{o} hardly varies near an evaluation point
+and that fit is singular; the point is then fitted in \code{s} alone and its
+\code{basis} column reads \code{"s"} instead of \code{"s,o"}.
 }
 \examples{
 city <- load_mock_midtown()

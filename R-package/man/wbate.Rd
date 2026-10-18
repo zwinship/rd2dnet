@@ -5,14 +5,15 @@
 \alias{lbate}
 \title{Aggregate boundary treatment effects}
 \usage{
-wbate(x, weights)
+wbate(x, weights = NULL)
 
 lbate(x)
 }
 \arguments{
 \item{x}{An \code{\link[=rdnet]{rdnet()}} result.}
 
-\item{weights}{One weight per evaluation point.}
+\item{weights}{One weight per evaluation point (default: equal weights on
+the estimated points).}
 }
 \value{
 A named numeric vector: \code{tau}, \code{tau_bc}, \code{se_rb}, \code{ci_lo},
@@ -22,8 +23,8 @@ p-value; \code{se_rb} and \code{pvalue} are \code{NA} for LBATE).
 \description{
 \code{wbate()} is the weighted boundary average treatment effect \verb{w' tau}
 (rd2d's WBATE): \code{weights} has one entry per evaluation point and is
-normalised to sum to one; points that were not estimated must get weight
-0. Its standard error \verb{sqrt(w' Sigma w)} uses the joint covariance
+normalised to sum to one; by default every estimated point gets equal
+weight. Points that were not estimated must get weight 0. Its standard error \verb{sqrt(w' Sigma w)} uses the joint covariance
 \code{x$cov}, so it accounts for the correlation between nearby points.
 }
 \details{

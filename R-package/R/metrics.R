@@ -119,7 +119,9 @@ precomputed <- function(matrix, nodes = NULL) {
 
 #' @rdname metrics
 #' @param speed_attr,length_attr Edge columns with the speed (km/h) and length (m).
-#' @param default_kph Speed used where `speed_attr` is missing.
+#' @param default_kph Speed used where `speed_attr` is absent or `NA`. For
+#'   data in feet and miles per hour, convert first (`length = 0.3048 *
+#'   length_ft`, `speed_kph = 1.609344 * speed_mph`).
 #' @export
 travel_time <- function(speed_attr = "speed_kph", length_attr = "length", default_kph = NULL) {
   fn <- function(edges) {

@@ -3,18 +3,20 @@
 .VCE_TYPES <- c("hc0", "hc1", "hc2", "hc3", "cluster", "conley")
 
 # Exponents (a, c) of s^a * o^c for all terms of total degree <= p, as a
-# two-column matrix; lower orders are row prefixes.
-.poly_exponents <- function(p) {
+# two-column matrix; lower orders are row prefixes. With dim = 1 the basis is a
+# polynomial in s alone (no offset terms).
+.poly_exponents <- function(p, dim = 2) {
+  if (dim == 1) return(cbind(a = 0:p, c = rep(0L, p + 1)))
   a <- unlist(lapply(0:p, function(k) k:0))
   k <- unlist(lapply(0:p, function(k) rep(k, k + 1)))
   cbind(a = a, c = k - a)
 }
 
-.n_terms <- function(p) (p + 1) * (p + 2) / 2
+.n_terms <- function(p, dim = 2) if (dim == 1) p + 1 else (p + 1) * (p + 2) / 2
 
 # Columns s^a * o^c in .poly_exponents() order.
-.poly_basis <- function(s, o, p) {
-  e <- .poly_exponents(p)
+.poly_basis <- function(s, o, p, dim = 2) {
+  e <- .poly_exponents(p, dim)
   s <- as.numeric(s)
   o <- as.numeric(o)
   sp <- vapply(0:p, function(k) s^k, numeric(length(s)))
@@ -24,8 +26,8 @@
   sp[, e[, "a"] + 1, drop = FALSE] * op[, e[, "c"] + 1, drop = FALSE]
 }
 
-.exp_index <- function(p, a, c) {
-  e <- .poly_exponents(p)
+.exp_index <- function(p, a, c, dim = 2) {
+  e <- .poly_exponents(p, dim)
   which(e[, "a"] == a & e[, "c"] == c)
 }
 

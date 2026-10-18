@@ -317,3 +317,47 @@ panel_xy <- as.matrix(obs[rep(1:500, each = 20), c("x", "y")]) # 500 sensors x 2
 pcoords <- network_coordinates(net, city$boundary, panel_xy, n_eval = 11)
 c(n_obs = pcoords$n_obs, n_locations = pcoords$n_locations)
 ```
+
+For repeated measurements, test sorting on locations, not rows
+(`density(pcoords, unique_locations = TRUE)`), and prefer Conley standard errors to
+clustering on the unit: clusters much smaller than the bandwidth understate the variance
+of spatially correlated shocks.
+
+## 11. Your own data
+
+**rd2d-style entry.** If your data look like rd2d's input (outcome `Y`, locations `X`,
+treatment `t`, and ordered boundary points `b`), `rd2dnet()` takes them directly plus a
+network. The boundary is drawn through `b` and the treated side is inferred from `t`;
+pass `boundary =` when you have the full line or the treated zone.
+
+```{r rd2d-style}
+b <- boundary_interpolate(city$boundary, boundary_grid(city$boundary, 9, start = 200, end = 2800))
+fit <- rd2dnet(obs$outcome, obs[, c("x", "y")], obs$treated, b, net,
+               boundary = city$boundary, h = 700, seed = 0)
+head(fit$table[, c("arc", "tau_bc", "ci_lo", "ci_hi", "status", "basis")])
+```
+
+**Networks from GIS layers.** `network_graph_from_lines()` accepts an sf layer of road,
+river or rail `LINESTRING`s (projected to the local UTM zone if it is in longitude/latitude),
+a list of vertex matrices, or a table of straight segments with endpoint columns
+`x1, y1, x2, y2`, such as many GIS exports. Line ends within `tol` become shared nodes and
+other columns (speed, lanes, flow direction) stay available to metrics. Use
+`split_at_intersections = TRUE` for layers that are not split at junctions and
+`directed = TRUE` (with `direction = "out"`) for lines drawn in the direction of flow.
+Node and edge tables go to `network_graph()`, and igraph objects to
+`network_graph_from_igraph()`.
+
+```{r from-lines}
+E <- edge_frame(net)
+seg <- data.frame(x1 = net$coords[E$u, 1], y1 = net$coords[E$u, 2],
+                  x2 = net$coords[E$v, 1], y2 = net$coords[E$v, 2])
+network_graph_from_lines(seg)
+```
+
+**Zones.** When the treated area is a polygon (a school zone, a city), its outline is the
+boundary: `boundary_from_region(zone)`, or `boundary_from_region(zone, within = area)` to
+keep only the stretch it shares with a neighbour. Closed outlines are handled as rings.
+
+**Few crossings.** On rivers, rail lines or highways that cross the border at a handful of
+points, the offset `o` has no variation near each crossing; those points are fitted in `s`
+alone, which the `basis` column reports. Put one evaluation point at each crossing.

@@ -1,3 +1,51 @@
+# rd2dnet 0.2.0
+
+## Easier data and network entry
+
+* `rd2dnet(Y, X, t, b, network)`: the data entry of rd2d's `rd2d(Y, X, t, b)`, with the
+  boundary drawn through the evaluation points `b` and the treated side inferred from `t`.
+* `network_graph_from_lines()`: networks from GIS line layers (sf `LINESTRING`s, lists of
+  vertex matrices, or segment tables with `x1, y1, x2, y2`). Ends within `tol` are joined,
+  attributes are kept for metrics, layers in longitude/latitude are projected to their UTM
+  zone, and `split_at_intersections = TRUE` nodes layers that are not split at junctions.
+* `boundary_from_points()` and `boundary_from_region()` (the outline of a treated zone,
+  optionally restricted to the stretch `within` a polygon).
+* `network_graph()` computes `length` when it is missing, and errors early when the
+  metric's column is missing. sf points in another CRS are transformed to the network's,
+  data frames with two unnamed coordinate columns are accepted, and networks in
+  longitude/latitude give a warning.
+* `network_graph_from_igraph()` falls back to `length` when there is no `weight`, accepts
+  `directed`, and reads sfnetworks-style vertex geometries.
+
+## Estimation
+
+* Where the network meets the boundary at only a few points (rivers, rail lines, highways
+  crossing a border), the local fit uses a polynomial in `s` alone instead of failing as
+  singular; the new `basis` column of `rdnet()` and `rdbwnet()` results says which fit was used.
+* Closed boundaries (zone outlines) are treated as rings: offsets wrap around and the
+  default evaluation grid does not repeat the starting point.
+* `"few clusters"` status when a side has fewer than two clusters in the local sample
+  (clustered standard errors were zero there).
+* The bandwidth floor now gives the `bwcheck`-th observation positive kernel weight, so
+  points selected at the floor are estimated instead of reported as `"insufficient"`.
+* `rdnet()` reports the selector's reason (`"insufficient"`, `"singular"`) instead of
+  `"no bandwidth"`; `wbate()` defaults to equal weights over the estimated points.
+* `density()` keeps control observations exactly on the boundary on the control side and
+  gains `unique_locations`, with a warning when locations repeat (panels).
+* Splitting an edge at the boundary divides the metric's own cost column, not only
+  `length` and `travel_time` (`network_coordinates(extensive = )` adds others).
+* `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
+
+## Checks and messages
+
+* Errors for `level` given as a proportion, non-finite weights, cluster labels of the wrong
+  length or with missing values, non-positive bandwidths, invalid `vce` in `rdbwnet()`, and
+  treatment indicators that are not logical or 0/1. A length-2 `h` always means
+  `c(h_control, h_treated)`.
+* Warnings when both `cluster` and `conley_cutoff` are given, when evaluation points lie
+  beyond the network's crossings or pile up on few crossings, and when nodes lie just
+  outside the boundary tolerance. Unreachable observations are counted by rows and locations.
+
 # rd2dnet 0.1.0
 
 First release of the R package, a port of the Python package `rd2dnet` 0.1.0 with the

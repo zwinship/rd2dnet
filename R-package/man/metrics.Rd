@@ -63,7 +63,8 @@ node order.}
 
 \item{speed_attr, length_attr}{Edge columns with the speed (km/h) and length (m).}
 
-\item{default_kph}{Speed used where \code{speed_attr} is missing.}
+\item{default_kph}{Speed used where \code{speed_attr} is absent or \code{NA}. For
+data in feet and miles per hour, convert first (\code{length = 0.3048 * length_ft}, \code{speed_kph = 1.609344 * speed_mph}).}
 
 \item{attr}{Node column compared across each edge.}
 

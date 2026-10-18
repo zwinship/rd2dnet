@@ -19,9 +19,10 @@
 #' @param y Outcome, one value per observation in `coords`. Missing values
 #'   are skipped.
 #' @param coords Output of [network_coordinates()].
-#' @param h Bandwidth in metric units: a scalar, `c(h_control, h_treated)`,
-#'   one value per evaluation point, a `J x 2` matrix, or `NULL` to select with
-#'   [rdbwnet()] using `bwselect`.
+#' @param h Bandwidth in metric units: a scalar, `c(h_control, h_treated)`
+#'   (a length-2 vector always means this), one value per evaluation point, a
+#'   `J x 2` matrix (use this for per-point bandwidths when `J = 2`), or
+#'   `NULL` to select with [rdbwnet()] using `bwselect`.
 #' @param p,q Polynomial order for estimation and for bias-corrected
 #'   inference (default `p + 1`).
 #' @param deriv `c(a, c)`: estimate the jump in `d^(a+c) mu / ds^a do^c`
@@ -36,11 +37,18 @@
 #'   that are constant in a local sample are dropped there.
 #' @param kernel `"triangular"`, `"epanechnikov"`, `"uniform"`, `"gaussian"`
 #'   or a function (see [get_kernel()]).
-#' @param bwselect Bandwidth selector used when `h` is `NULL`; see [rdbwnet()].
+#' @param bwselect Bandwidth selector used when `h` is `NULL`; see
+#'   [rdbwnet()]. Selection uses `scaleregul = 3`, as rd2d does for
+#'   estimation, so it differs from a call to [rdbwnet()] with its defaults;
+#'   the selected bandwidths are stored in the `bandwidths` element.
 #' @param vce `"hc0"`-`"hc3"`; `"cluster"` (with `cluster`) and `"conley"`
 #'   (with `conley_cutoff`) are implied when those are given.
 #' @param cluster Cluster labels, one per observation; implies `vce = "cluster"`
-#'   (CR1 with rd2d's `(n - 1)/(n - k) * g/(g - 1)` factor).
+#'   (CR1 with rd2d's `(n - 1)/(n - k) * g/(g - 1)` factor). Points with fewer
+#'   than two clusters on a side get status `"few clusters"`. With repeated
+#'   measurements (panels), clusters much smaller than the bandwidth, such as
+#'   the unit itself, can still understate the variance of spatially
+#'   correlated shocks; `conley_cutoff` is the safer choice.
 #' @param conley_cutoff,conley_distance Spatial HAC with Bartlett weights over
 #'   `"network"` (default) or `"euclidean"` distance, used for pointwise
 #'   errors and for the uniform band.
@@ -55,7 +63,7 @@
 #'   multiplying the kernel weights.
 #' @param pooled Fit one regression `y ~ 1 + T + poly(s, o)` with common
 #'   slopes instead of side-specific polynomials (levels only).
-#' @param level Confidence level in percent.
+#' @param level Confidence level in percent (e.g. 95).
 #' @param cbands Add the uniform confidence band `cb_lo`/`cb_hi` to the table.
 #'   The joint covariance and its critical value are stored either way.
 #' @param repp Gaussian draws used to simulate the uniform critical value.
@@ -74,9 +82,11 @@
 #'       `n1`, the order-`p` estimate `tau` and its standard error `se`, the
 #'       bias-corrected `tau_bc` with robust `se_rb`, the robust interval
 #'       `ci_lo`/`ci_hi`, `pvalue`, a `status` (`"ok"`, `"masked"`,
-#'       `"insufficient"`, `"singular"`, `"no bandwidth"`, `"weak first
-#'       stage"`), and optionally the uniform band `cb_lo`/`cb_hi`. Fuzzy
-#'       designs add `itt`, `fs` and `fs_se`.}
+#'       `"insufficient"` (fewer than `min_obs` observations on a side),
+#'       `"few clusters"`, `"singular"`, `"weak first stage"`, `"no
+#'       bandwidth"`), the local `basis` (`"s,o"` or `"s"`, see Details), and
+#'       optionally the uniform band `cb_lo`/`cb_hi`. Fuzzy designs add `itt`,
+#'       `fs` and `fs_se`.}
 #'     \item{`cov`}{the `J x J` covariance of `tau_bc` across evaluation
 #'       points (rd2d's `params_cov`), `NA` for points not estimated; its
 #'       diagonal is `se_rb^2`.}
@@ -86,6 +96,11 @@
 #'   plus `p`, `q`, `kernel`, `vce`, `level`, `metric`, `fuzzy` and `coords`.
 #'   Use [wbate()] and [lbate()] for aggregate effects, `summary()`, `plot()`,
 #'   `coef()`, `vcov()` and `confint()` for the usual summaries.
+#' @details The local fit is a polynomial in `(s, o)`. Where the network
+#'   meets the boundary at only a few points (rivers, rail lines, highways
+#'   crossing a border), the offset `o` hardly varies near an evaluation point
+#'   and that fit is singular; the point is then fitted in `s` alone and its
+#'   `basis` column reads `"s"` instead of `"s,o"`.
 #' @references
 #' Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). rd2d: Causal Inference
 #' in Boundary Discontinuity Designs. arXiv:2505.07989.
@@ -112,8 +127,10 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
                   weights = NULL, pooled = FALSE, level = 95, cbands = TRUE, repp = 2000,
                   min_obs = NULL, scaleregul = 3, scalebiascrct = 1, seed = NULL) {
   .check_coords(coords)
-  y <- as.numeric(y)
-  if (length(y) != coords$n_obs) stop("y must have one value per observation", call. = FALSE)
+  y <- .check_obs(y, coords$n_obs, "y")
+  if (!is.numeric(level) || length(level) != 1 || !(level > 1 && level < 100)) {
+    stop(sprintf("level is a percentage, e.g. 95 (got %s)", format(level)), call. = FALSE)
+  }
   q <- if (is.null(q)) p + 1 else as.integer(q)
   if (p < 0 || q < p) stop("need 0 <= p <= q", call. = FALSE)
   J <- coords$n_eval
@@ -132,14 +149,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   }
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "custom"
-  intensity <- if (is.null(weights)) rep(1, length(y)) else as.numeric(weights)
-  if (length(intensity) != length(y)) stop("weights must have one value per observation", call. = FALSE)
-  if (any(intensity < 0, na.rm = TRUE)) stop("weights must be non-negative", call. = FALSE)
-  D <- NULL
-  if (!is.null(fuzzy)) {
-    D <- as.numeric(fuzzy)
-    if (length(D) != length(y)) stop("fuzzy must have one value per observation", call. = FALSE)
-  }
+  intensity <- if (is.null(weights)) rep(1, length(y)) else .check_weights(weights, length(y))
+  D <- if (is.null(fuzzy)) NULL else .check_obs(fuzzy, length(y), "fuzzy")
   Z <- NULL
   if (!is.null(covs)) {
     Z <- as.matrix(covs)
@@ -148,10 +159,15 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   }
   if (!is.null(cluster)) {
     vce <- "cluster"
-    cluster <- as.vector(cluster)
-    if (length(cluster) != length(y)) stop("cluster must have one value per observation", call. = FALSE)
+    cluster <- .check_cluster(cluster, length(y))
   }
-  if (!is.null(conley_cutoff)) vce <- "conley"
+  if (!is.null(conley_cutoff)) {
+    if (!is.null(cluster)) {
+      warning("both cluster and conley_cutoff given: standard errors use Conley; cluster only ",
+              "affects bandwidth selection", call. = FALSE)
+    }
+    vce <- "conley"
+  }
   if (!vce %in% .VCE_TYPES) {
     stop(sprintf("vce must be one of %s", paste(.VCE_TYPES, collapse = ", ")), call. = FALSE)
   }
@@ -173,8 +189,10 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
                   weights = weights, bwcheck = min_obs, scaleregul = scaleregul,
                   scalebiascrct = scalebiascrct)
     H <- cbind(bw$h0, bw$h1)
+    bases <- bw$basis
   } else {
     H <- .bandwidth_matrix(h, J)
+    bases <- rep(NA_character_, J)
   }
 
   z <- stats::qnorm(0.5 + level / 200)
@@ -190,7 +208,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   tab <- data.frame(eval = seq_len(J), arc = coords$eval_arc, node_arc = coords$eval_node_arc,
                     h0 = H[, 1], h1 = H[, 2], n0 = 0L, n1 = 0L, tau = NA_real_, se = NA_real_,
                     tau_bc = NA_real_, se_rb = NA_real_, ci_lo = NA_real_, ci_hi = NA_real_,
-                    pvalue = NA_real_, status = "ok", stringsAsFactors = FALSE)
+                    pvalue = NA_real_, status = "ok", basis = "", stringsAsFactors = FALSE)
   if (!is.null(D)) {
     tab$itt <- NA_real_
     tab$fs <- NA_real_
@@ -216,7 +234,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       next
     }
     if (!(all(is.finite(H[j, ])) && all(H[j, ] > 0))) {
-      tab$status[j] <- "no bandwidth"
+      # the selector's reason (insufficient, singular) when it has one
+      tab$status[j] <- if (!is.null(bw) && bw$status[j] != "ok") bw$status[j] else "no bandwidth"
       next
     }
     at <- coords_at(coords, j)
@@ -243,27 +262,34 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     }
     Zi <- if (is.null(zcols)) NULL else Z[idx, zcols, drop = FALSE]
 
-    aux <- NULL
-    if (conley) {
-      hs <- hside * conley_resid_scale
-      wk <- kfun(d / hs) * intensity
-      m <- which(wk > 0 & base)
-      Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
-                    if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE)
-      Xi <- .design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, FALSE)
-      aux <- list(Xa = Xa, wa = wk[m], m = m, Xi = Xi)
+    if (vce == "cluster") {
+      g_side <- min(length(unique(cluster[i1])), length(unique(cluster[i0])))
+      if (g_side < 2) {
+        tab$status[j] <- "few clusters"
+        next
+      }
     }
 
-    fit <- tryCatch({
+    fit_dim <- function(dim) {
+      aux <- NULL
+      if (conley) {
+        hs <- hside * conley_resid_scale
+        wk <- kfun(d / hs) * intensity
+        m <- which(wk > 0 & base)
+        Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
+                      if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim)
+        Xi <- .design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, FALSE, dim)
+        aux <- list(Xa = Xa, wa = wk[m], m = m, Xi = Xi)
+      }
       out <- list()
       ks <- c()
       for (order in unique(c(p, q))) {
-        X <- .design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
+        X <- .design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled, dim)
         cvec <- rep(0, ncol(X))
         if (pooled) {
           cvec[2] <- 1
         } else {
-          dv <- .deriv_vector(order, deriv, if (is.null(tang)) NULL else tang[j, ])
+          dv <- .deriv_vector(order, deriv, if (is.null(tang)) NULL else tang[j, ], dim)
           k <- length(dv$vec)
           cvec[seq_len(k)] <- dv$vec / H[j, 2]^dv$order
           cvec[k + seq_len(k)] <- -dv$vec / H[j, 1]^dv$order
@@ -298,8 +324,20 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         out[[as.character(order)]] <- list(tau = tau, se = sqrt(max(local_var(idx, psi, ncol(X)), 0)),
                                            psi = psi, extra = extra)
       }
-      list(out = out, ks = ks)
-    }, rd2dnet_singular = function(e) "singular", rd2dnet_weak = function(e) "weak first stage")
+      list(out = out, ks = ks, basis = if (dim == 2) "s,o" else "s")
+    }
+
+    # Few boundary crossings near this point (a river, rail line or highway
+    # crossing the border) leave no variation in the offset o; the fit is then
+    # a polynomial in s alone.
+    dims <- if (is.na(bases[j])) c(2, 1) else if (bases[j] == "s") 1 else 2
+    if (deriv[2] > 0 || !is.null(tang)) dims <- 2
+    fit <- "singular"
+    for (dim in dims) {
+      fit <- tryCatch(fit_dim(dim), rd2dnet_singular = function(e) "singular",
+                      rd2dnet_weak = function(e) "weak first stage")
+      if (!identical(fit, "singular")) break
+    }
     if (is.character(fit)) {
       tab$status[j] <- fit
       next
@@ -318,6 +356,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       hac_cols[[length(hac_cols) + 1]] <- list(j = j, name = "se", idx = idx, psi = fp$psi)
       hac_cols[[length(hac_cols) + 1]] <- list(j = j, name = "se_rb", idx = idx, psi = fq$psi)
     }
+    tab$basis[j] <- fit$basis
     tab$tau[j] <- fp$tau
     tab$se[j] <- fp$se
     tab$tau_bc[j] <- fq$tau
@@ -367,6 +406,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 
 # User bandwidths as a J x 2 matrix of (control, treated).
 .bandwidth_matrix <- function(h, J) {
+  if (!is.numeric(h) || anyNA(h) || any(h <= 0)) stop("bandwidths must be positive", call. = FALSE)
   if (is.matrix(h)) {
     if (all(dim(h) == c(J, 2))) {
       return(unname(h) + 0)
@@ -377,7 +417,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   if (length(h) == 1) {
     return(matrix(h, J, 2))
   }
-  if (length(h) == 2 && J != 2) {
+  if (length(h) == 2) {
     return(matrix(h, J, 2, byrow = TRUE))
   }
   if (length(h) == J) {
@@ -387,20 +427,20 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 }
 
 # Target vector over the order-`order` basis, and the derivative order it picks.
-.deriv_vector <- function(order, deriv, tangvec_j) {
-  vec <- rep(0, .n_terms(order))
+.deriv_vector <- function(order, deriv, tangvec_j, dim = 2) {
+  vec <- rep(0, .n_terms(order, dim))
   if (!is.null(tangvec_j)) {
-    vec[.exp_index(order, 1, 0)] <- tangvec_j[1]
-    vec[.exp_index(order, 0, 1)] <- tangvec_j[2]
+    vec[.exp_index(order, 1, 0, dim)] <- tangvec_j[1]
+    vec[.exp_index(order, 0, 1, dim)] <- tangvec_j[2]
     return(list(vec = vec, order = 1))
   }
-  vec[.exp_index(order, deriv[1], deriv[2])] <- factorial(deriv[1]) * factorial(deriv[2])
+  vec[.exp_index(order, deriv[1], deriv[2], dim)] <- factorial(deriv[1]) * factorial(deriv[2])
   list(vec = vec, order = sum(deriv))
 }
 
 # Joint local design: side-specific polynomials (or pooled slopes) plus common covariates.
-.design <- function(us, uo, Ti, order, Zi, pooled) {
-  R <- .poly_basis(us, uo, order)
+.design <- function(us, uo, Ti, order, Zi, pooled, dim = 2) {
+  R <- .poly_basis(us, uo, order, dim)
   X <- if (pooled) cbind(1, Ti, R[, -1, drop = FALSE]) else cbind(R * Ti, R * (1 - Ti))
   X <- unname(X)
   if (is.null(Zi)) X else cbind(X, Zi, deparse.level = 0)
@@ -460,8 +500,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 #'
 #' `wbate()` is the weighted boundary average treatment effect `w' tau`
 #' (rd2d's WBATE): `weights` has one entry per evaluation point and is
-#' normalised to sum to one; points that were not estimated must get weight
-#' 0. Its standard error `sqrt(w' Sigma w)` uses the joint covariance
+#' normalised to sum to one; by default every estimated point gets equal
+#' weight. Points that were not estimated must get weight 0. Its standard error `sqrt(w' Sigma w)` uses the joint covariance
 #' `x$cov`, so it accounts for the correlation between nearby points.
 #'
 #' `lbate()` is the largest boundary average treatment effect
@@ -471,7 +511,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 #' uniform band's joint coverage.
 #'
 #' @param x An [rdnet()] result.
-#' @param weights One weight per evaluation point.
+#' @param weights One weight per evaluation point (default: equal weights on
+#'   the estimated points).
 #' @return A named numeric vector: `tau`, `tau_bc`, `se_rb`, `ci_lo`,
 #'   `ci_hi`, `pvalue` (the bias-corrected estimate drives the interval and
 #'   p-value; `se_rb` and `pvalue` are `NA` for LBATE).
@@ -483,10 +524,10 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 #' wbate(res, as.numeric(ok))
 #' lbate(res)
 #' @export
-wbate <- function(x, weights) {
+wbate <- function(x, weights = NULL) {
   if (!inherits(x, "rdnet")) stop("expected an rdnet() result", call. = FALSE)
   J <- nrow(x$table)
-  w <- as.numeric(weights)
+  w <- if (is.null(weights)) as.numeric(x$table$status == "ok") else as.numeric(weights)
   if (length(w) != J) {
     stop(sprintf("WBATE weights must have one entry per evaluation point (%d)", J), call. = FALSE)
   }

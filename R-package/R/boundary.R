@@ -13,7 +13,17 @@
 #'   a park) and/or numeric `c(start, end)` arc-length intervals along the line.
 #'   Evaluation points touching them are skipped: use this for stretches with
 #'   no mass on one side (Central Park on 60th Street).
-#' @param tol Distance at which a network node counts as lying on the boundary.
+#' @param tol Distance (in the network's coordinate units) at which a network
+#'   node counts as lying on the boundary. Increase it when the boundary
+#'   follows a street but its vertices are not exactly on the street's nodes.
+#'
+#' @details Points exactly on the line count as treated with `treated_region`
+#'   (and are assigned by `treated_side` otherwise); pass `treated` to
+#'   [network_coordinates()] to assign them yourself. Everything outside
+#'   `treated_region` is control, so restrict the sample to the two
+#'   neighbouring areas first. A closed line (a zone outline, see
+#'   [boundary_from_region()]) is treated as a ring: offsets along it wrap
+#'   around the shorter way.
 #'
 #' @return An object of class `rd2dnet_boundary`.
 #' @seealso [boundary_project()], [boundary_is_treated()], [boundary_is_masked()].
@@ -25,7 +35,17 @@
 #' boundary_is_masked(b, c(10, 30, 50, 85))
 #' @export
 boundary <- function(line, treated_region = NULL, treated_side = NULL, mask = NULL, tol = 1e-6) {
-  L <- .as_line(line)
+  gtype <- if (.is_sf(line)) as.character(sf::st_geometry_type(line)) else character()
+  if (length(gtype) && all(gtype %in% c("POLYGON", "MULTIPOLYGON"))) {
+    stop("line is a polygon: use boundary_from_region(polygon) to make its outline the boundary with ",
+         "the inside treated", call. = FALSE)
+  }
+  if (any(gtype == "MULTILINESTRING")) {
+    L <- .join_lines(.sf_parts(line)$parts)
+    if (is.null(L)) stop("the boundary has several disconnected pieces; pass one connected line", call. = FALSE)
+  } else {
+    L <- .as_line(line)
+  }
   if (is.null(treated_region) == is.null(treated_side)) {
     stop("give exactly one of treated_region or treated_side", call. = FALSE)
   }
@@ -51,6 +71,7 @@ boundary <- function(line, treated_region = NULL, treated_side = NULL, mask = NU
       mask_geoms = mask_geoms,
       mask_arcs = mask_arcs,
       tol = as.numeric(tol),
+      closed = nrow(L) > 2 && all(L[1, ] == L[nrow(L), ]),
       length = .segments(L)$total
     ),
     class = "rd2dnet_boundary"

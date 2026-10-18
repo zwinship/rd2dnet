@@ -84,7 +84,7 @@ test_that("unreachable points are dropped with a warning", {
   edges <- rbind(g$edges, data.frame(from = 100L, to = 101L, length = 50))
   expect_warning(
     cc <- network_coordinates(network_graph(edges, nodes), g$boundary, rbind(c(1000, 10), c(0, 0))),
-    "cannot reach"
+    "no network path"
   )
   expect_true(is.na(cc$s[1]))
   expect_true(is.finite(cc$s[2]))

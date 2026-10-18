@@ -150,7 +150,7 @@
 #' @param eval_index,window Restrict to observations (and streets) whose
 #'   boundary crossing lies within `window` (arc length) of evaluation point
 #'   `eval_index` (1-based). By default the whole boundary is pooled.
-#' @param h Bandwidth, scalar or `c(h_left, h_right)`, in metric units
+#' @param h Bandwidth, scalar or `c(h_control, h_treated)`, in metric units
 #'   (street-length units with `normalize = "network"`). Selected by an MSE
 #'   plug-in rule per side when omitted.
 #' @param p,q Local polynomial order of the CDF fit (the density is its slope)
@@ -166,6 +166,10 @@
 #'   unequal smoothing bias pass for a discontinuity.
 #' @param scaleregul Weight on the variance of the bias estimate in the
 #'   bandwidth rule.
+#' @param unique_locations Count each location once (the first observation
+#'   there). Use this with repeated measurements (panels, repeat sales, sensor
+#'   readings): the sorting question is about where units are, and repeated
+#'   rows at the same place otherwise look like a density spike.
 #' @param ... Ignored.
 #'
 #' @return An object of class `rdnet_density`: the density jump `diff`
@@ -190,7 +194,7 @@
 #' @export
 density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL, p = 2, q = NULL,
                                    normalize = "network", kernel = "triangular", weights = NULL,
-                                   bwselect = "common", scaleregul = 1, ...) {
+                                   bwselect = "common", scaleregul = 1, unique_locations = FALSE, ...) {
   coords <- x
   if (!normalize %in% c("none", "network")) stop("normalize must be 'none' or 'network'", call. = FALSE)
   q <- if (is.null(q)) p + 1 else as.integer(q)
@@ -199,11 +203,18 @@ density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL
   kfun <- get_kernel(kernel)
   T <- coords$treated
   s <- abs(coords$s)
-  om <- if (is.null(weights)) rep(1, coords$n_obs) else as.numeric(weights)
+  om <- if (is.null(weights)) rep(1, coords$n_obs) else .check_weights(weights, coords$n_obs)
   arc <- coords$crossing_arc
   arc[is.na(arc)] <- -1
   # Masked stretches (parks, rivers) are void by construction: leave them out.
   sel <- is.finite(s) & om > 0 & !boundary_is_masked(coords$boundary, arc)
+  first <- !duplicated(coords$loc)
+  if (isTRUE(unique_locations)) {
+    sel <- sel & first
+  } else if (any(sel & !first)) {
+    warning("several observations share a location (repeated measurements?); the density test counts ",
+            "each one. Use unique_locations = TRUE to test the density of locations", call. = FALSE)
+  }
   center <- NULL
   if (!is.null(eval_index)) {
     if (is.null(window)) stop("give a window (arc length) together with eval_index", call. = FALSE)
@@ -216,7 +227,8 @@ density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL
     sv[!is.finite(sv)] <- 0
     s <- ifelse(T, G[[2]](sv), G[[1]](sv))
   }
-  xs <- ifelse(T, s, -s)[sel]
+  # controls exactly on the boundary (s = 0) stay on the control side
+  xs <- ifelse(T, s, ifelse(s == 0, -.Machine$double.xmin, -s))[sel]
   om <- om[sel]
   if (length(xs) < 20 || sum(xs >= 0) < 10 || sum(xs < 0) < 10) {
     stop("too few observations for a density test", call. = FALSE)

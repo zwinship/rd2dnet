@@ -66,9 +66,9 @@ boundary and the network coordinates and calls \code{\link[=rdnet]{rdnet()}}.
 }
 \examples{
 city <- load_mock_midtown()
-b <- boundary_interpolate(city$boundary, boundary_grid(city$boundary, 7))
+b <- boundary_interpolate(city$boundary, boundary_grid(city$boundary, 7, start = 200, end = 2800))
 fit <- rd2dnet(city$obs$outcome, city$obs[, c("x", "y")], city$obs$treated, b,
-               city$network, boundary = city$boundary, h = 900, cbands = FALSE)
+               city$network(), boundary = city$boundary, h = 900, cbands = FALSE)
 fit
 }
 \seealso{

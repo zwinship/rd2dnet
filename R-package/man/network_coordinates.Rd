@@ -14,7 +14,8 @@ network_coordinates(
   n_eval = 25,
   snap = "edge",
   lonlat = FALSE,
-  split_edges = TRUE
+  split_edges = TRUE,
+  extensive = c("length", "travel_time")
 )
 
 \method{as.data.frame}{rd2dnet_coords}(x, row.names = NULL, optional = FALSE, j = NULL, ...)
@@ -25,15 +26,18 @@ network_coordinates(
 \item{boundary}{A \code{\link[=boundary]{boundary()}}.}
 
 \item{points}{Observation locations: an \verb{n x 2} matrix, a data frame with
-\code{x}/\code{y} columns, or sf points, in the network's projected coordinates (or
-longitude/latitude with \code{lonlat = TRUE}).}
+\code{x}/\code{y} columns (or exactly two columns), or sf points, in the network's
+projected coordinates (or longitude/latitude with \code{lonlat = TRUE}). sf
+points in another CRS are transformed to the network's \code{crs}.}
 
-\item{treated}{Optional treatment indicator; defaults to the side of the
-boundary each point is on.}
+\item{treated}{Optional treatment indicator (logical or 0/1); defaults to
+the side of the boundary each point is on (points on the line count as
+treated with a \code{treated_region}).}
 
 \item{eval_points}{Arc-length positions along the boundary, or a two-column
 matrix of coordinates to project onto it. Defaults to \code{n_eval} equally
-spaced points spanning the boundary nodes. Each evaluation point is placed
+spaced points spanning the boundary nodes (around the whole ring for a
+closed boundary). Each evaluation point is placed
 on the street segment running along the boundary, or at the nearest
 boundary node when there is none.}
 
@@ -45,6 +49,9 @@ boundary node when there is none.}
 network's \code{crs} (requires \pkg{sf}).}
 
 \item{split_edges}{Insert nodes where edges cross the boundary (recommended).}
+
+\item{extensive}{Edge columns divided in proportion when an edge is split
+at the boundary (the metric's own cost column always is); others are copied.}
 
 \item{x}{Output of \code{\link[=network_coordinates]{network_coordinates()}}.}
 
@@ -74,6 +81,12 @@ the boundary. These replace rd2d's Euclidean \verb{(X1 - b1, X2 - b2)}.
 Each observation snaps to the street network \strong{on its own side} of the
 boundary; its off-network depth is charged at the network's \code{snap_scale}.
 Repeated locations (panels, sensors) are processed once.
+
+On a directed network (\code{direction = "out"}), distances run from
+the boundary to each location, following edge directions: on a river
+drawn downstream, locations upstream of the boundary cannot be reached.
+Use \code{direction = "in"} for distances from each location to the boundary,
+or \code{"both"} to ignore direction.
 }
 \examples{
 city <- load_mock_midtown()
