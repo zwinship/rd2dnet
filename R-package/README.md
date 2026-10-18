@@ -112,6 +112,16 @@ and `rd2dnet.density()` is the `density()` method for network coordinates. Indic
 On the bundled mock city the two packages agree to about 1e-12; they can differ only in
 which boundary node an observation is assigned to when two are exactly equally far.
 
+## Development
+
+```bash
+Rscript -e 'devtools::test()'                          # offline test suite
+RD2DNET_ONLINE=true Rscript -e 'devtools::test(filter = "online")'   # live OpenStreetMap download
+```
+
+The online test needs internet access and `dodgr`, `osmdata` and `sf`, like the Python
+package's `pytest -m online`. `.github/workflows/online.yml` runs both on demand.
+
 ## License
 
 GPL-3, the same license as rd2d and rddensity, from which parts of the implementation

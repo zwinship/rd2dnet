@@ -4,7 +4,7 @@ Title: Boundary Discontinuity Designs on Networks
 Version: 0.1.0
 Authors@R: c(
     person("Zach", "Winship", role = c("aut", "cre", "cph"),
-           email = "MAINTAINER-EMAIL@example.com"),
+           email = "zachtwinship@gmail.com"),
     person("Matias D.", "Cattaneo", role = c("ctb", "cph"),
            comment = "author of rd2d and rddensity, from which the bandwidth selector and density test are ported"),
     person("Rocío", "Titiunik", role = c("ctb", "cph"),
