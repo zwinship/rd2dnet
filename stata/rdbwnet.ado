@@ -1,4 +1,4 @@
-*! version 0.1.0  rd2dnet
+*! version 0.2.0  rd2dnet
 *! rdbwnet: data-driven bandwidths for rdnet (port of rd2d's rdbw2d plug-in)
 program define rdbwnet, rclass
     version 16

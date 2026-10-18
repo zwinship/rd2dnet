@@ -31,7 +31,7 @@ from .kernels import get_kernel
 from .metrics import EdgeCost, NetworkMetric, Precomputed, TransitionCost, node_contrast, travel_time
 from .network import NetworkGraph, project_lonlat
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "Boundary",

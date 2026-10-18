@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 0.1.0}{...}
+{* *! version 0.2.0}{...}
 {viewerjumpto "Syntax" "rdnet##syntax"}{...}
 {viewerjumpto "Description" "rdnet##description"}{...}
 {viewerjumpto "Options" "rdnet##options"}{...}
@@ -115,13 +115,22 @@ joint covariance, {cmd:test} and {cmd:lincom} work directly, e.g.
 {synopt:{cmd:e(vce)}, {cmd:e(kernel)}, {cmd:e(bwselect)}, {cmd:e(cost)}, {cmd:e(fuzzy)}, {cmd:e(covs)}}settings{p_end}
 {p2col 5 20 24 2: Matrices}{p_end}
 {synopt:{cmd:e(b)}, {cmd:e(V)}}tau_bc and its covariance at the estimated points{p_end}
-{synopt:{cmd:e(results)}}one row per evaluation point: eval arc node_arc h0 h1 n0 n1 tau se tau_bc se_rb ci_lo ci_hi pvalue status h cb_lo cb_hi itt fs fs_se{p_end}
+{synopt:{cmd:e(results)}}one row per evaluation point: eval arc node_arc h0 h1 n0 n1 tau se tau_bc se_rb ci_lo ci_hi pvalue status h cb_lo cb_hi itt fs fs_se basis{p_end}
 {synopt:{cmd:e(cov)}}J x J covariance of tau_bc (missing for points not estimated){p_end}
 {synopt:{cmd:e(bandwidths)}}selected bandwidths (see {helpb rdbwnet}), when {opt h()} is omitted{p_end}
 
 {pstd}
 Status codes in {cmd:e(results)}: 0 ok, 1 masked, 2 insufficient
-observations, 3 singular local design, 4 no bandwidth, 5 weak first stage.
+observations, 3 singular local design, 4 no bandwidth, 5 weak first stage,
+6 few clusters (fewer than two clusters on a side of the local sample).
+
+{pstd}
+The local fit is a polynomial in (s, o). Where the network meets the boundary
+at only a few points (rivers, rail lines, highways crossing a border), o hardly
+varies near an evaluation point and that fit is singular; the point is then
+fitted in s alone, and the {cmd:basis} column of {cmd:e(results)} is 2 instead
+of 1. Put one evaluation point at each crossing ({opt evalpoints()} in
+{helpb rdnetset}).
 
 
 {marker examples}{...}

@@ -1,4 +1,4 @@
-*! version 0.1.0  rd2dnet
+*! version 0.2.0  rd2dnet
 *! rdnet: boundary average treatment effect curve on a street network
 program define rdnet, eclass
     version 16
@@ -210,7 +210,8 @@ program define Display
     forvalues j = 1/`J' {
         local st = `R'[`j', 15]
         local stl = cond(`st' == 0, "", cond(`st' == 1, "masked", cond(`st' == 2, "insufficient", ///
-            cond(`st' == 3, "singular", cond(`st' == 4, "no bandwidth", "weak first stage")))))
+            cond(`st' == 3, "singular", cond(`st' == 4, "no bandwidth", ///
+            cond(`st' == 5, "weak first stage", "few clusters"))))))
         if `st' == 0 {
             di as txt %6.0f `j' _col(9) as res %9.1f `R'[`j', 2] _col(19) %7.1f `R'[`j', 4] ///
                 _col(28) %7.1f `R'[`j', 5] _col(37) %5.0f `R'[`j', 6] _col(44) %5.0f `R'[`j', 7] ///
@@ -223,5 +224,14 @@ program define Display
     }
     di as txt "{hline 100}"
     di as txt "  tau: order-p estimate; tau_bc, se_rb and the CI: robust bias-corrected (order q)."
+    tempname BS
+    matrix `BS' = `R'[1..., 22]
+    local n_s = 0
+    forvalues j = 1/`J' {
+        if `BS'[`j', 1] == 2 local ++n_s
+    }
+    if `n_s' > 0 {
+        di as txt "  note: " as res `n_s' as txt " points fitted in s alone (few boundary crossings nearby)."
+    }
     di as txt "  e(b) and e(V) hold tau_bc and its joint covariance at the estimated points."
 end

@@ -94,7 +94,7 @@ def rd2dnet(
     >>> import rd2dnet
     >>> from rd2dnet.datasets import load_mock_midtown
     >>> city = load_mock_midtown()
-    >>> b = city.boundary.interpolate(city.boundary.grid(9))
+    >>> b = city.boundary.interpolate(city.boundary.grid(9, start=100, end=2900))
     >>> obs = city.obs
     >>> res = rd2dnet.rd2dnet(obs["outcome"], obs[["x", "y"]], obs["treated"], b, city.network(),
     ...                       boundary=city.boundary, seed=0)

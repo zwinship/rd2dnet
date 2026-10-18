@@ -99,10 +99,62 @@ res = rd2dnet.rdnet(city.obs["outcome"], coords,
 print(res)          # pointwise BATEC table
 res.plot()
 
-rd2dnet.rdbwnet(city.obs["outcome"], coords)          # bandwidths
+res.bandwidths                                         # the bandwidths rdnet selected
 print(rd2dnet.density(coords))                         # sorting test per metre of street
 rd2dnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design (take_up = your 0/1 or share)
 ```
+
+### Getting your data in
+
+**Same data entry as rd2d.** `rd2d(Y, X, t, b)` takes an outcome, locations, a
+treatment indicator and points along the boundary. `rd2dnet` takes the same four, plus
+the network:
+
+```python
+res = rd2dnet.rd2dnet(Y, X, t, b, network)   # X: (n, 2), t: 0/1, b: (J, 2) ordered along the boundary
+res.wbate()                                  # equal weights over the estimated points
+rd2dnet.density(res.coords)                  # coordinates are kept on the result
+```
+
+The boundary is the line through `b`, and the treated side is the side where the
+`t = 1` observations lie. Pass `boundary=rd2dnet.Boundary(...)` when the line extends
+beyond the first and last points, or when you have the treated zone as a polygon.
+
+**Networks, in whatever form you have them:**
+
+| you have | use |
+|---|---|
+| a GIS layer of roads, rivers, rail or pipes (GeoDataFrame of LineStrings, any CRS) | `NetworkGraph.from_lines(gdf)`: line ends that meet become nodes, other columns become edge attributes, lon/lat is projected to UTM, and `split_at_intersections=True` handles layers that are not split at junctions |
+| a table of segments `x1, y1, x2, y2` (no node ids) | `NetworkGraph.from_lines(df)` |
+| a node table and an edge table | `NetworkGraph.from_frames(nodes, edges, node_id="id", source="from", target="to")` |
+| a networkx graph (nodes with `x`, `y`) | `NetworkGraph(G)` |
+| an OSMnx graph, or just a place name | `NetworkGraph.from_osmnx(G)`, `NetworkGraph.from_place("...")` |
+| an igraph graph or a weighted adjacency matrix | `NetworkGraph.from_igraph(g)`, `NetworkGraph.from_adjacency(A, coords)` |
+| a travel-time matrix from another router | `NetworkGraph(G, Precomputed(D, nodes))` (the boundary must pass through nodes) |
+
+Directed networks (one-way streets, rivers drawn downstream) take `directed=True` in
+`from_lines`/`from_frames` and `direction="out"` (distances run from the boundary to
+each location) or `"in"` (from each location to the boundary).
+
+**Boundaries:** `Boundary(line, treated_side="left")`, `Boundary(line, treated_region=zone)`,
+`Boundary.from_region(zone)` for a zone's outline (a school attendance zone, a city, a
+congestion zone; `within=` keeps only the stretch shared with a neighbour), and
+`Boundary.from_points(b, X, t)` as in rd2d. Closed outlines are handled: offsets go the
+shorter way round. If the boundary follows a street, set `tol` (in the network's units,
+for example 0.5 m) so the street's nodes count as lying on it.
+
+**Coordinates:** points can be an array, a DataFrame with `x`/`y`, or a GeoSeries in
+any CRS (it is reprojected to the network's). Use `lonlat=True` for plain lon/lat arrays.
+
+**Sparse crossings.** Where the network meets the boundary at only a few points (rivers,
+rail lines, highways crossing a border), there is no variation along the boundary near
+each crossing. Those evaluation points are fitted in `s` alone, and the `basis` column of
+the results reads `"s"`. Put one evaluation point at each crossing.
+
+**Repeated measurements** (panels, repeat sales, sensor readings): each location is
+snapped once. Use `density(coords, unique_locations=True)` for the sorting test. For
+standard errors, clustering by unit can understate the variance of spatially correlated
+shocks; `conley_cutoff=...` is the safer choice.
 
 The tutorial notebook [`examples/tutorial.ipynb`](examples/tutorial.ipynb) walks through
 every feature on the mock city (metrics, coordinates, bandwidths, aggregate effects,
@@ -114,8 +166,7 @@ For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, whi
 `pip install "rd2dnet[osm]"`. The query's top geocoding match is used: its outline when it
 is an area of at least `min_area` (250,000 m² by default), otherwise (a neighbourhood
 mapped as a point, a single building) the streets within `dist` metres of it (1,000 by
-default). It falls back to the bundled mock network with a warning when offline. You can also pass your own graph:
-`NetworkGraph(G)`, `NetworkGraph.from_adjacency(A, coords)` or `NetworkGraph.from_igraph(g)`.
+default). It falls back to the bundled mock network with a warning when offline.
 
 ### Features
 
@@ -131,6 +182,8 @@ default). It falls back to the bundled mock network with a warning when offline.
   `mserd`, `msetwo` (one bandwidth per side), `imserd` or `imsetwo`, plus the
   coverage-error-optimal `cerrd`, `certwo`, `icerrd` and `icertwo`. You can also
   pass `h` as a scalar, `(h_control, h_treated)`, or one value per evaluation point.
+  `rdnet` selects with `scaleregul=3`, as rd2d does for estimation; the bandwidths it
+  used are in `res.bandwidths`.
 - **Covariates** (`covs=`): the coefficients are common to both sides, as in rd2d's
   `covs_eff`, and estimated in one joint local regression whose influence function
   accounts for estimating them. The point estimate matches rd2d's plug-in exactly.

@@ -1,10 +1,10 @@
-*! version 0.1.0  rd2dnet
+*! version 0.2.0  rd2dnet
 *! rdnetset: declare the street network and boundary, and compute network
 *! coordinates for the observations in memory.
 program define rdnetset, rclass
     version 16
-    syntax varlist(min=2 max=2 numeric) [if] [in], nodes(name) edges(name) boundary(name) ///
-        [ nodeid(name) nodex(name) nodey(name) from(name) to(name) cost(name) length(name)   ///
+    syntax varlist(min=2 max=2 numeric) [if] [in], edges(name)                            ///
+        [ nodes(name) boundary(name) ECOORDs(namelist min=4 max=4) JOINtol(real 1e-6) nodeid(name) nodex(name) nodey(name) from(name) to(name) cost(name) length(name)   ///
           DIRected direction(string) treatedregion(name) treatedside(string)                 ///
           treated(varname numeric) maskarcs(name) maskpolygons(name) classvar(name)          ///
           penalty(real 0) penaltymatrix(name) connectors(string) snapscale(real -1)          ///
@@ -28,10 +28,19 @@ program define rdnetset, rclass
         exit 198
     }
     local treatedside = lower("`treatedside'")
-    if ("`treatedregion'" == "") == ("`treatedside'" == "") {
-        di as err "give exactly one of treatedregion() or treatedside(left|right)"
+    if "`treatedregion'" != "" & "`treatedside'" != "" {
+        di as err "give only one of treatedregion() or treatedside(left|right)"
         exit 198
     }
+    if "`treatedregion'" == "" & "`treatedside'" == "" & "`treated'" == "" {
+        di as err "give treatedregion(), treatedside(left|right), or treated() to infer the treated side"
+        exit 198
+    }
+    if "`boundary'" == "" & "`evalpoints'" == "" {
+        di as err "give boundary(), or evalpoints() (a J x 2 matrix of points along the boundary, as in rd2d)"
+        exit 198
+    }
+    if "`ecoords'" == "" local ecoords x1 y1 x2 y2
     if "`treatedside'" != "" & !inlist("`treatedside'", "left", "right") {
         di as err "treatedside() must be left or right"
         exit 198
@@ -41,6 +50,7 @@ program define rdnetset, rclass
         exit 198
     }
     foreach f in nodes edges {
+        if "``f''" == "" continue
         capture frame ``f'': quietly count
         if _rc {
             di as err "frame ``f'' not found"
@@ -87,6 +97,7 @@ program define rdnetset, rclass
     local pmat `penaltymatrix'
     local emat `evalpoints'
     local nosplit = ("`nosplit'" != "")
+    local jointol `jointol' 
     local snapnode = ("`snapnode'" != "")
 
     rd2dnet_mata
@@ -116,7 +127,7 @@ program define rdnetset, rclass
         as res `nloc' as txt " distinct locations"
     di as txt "  evaluation points: " as res `nev' as txt " (" as res `nmask' as txt " masked)"
     if `nun' > 0 {
-        di as txt "  note: " as res `nun' as txt " observations cannot reach the boundary; _rdn_s is missing for them"
+        di as txt "  note: " as res `nun' as txt " observations have no network path to the boundary; _rdn_s is missing for them"
     }
     di as txt "  variables created: _rdn_id _rdn_s _rdn_treated _rdn_arc"
 

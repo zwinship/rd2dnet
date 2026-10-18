@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 0.1.0}{...}
+{* *! version 0.2.0}{...}
 {viewerjumpto "Syntax" "rdnetset##syntax"}{...}
 {viewerjumpto "Description" "rdnetset##description"}{...}
 {viewerjumpto "Options" "rdnetset##options"}{...}
@@ -16,19 +16,26 @@
 
 {p 8 16 2}
 {cmd:rdnetset} {it:xvar} {it:yvar} {ifin}{cmd:,}
-{opt nodes(framename)} {opt edges(framename)} {opt boundary(matname)}
-{c -(}{opt treatedregion(matname)} | {opt treatedside(left|right)}{c )-}
+{opt edges(framename)} [{opt nodes(framename)}]
+{c -(}{opt boundary(matname)} | {opt evalpoints(matname)}{c )-}
+[{opt treatedregion(matname)} | {opt treatedside(left|right)} | {opt treated(varname)}]
 [{it:options}]
 
 {synoptset 28 tabbed}{...}
 {synopthdr}
 {synoptline}
-{syntab:Required}
-{synopt:{opt nodes(framename)}}frame with one row per network node{p_end}
-{synopt:{opt edges(framename)}}frame with one row per street segment{p_end}
+{syntab:Network}
+{synopt:{opt edges(framename)}}frame with one row per street segment (required){p_end}
+{synopt:{opt nodes(framename)}}frame with one row per network node; without it, {opt edges()} holds segment end coordinates{p_end}
+{synopt:{opt ecoord:s(x1 y1 x2 y2)}}segment end coordinates in {opt edges()} when there is no {opt nodes()}; default {cmd:x1 y1 x2 y2}{p_end}
+{synopt:{opt join:tol(#)}}segment ends closer than this become one node; default 1e-6{p_end}
+
+{syntab:Boundary and treated side}
 {synopt:{opt boundary(matname)}}k x 2 matrix of boundary vertices (projected coordinates){p_end}
+{synopt:{opt evalpoints(matname)}}evaluation points; without {opt boundary()}, a J x 2 matrix of points along the boundary, in order, through which the boundary is drawn (as in rd2d){p_end}
 {synopt:{opt treatedregion(matname)}}polygon containing the treated side{p_end}
 {synopt:{opt treatedside(left|right)}}treated side relative to the boundary's direction{p_end}
+{synopt:{opt treated(varname)}}treatment indicator; also infers the treated side when neither option above is given{p_end}
 
 {syntab:Network variables}
 {synopt:{opt nodeid(varname)}}node id in the node frame; default {cmd:id}{p_end}
@@ -45,13 +52,11 @@
 {synopt:{opt penaltymatrix(matname)}}class-by-class penalties (row and column names are classes){p_end}
 {synopt:{opt connectors(string)}}transparent classes (ramps, links), separated by spaces{p_end}
 
-{syntab:Boundary and evaluation points}
-{synopt:{opt treated(varname)}}treatment indicator (default: side of the boundary){p_end}
+{syntab:Evaluation points and masks}
 {synopt:{opt maskarcs(matname)}}m x 2 matrix of masked arc-length intervals{p_end}
 {synopt:{opt maskpolygons(matname)}}k x 2 (one polygon) or k x 3 (x, y, polygon id) masking polygons{p_end}
 {synopt:{opt neval(#)}}number of equally spaced evaluation points; default 25{p_end}
-{synopt:{opt evalpoints(matname)}}evaluation points: a column of arc positions, or k x 2 coordinates{p_end}
-{synopt:{opt tol(#)}}distance at which a node lies on the boundary; default 1e-6{p_end}
+{synopt:{opt tol(#)}}distance (in coordinate units) at which a node lies on the boundary; default 1e-6. Increase it (e.g. 0.5 metres) when the boundary follows a street{p_end}
 
 {syntab:Snapping}
 {synopt:{opt snapscale(#)}}cost per unit of off-network snapping distance; default 1 if {cmd:cost(length)}, else 0{p_end}
@@ -92,6 +97,34 @@ after loading the data in a new session. Repeated locations (panels, sensors)
 are processed once.
 
 
+{pstd}
+{bf:Data entry as in rd2d.} rd2d takes an outcome, locations, a treatment
+indicator and points b along the boundary. Give the same here: {it:xvar}
+{it:yvar}, {opt treated()} and {opt evalpoints()} (a J x 2 matrix of the
+points b, in order along the boundary). The boundary is the line through
+them and the treated side is the side where the treated observations lie.
+
+{pstd}
+{bf:Networks from GIS layers.} A road (river, rail) layer exported as one row
+per segment with its end coordinates needs no node table: put it in a frame
+with variables {cmd:x1 y1 x2 y2} (and any cost variables) and omit
+{opt nodes()}. Segment ends within {opt jointol()} of each other become one
+node. Lines must be split into straight segments at their vertices and at
+junctions.
+
+{pstd}
+{bf:Directed networks.} With {opt directed} and {opt direction(out)},
+distances run from the boundary to each observation along edge directions (on
+a river drawn downstream, observations upstream of the boundary cannot be
+reached); {opt direction(in)} measures distances from each observation to the
+boundary.
+
+{pstd}
+{bf:Closed boundaries.} When the first and last vertices of {opt boundary()}
+coincide (a zone outline), offsets along the boundary go the shorter way round
+and the default evaluation points go around the whole ring.
+
+
 {marker options}{...}
 {title:Options}
 
@@ -121,7 +154,7 @@ density test.
 {synopt:{cmd:r(N_locations)}}distinct locations{p_end}
 {synopt:{cmd:r(N_eval)}}evaluation points{p_end}
 {synopt:{cmd:r(N_masked)}}masked evaluation points{p_end}
-{synopt:{cmd:r(N_unreachable)}}observations that cannot reach the boundary{p_end}
+{synopt:{cmd:r(N_unreachable)}}observations with no network path to the boundary{p_end}
 {synopt:{cmd:r(N_crossings)}}edges split at the boundary{p_end}
 {synopt:{cmd:r(N_nodes)}, {cmd:r(N_edges)}}network size after splitting{p_end}
 {synopt:{cmd:r(length)}}length of the boundary line{p_end}
@@ -134,6 +167,15 @@ density test.
 
 {phang2}{cmd:. rdnetmock, clear}{p_end}
 {phang2}{cmd:. rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)}{p_end}
+
+{pstd}rd2d-style entry: boundary through the evaluation points, treated side from the treatment variable:{p_end}
+{phang2}{cmd:. matrix B = (100, 1600 \ 1000, 1600 \ 2000, 1600 \ 2900, 1600)}{p_end}
+{phang2}{cmd:. rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) evalpoints(B) treated(treated)}{p_end}
+
+{pstd}A road layer of segments with end coordinates (no node table):{p_end}
+{phang2}{cmd:. frame create roads}{p_end}
+{phang2}{cmd:. frame roads: import delimited roads.csv}{p_end}
+{phang2}{cmd:. rdnetset x y, edges(roads) ecoords(x1 y1 x2 y2) jointol(0.5) boundary(line) treatedside(left)}{p_end}
 
 {pstd}Travel time instead of length:{p_end}
 {phang2}{cmd:. rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) cost(travel_time) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)}{p_end}

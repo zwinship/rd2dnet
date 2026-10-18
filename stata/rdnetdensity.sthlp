@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 0.1.0}{...}
+{* *! version 0.2.0}{...}
 {title:Title}
 
 {phang}
@@ -22,6 +22,7 @@
 {synopt:{opt eval:index(#)} {opt wind:ow(#)}}restrict to observations reaching the boundary within # (arc length) of evaluation point #{p_end}
 {synopt:{opt ker:nel(name)}}kernel; default {cmd:triangular}{p_end}
 {synopt:{opt scalereg:ul(#)}}weight on the variance of the bias estimate; default 1{p_end}
+{synopt:{opt uniq:ue}}count each location once (for repeated measurements: panels, repeat sales, sensor readings){p_end}
 {synoptline}
 
 
@@ -41,6 +42,11 @@ street supply at the boundary (a park frontage, a highway) then do not pass
 for sorting. {cmd:normalize(none)} tests the density of the network distance
 itself, as {cmd:rddensity} would. Masked stretches of the boundary are always
 excluded.
+
+{pstd}
+With repeated measurements, every row counts as an observation and repeated
+rows at one place look like a density spike; option {opt unique} tests the
+density of locations instead.
 
 
 {title:Stored results}

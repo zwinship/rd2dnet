@@ -2,7 +2,7 @@
 *
 * Run from this directory:   cd stata/test   then   do rd2dnet_tests.do
 *
-* Reference values come from the Python package rd2dnet 0.1.1 and the R
+* Reference values come from the Python package rd2dnet 0.2.0 and the R
 * package (which matches Python to about 1e-12 on this data and uses the same
 * tie-breaking rule as the Stata port). Every check prints "ok" or "FAIL",
 * errors inside a block are caught, and a summary is printed at the end.
@@ -229,6 +229,74 @@ program define t_options
     rdnet outcome, h(600)
 end
 
+capture program drop t_entry
+program define t_entry
+    * a network given as segments with end coordinates (no node frame)
+    rdnetmock, clear
+    capture frame drop segs
+    frame copy rdn_edges segs
+    frame segs {
+        frlink m:1 from, frame(rdn_nodes id)
+        frget x1 = x y1 = y, from(rdn_nodes)
+        drop rdn_nodes
+        frlink m:1 to, frame(rdn_nodes id)
+        frget x2 = x y2 = y, from(rdn_nodes)
+        drop rdn_nodes from to
+    }
+    rdnetset x y, edges(segs) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
+    rdn_expect r(N_nodes) 450 0 "segments: nodes joined at shared ends"
+    local s 829.087 1649.546 -1353.994 -1783.17 1648.397 1653.963
+    forvalues i = 1/6 {
+        rdn_expect _rdn_s[`i'] `: word `i' of `s'' 1e-10 "segments: s[`i']"
+    }
+    * rd2d-style entry: boundary through the evaluation points, side from treated()
+    matrix B = (100, 1600 \ 1000, 1600 \ 2000, 1600 \ 2900, 1600)
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) evalpoints(B) treated(treated)
+    rdn_expect r(N_eval) 4 0 "rd2d-style: one evaluation point per row of B"
+    quietly count if _rdn_treated != treated
+    rdn_expect r(N) 0 0 "rd2d-style: _rdn_treated = treated"
+    rdnet outcome, h(900)
+    * density test with repeated measurements
+    rdnetmock, clear
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
+    rdnetdensity
+    local p1 = r(pvalue)
+    expand 3
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
+    rdnetdensity, unique
+    rdn_expect r(pvalue) `p1' 1e-8 "density: unique locations = one row per location"
+end
+
+capture program drop t_river
+program define t_river
+    * three parallel rivers crossing the border: no variation along the boundary
+    * near each crossing, so the fit is in s alone (reference values from Python)
+    use river_obs, clear
+    capture frame drop rivers
+    frame create rivers
+    frame rivers: use river_segs, clear
+    matrix L = (0, -4000 \ 0, 4000)
+    matrix B = (0, -3000 \ 0, 0 \ 0, 3000)
+    rdnetset x y, edges(rivers) boundary(L) treatedside(right) evalpoints(B)
+    local s -538.52 1974.13 102.73 -4022.22
+    forvalues i = 1/4 {
+        rdn_expect _rdn_s[`i'] `: word `i' of `s'' 1e-9 "river s[`i']"
+    }
+    rdnet y_out, h(1500) seed(0)
+    matrix R = e(results)
+    local tau -1.3986516707699939 -1.2344053207051944 -1.4911025736082353
+    local tbc -1.23500711932145 -0.9986365254587386 -1.2862431836128785
+    local srb 0.2984688242880504 0.29074350841404983 0.20534562299776382
+    forvalues j = 1/3 {
+        rdn_expect R[`j',15] 0 0 "river status ok [eval`j']"
+        rdn_expect R[`j',22] 2 0 "river basis = s alone [eval`j']"
+        rdn_expect R[`j',8] `: word `j' of `tau'' 1e-8 "river tau [eval`j']"
+        rdn_expect R[`j',10] `: word `j' of `tbc'' 1e-8 "river tau_bc [eval`j']"
+        rdn_expect R[`j',11] `: word `j' of `srb'' 1e-8 "river se_rb [eval`j']"
+    }
+    rdbwnet y_out
+end
+
 capture program drop t_errors
 program define t_errors
     rdnetmock, clear
@@ -242,6 +310,10 @@ program define t_errors
     rcof "noisily estat wbate, weights(1 2 3)" != 0
     rcof `"noisily rdnetset x y, nodes(nope) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region)"' == 111
     rcof `"noisily rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line)"' == 198
+    rcof `"noisily rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) treatedside(left)"' == 198
+    rcof "noisily rdnet outcome, h(600) vce(cluster treated)" == 0
+    matrix R = e(results)
+    rdn_expect R[3,15] 6 0 "one cluster per side: status 6 (few clusters)"
 end
 
 rdn_block t_setup
@@ -252,6 +324,8 @@ rdn_block t_bandwidth
 rdn_block t_density
 rdn_block t_metrics
 rdn_block t_options
+rdn_block t_entry
+rdn_block t_river
 rdn_block t_errors
 
 di _n "{hline 70}"

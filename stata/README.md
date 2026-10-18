@@ -35,13 +35,31 @@ rdnetdensity                                 // sorting test per metre of street
 rdnet outcome, h(700) fuzzy(takeup)          // fuzzy design
 ```
 
-Your own data: put nodes (`id x y`) and edges (`from to length ...`) in two frames,
-the boundary vertices in a k x 2 matrix, the treated zone in a polygon matrix (or
-use `treatedside(left|right)`), and run `rdnetset` on the observations in memory.
+Your own data, with the observations in memory:
+
+```stata
+* data entry as in rd2d: points b along the boundary (in order) and a treatment variable
+matrix b = (100, 1600 \ 1000, 1600 \ 2000, 1600 \ 2900, 1600)
+rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) evalpoints(b) treated(treated)
+
+* a GIS road layer exported as segments with end coordinates: no node table needed
+frame create roads
+frame roads: import delimited roads.csv        // x1 y1 x2 y2 length speed ...
+rdnetset x y, edges(roads) jointol(0.5) boundary(line) treatedside(left)
+```
+
+Otherwise put nodes (`id x y`) and edges (`from to length ...`) in two frames, the
+boundary vertices in a k x 2 matrix (first = last vertex for a zone outline), and the
+treated zone in a polygon matrix (or use `treatedside(left|right)`). Where the network
+meets the boundary at only a few points (rivers, rail lines, highways), those points are
+fitted in the distance to the boundary alone (the `basis` column of `e(results)` is 2).
+Use `rdnetdensity, unique` with repeated measurements.
 
 | | Python / R | Stata |
 |---|---|---|
 | network | `NetworkGraph` / `network_graph()` | node and edge frames in `rdnetset` |
+| network from line segments | `NetworkGraph.from_lines()` / `network_graph_from_lines()` | `rdnetset ..., edges()` with `x1 y1 x2 y2`, no `nodes()` |
+| rd2d-style entry | `rd2dnet(Y, X, t, b, network)` | `rdnetset x y, evalpoints(b) treated(t)`, then `rdnet y` |
 | metric | `EdgeCost`, `travel_time()`, `node_contrast()` | `cost(varname)`: build any cost variable in Stata |
 | transition penalties | `TransitionCost` | `classvar()`, `penalty()`, `penaltymatrix()`, `connectors()` |
 | coordinates | `network_coordinates()` | `rdnetset` (creates `_rdn_s`, `_rdn_treated`, `_rdn_arc`) |

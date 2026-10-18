@@ -1,4 +1,4 @@
-*! version 0.1.0  rd2dnet
+*! version 0.2.0  rd2dnet
 *! rdnetmock: load the bundled mock city (works offline)
 program define rdnetmock
     version 16

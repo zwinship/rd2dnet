@@ -1,10 +1,10 @@
-*! version 0.1.0  rd2dnet
+*! version 0.2.0  rd2dnet
 *! rdnetdensity: density (sorting) test at a network boundary (port of rddensity)
 program define rdnetdensity, rclass
     version 16
     syntax [if] [in] [aweight] [, EVALindex(integer -1) WINDow(real -1) h(numlist max=2 >0) ///
         p(integer 2) q(integer -1) NORMalize(string) KERnel(string) BWSelect(string)          ///
-        SCALEREGul(real 1) ]
+        SCALEREGul(real 1) UNIQue ]
 
     capture confirm variable _rdn_id
     if _rc {
@@ -31,6 +31,7 @@ program define rdnetdensity, rclass
     if `window' < 0 local window
     if `q' < 0 local q
     local hlist `h'
+    local unique = ("`unique'" != "")
     rd2dnet_mata
     mata: rdn_density_entry()
     di

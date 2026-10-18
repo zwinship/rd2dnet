@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 0.1.0}{...}
+{* *! version 0.2.0}{...}
 {title:Title}
 
 {phang}
@@ -44,8 +44,8 @@ variants shrink the MSE-optimal bandwidth by n^(1/(2p+4) - 1/(p+4)).
 {title:Stored results}
 
 {synoptset 20 tabbed}{...}
-{synopt:{cmd:r(bws)}}one row per evaluation point: eval arc status dn bn0 bn1 n0 n1 hmin0 hmin1 hmax0 hmax1 V0 B0 Reg10 Reg20 V1 B1 Reg11 Reg21 h0 h1 h{p_end}
-{p 4 6 2}Status: 0 ok, 1 masked, 2 insufficient, 3 singular. Suffix 0 is the control side, 1 the treated side.{p_end}
+{synopt:{cmd:r(bws)}}one row per evaluation point: eval arc status dn bn0 bn1 n0 n1 hmin0 hmin1 hmax0 hmax1 V0 B0 Reg10 Reg20 V1 B1 Reg11 Reg21 h0 h1 h basis{p_end}
+{p 4 6 2}Status: 0 ok, 1 masked, 2 insufficient, 3 singular. Suffix 0 is the control side, 1 the treated side. basis: 1 = polynomial in (s, o), 2 = in s alone (few boundary crossings).{p_end}
 
 
 {title:Example}

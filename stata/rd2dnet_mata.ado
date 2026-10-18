@@ -1,4 +1,4 @@
-*! version 0.1.0  rd2dnet
+*! version 0.2.0  rd2dnet
 *! Compile the rd2dnet Mata library (lrd2dnet.mata) once per session.
 program define rd2dnet_mata
     version 16
