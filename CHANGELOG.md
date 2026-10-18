@@ -32,8 +32,10 @@ Fixes:
 - Splitting an edge at the boundary now divides the metric's own cost attribute (such
   as `weight`), not only `length` and `travel_time`.
 - Parallel edges: snapping uses the cheapest edge, as shortest paths do.
-- The bandwidth floor now gives its k-th observation positive kernel weight, so floored
-  points are no longer reported as `insufficient`.
+- The bandwidth floor (the distance to the `bwcheck`-th nearest observation) is nudged
+  just past that distance. The triangular kernel gives weight 0 at exactly `d = h`, so a
+  bandwidth at the floor used to leave one observation fewer than `min_obs` and the point
+  was reported as `insufficient`. Fixed in Python, R and Stata.
 - Points with fewer than two clusters on a side get status `few clusters` instead of a
   zero standard error.
 - `rdnet` reports the selector's reason (`insufficient`, `singular`) instead of

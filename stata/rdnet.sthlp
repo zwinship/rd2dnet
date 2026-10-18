@@ -22,7 +22,7 @@
 {synopthdr}
 {synoptline}
 {syntab:Bandwidth}
-{synopt:{opt h(numlist)}}one bandwidth, (h_control h_treated), or one per evaluation point{p_end}
+{synopt:{opt h(numlist)}}one bandwidth, (h_control h_treated) (two numbers always mean this), or one per evaluation point{p_end}
 {synopt:{opt hmat:rix(matname)}}J x 2 matrix of (control, treated) bandwidths{p_end}
 {synopt:{opt bws:elect(method)}}selector when {opt h()} is omitted: {cmd:mserd} (default), {cmd:msetwo}, {cmd:imserd}, {cmd:imsetwo}, {cmd:cerrd}, {cmd:certwo}, {cmd:icerrd}, {cmd:icertwo}{p_end}
 {synopt:{opt scalereg:ul(#)}}bandwidth regularisation weight; default 3{p_end}
