@@ -85,6 +85,16 @@ class NetworkGraph:
             ).reshape(-1, 2)
         except KeyError as e:
             raise KeyError(f"every node needs {x_attr!r} and {y_attr!r} coordinates") from e
+        if _looks_lonlat(self.coords, self.crs):
+            warnings.warn("the network is in longitude/latitude, so distances are in degrees; project it to a "
+                          "metric CRS first (NetworkGraph.from_osmnx and from_lines do this)", stacklevel=2)
+        cost = getattr(self.metric, "cost", None)
+        if isinstance(cost, str) and graph.number_of_edges():
+            missing = sum(1 for *_, d in graph.edges(data=True) if cost not in d)
+            if missing:
+                have = sorted({k for *_, d in graph.edges(data=True) for k in d if k != "geometry"})
+                raise KeyError(f"{missing} edges have no {cost!r} attribute for the metric; edge attributes "
+                               f"available: {have}")
         self.snap_scale = self.metric.default_snap_scale if snap_scale is None else float(snap_scale)
         self._engine = None
         self._edges: pd.DataFrame | None = None
@@ -143,10 +153,16 @@ class NetworkGraph:
         from .metrics import _edge_list
 
         ui, vi, ul, vl, datas = _edge_list(self.graph, self.node_index)
-        # Keep the first edge of each undirected node pair, in graph order.
+        # Keep one edge per undirected node pair, in graph order: the cheapest
+        # of parallel edges, which is the one shortest paths use.
         key = np.minimum(ui, vi) * self.n_nodes + np.maximum(ui, vi)
-        _, first = np.unique(key, return_index=True)
-        first = np.sort(first)
+        if self.metric.supports_edge_snapping and len(np.unique(key)) < len(key):
+            cost_all = np.asarray(self.metric.edge_costs(ul, vl, datas), dtype=float)
+            order = np.lexsort((cost_all, key))
+            first = np.sort(order[np.r_[True, key[order][1:] != key[order][:-1]]])
+        else:
+            _, first = np.unique(key, return_index=True)
+            first = np.sort(first)
         ui, vi = ui[first], vi[first]
         datas = [datas[k] for k in first]
         ul, vl = [ul[k] for k in first], [vl[k] for k in first]
@@ -228,7 +244,8 @@ class NetworkGraph:
 
         After splitting, every path between the two sides passes through a node
         on the boundary. Attributes listed in ``extensive`` are divided in
-        proportion to the split; all others are copied.
+        proportion to the split, as is the attribute the metric reads (for
+        example ``"weight"``); all others are copied.
         """
         if not self.metric.supports_edge_splitting:
             warnings.warn(
@@ -238,6 +255,8 @@ class NetworkGraph:
             return self
         if self._split is not None and self._split[0] is boundary:
             return self._split[1]
+        # the metric's own cost attribute is always split in proportion
+        extensive = set(extensive) | _cost_attributes(self.metric)
         T = boundary.is_treated(self.coords)
         on = boundary.distance(self.coords) <= boundary.tol
         multi = self.graph.is_multigraph()
@@ -385,10 +404,167 @@ class NetworkGraph:
         return cls(G, metric, **kwargs)
 
     @classmethod
+    def from_lines(
+        cls,
+        lines,
+        metric="length",
+        *,
+        tol: float = 1e-6,
+        split_at_intersections: bool = False,
+        directed: bool = False,
+        coords: Sequence[str] = ("x1", "y1", "x2", "y2"),
+        to_crs="utm",
+        crs=None,
+        **kwargs,
+    ) -> "NetworkGraph":
+        """Build from line geometries, such as a GIS layer of roads, rivers, rail or pipes.
+
+        Parameters
+        ----------
+        lines
+            A GeoDataFrame or GeoSeries of (Multi)LineStrings, a list of shapely
+            lines or ``(m, 2)`` vertex arrays, or a DataFrame of straight segments
+            with endpoint columns ``coords`` (``x1, y1, x2, y2``). Other columns
+            of a (Geo)DataFrame (speed, lanes, flow, ...) become edge attributes,
+            so they can be used in a metric.
+        tol
+            Line ends closer than this are joined into one node. Increase it for
+            layers whose lines do not quite meet.
+        split_at_intersections
+            Also split lines where they cross each other, for layers that are not
+            split at junctions. Leave it off when crossings without a junction
+            (bridges, tunnels) matter.
+        directed
+            Lines are drawn in the direction of travel or flow (one-way streets,
+            rivers). Combine with ``direction="out"`` (downstream) or ``"in"``.
+        to_crs
+            For a GeoDataFrame in longitude/latitude: ``"utm"`` (default) projects
+            it to its local UTM zone so distances are in metres; any other CRS
+            projects to that; ``None`` keeps degrees.
+        crs
+            The CRS of plain (non-geopandas) coordinates, if known.
+        **kwargs
+            Passed to :class:`NetworkGraph` (``direction``, ``snap_scale``).
+
+        Each edge gets ``geometry`` and ``length`` (the line's length, unless a
+        ``length`` column is supplied). Closed rings are split in two so they
+        can be routed through.
+        """
+        geoms, attrs, crs = _lines_input(lines, coords, to_crs, crs)
+        if split_at_intersections:
+            geoms, attrs = _node_lines(geoms, attrs)
+        geoms = np.asarray(shapely.force_2d(geoms), dtype=object)
+        ok = ~shapely.is_empty(geoms) & (shapely.length(geoms) > 0)
+        if not ok.all():
+            warnings.warn(f"{int((~ok).sum())} empty or zero-length lines were dropped", stacklevel=2)
+            geoms, attrs = geoms[ok], [a for a, k in zip(attrs, ok) if k]
+        # closed rings: split at the midpoint so both halves are routable
+        rings = shapely.equals(shapely.get_point(geoms, 0), shapely.get_point(geoms, -1))
+        if rings.any():
+            out_g, out_a = [], []
+            for g, a, r in zip(geoms, attrs, rings):
+                parts = [substring(g, 0, 0.5, normalized=True), substring(g, 0.5, 1, normalized=True)] if r else [g]
+                out_g += parts
+                out_a += [a] * len(parts)
+            geoms, attrs = np.asarray(out_g, dtype=object), out_a
+        ends = np.vstack([shapely.get_coordinates(shapely.get_point(geoms, 0)),
+                          shapely.get_coordinates(shapely.get_point(geoms, -1))])
+        label = _merge_close(ends, tol)
+        m = len(geoms)
+        G = nx.MultiDiGraph() if directed else nx.MultiGraph()
+        G.graph["crs"] = crs
+        first = {}
+        for k, lab in enumerate(label):
+            first.setdefault(lab, k)
+        for lab, k in sorted(first.items()):
+            G.add_node(int(lab), x=float(ends[k, 0]), y=float(ends[k, 1]))
+        lengths = shapely.length(geoms)
+        for k in range(m):
+            data = dict(attrs[k])
+            data.setdefault("length", float(lengths[k]))
+            data["geometry"] = geoms[k]
+            G.add_edge(int(label[k]), int(label[m + k]), **data)
+        return cls(G, metric, crs=crs, **kwargs)
+
+    @classmethod
+    def from_frames(
+        cls,
+        nodes,
+        edges,
+        metric="length",
+        *,
+        node_id: str = "id",
+        x: str = "x",
+        y: str = "y",
+        source: str = "from",
+        target: str = "to",
+        directed: bool = False,
+        crs=None,
+        **kwargs,
+    ) -> "NetworkGraph":
+        """Build from a node table and an edge table (the format most GIS and
+        network tools export).
+
+        ``nodes`` has an id column ``node_id`` and coordinates ``x``, ``y``
+        (if ``node_id`` is not a column, the index is used). ``edges`` has the
+        endpoint ids ``source`` and ``target``; every other column becomes an
+        edge attribute. Edges without a ``length`` get the straight-line
+        length between their endpoints. With ``directed=True`` edges run from
+        ``source`` to ``target``; combine with ``direction="out"``.
+        """
+        nodes = pd.DataFrame(nodes)
+        edges = pd.DataFrame(edges)
+        for col in (x, y):
+            if col not in nodes.columns:
+                raise KeyError(f"nodes has no {col!r} column (set x= and y= to the coordinate columns)")
+        for col in (source, target):
+            if col not in edges.columns:
+                raise KeyError(f"edges has no {col!r} column (set source= and target= to the endpoint columns)")
+        ids = nodes[node_id].to_numpy() if node_id in nodes.columns else nodes.index.to_numpy()
+        if pd.Index(ids).has_duplicates:
+            raise ValueError("node ids must be unique")
+        xy = nodes[[x, y]].to_numpy(dtype=float)
+        if not np.isfinite(xy).all():
+            raise ValueError("node coordinates must be finite")
+        pos = {k: i for i, k in enumerate(ids.tolist())}
+        missing = set(edges[source].tolist()) | set(edges[target].tolist())
+        missing -= pos.keys()
+        if missing:
+            raise KeyError(f"edges refer to node ids missing from nodes: {sorted(map(str, missing))[:5]}")
+        G = nx.MultiDiGraph() if directed else nx.MultiGraph()
+        G.graph["crs"] = crs
+        for k, (px, py) in zip(ids.tolist(), xy):
+            G.add_node(k, x=float(px), y=float(py))
+        extra = [c for c in edges.columns if c not in (source, target)]
+        rows = edges[extra].to_dict("records") if extra else [{} for _ in range(len(edges))]
+        for a, b, data in zip(edges[source].tolist(), edges[target].tolist(), rows):
+            data = {k: v for k, v in data.items() if not (np.isscalar(v) and pd.isna(v))}
+            if "length" not in data:
+                data["length"] = float(np.hypot(*(xy[pos[a]] - xy[pos[b]])))
+            G.add_edge(a, b, **data)
+        return cls(G, metric, crs=crs, **kwargs)
+
+    @classmethod
     def from_igraph(cls, g, metric="weight", *, x_attr: str = "x", y_attr: str = "y", **kwargs) -> "NetworkGraph":
-        """Build from a python-igraph graph whose vertices carry coordinates."""
+        """Build from a python-igraph graph whose vertices carry coordinates.
+
+        With the default ``metric="weight"``, a graph without a ``weight`` edge
+        attribute uses ``length`` instead.
+        """
         G = g.to_networkx()
+        if metric == "weight" and "weight" not in g.es.attributes() and "length" in g.es.attributes():
+            metric = "length"
         return cls(G, metric, x_attr=x_attr, y_attr=y_attr, **kwargs)
+
+
+def _cost_attributes(metric) -> set:
+    """Edge attributes a metric reads as additive costs (split in proportion when an edge is cut)."""
+    out = set()
+    for m in (metric, getattr(metric, "_base", None)):
+        cost = getattr(m, "cost", None)
+        if isinstance(cost, str):
+            out.add(cost)
+    return out
 
 
 def _is_projected(graph) -> bool:
@@ -396,6 +572,22 @@ def _is_projected(graph) -> bool:
     if crs is None:
         return True
     return "4326" not in str(crs) and "longlat" not in str(crs).lower()
+
+
+def _looks_lonlat(xy: np.ndarray, crs) -> bool:
+    """A geographic CRS, or (with no CRS) coordinates that look like lon/lat degrees."""
+    if crs is not None:
+        return not _crs_projected(crs)
+    if len(xy) < 2 or not np.isfinite(xy).all():
+        return False
+    span = np.ptp(xy, axis=0)
+    return bool(np.all(np.abs(xy[:, 0]) <= 180) and np.all(np.abs(xy[:, 1]) <= 90)
+                and span.max() < 2 and np.abs(xy).max() > 2 and np.any(xy != np.round(xy)))
+
+
+def _crs_projected(crs) -> bool:
+    text = str(crs)
+    return "4326" not in text and "longlat" not in text.lower() and "4269" not in text
 
 
 def project_lonlat(lon, lat, to_crs) -> np.ndarray:
@@ -407,3 +599,69 @@ def project_lonlat(lon, lat, to_crs) -> np.ndarray:
     tr = Transformer.from_crs("EPSG:4326", to_crs, always_xy=True)
     x, y = tr.transform(np.asarray(lon, float), np.asarray(lat, float))
     return np.column_stack([x, y])
+
+
+def _lines_input(lines, coords, to_crs, crs):
+    """Geometries, per-line attribute dicts and CRS from any supported line input."""
+    if hasattr(lines, "geometry") and hasattr(lines, "crs"):  # GeoDataFrame / GeoSeries
+        gdf = lines if hasattr(lines, "columns") else lines.to_frame("geometry")
+        crs = gdf.crs
+        if crs is not None and crs.is_geographic and to_crs is not None:
+            target = gdf.estimate_utm_crs() if to_crs == "utm" else to_crs
+            gdf = gdf.to_crs(target)
+            crs = gdf.crs
+        gdf = gdf.explode(index_parts=False) if (gdf.geom_type == "MultiLineString").any() else gdf
+        geoms = np.asarray(gdf.geometry.to_numpy(), dtype=object)
+        rest = pd.DataFrame(gdf.drop(columns=gdf.geometry.name))
+        attrs = rest.to_dict("records") if rest.shape[1] else [{} for _ in range(len(gdf))]
+        crs = None if crs is None else crs.to_string()
+    elif isinstance(lines, pd.DataFrame):
+        missing = [c for c in coords if c not in lines.columns]
+        if missing:
+            raise KeyError(f"segment table has no {missing} columns (set coords= to the endpoint columns)")
+        xy = lines[list(coords)].to_numpy(dtype=float)
+        geoms = shapely.linestrings(xy.reshape(-1, 2, 2))
+        rest = lines.drop(columns=list(coords))
+        attrs = rest.to_dict("records") if rest.shape[1] else [{} for _ in range(len(lines))]
+    else:
+        geoms = np.asarray([g if isinstance(g, shapely.Geometry) else LineString(np.asarray(g, float)) for g in lines],
+                           dtype=object)
+        parts = shapely.get_parts(geoms, return_index=True)
+        geoms, idx = parts
+        attrs = [{} for _ in idx]
+    attrs = [{k: v for k, v in a.items() if not (np.isscalar(v) and pd.isna(v))} for a in attrs]
+    bad = ~np.isin(shapely.get_type_id(geoms), (1, 2))  # LineString, LinearRing
+    if bad.any():
+        raise TypeError("every geometry must be a LineString or MultiLineString")
+    return np.asarray(geoms, dtype=object), attrs, crs
+
+
+def _node_lines(geoms, attrs):
+    """Split lines at every crossing, keeping each piece's source attributes."""
+    pieces = shapely.get_parts(shapely.unary_union(geoms))
+    tree = shapely.STRtree(geoms)
+    mid = shapely.line_interpolate_point(pieces, 0.5, normalized=True)
+    src = tree.nearest(mid)
+    out_a = []
+    for p, k in zip(pieces, src):
+        a = dict(attrs[k])
+        if "length" in a:  # a supplied length is for the whole line; rescale to the piece
+            a["length"] = float(a["length"]) * float(p.length) / float(geoms[k].length)
+        out_a.append(a)
+    return np.asarray(pieces, dtype=object), out_a
+
+
+def _merge_close(xy: np.ndarray, tol: float) -> np.ndarray:
+    """Label points so that points within ``tol`` of each other share a label."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    from scipy.spatial import cKDTree
+
+    pairs = cKDTree(xy).query_pairs(max(tol, 0.0), output_type="ndarray")
+    n = len(xy)
+    A = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(n, n)) if len(pairs) else coo_matrix((n, n))
+    _, lab = connected_components(A, directed=False)
+    # relabel in order of first appearance
+    _, first, inv = np.unique(lab, return_index=True, return_inverse=True)
+    order = np.argsort(np.argsort(first))
+    return order[inv]

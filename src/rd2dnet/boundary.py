@@ -29,7 +29,15 @@ class Boundary:
         along the line. Evaluation points touching them are skipped: use this
         for segments with no mass on one side (Central Park on 60th Street).
     tol
-        Distance at which a network node counts as lying on the boundary.
+        Distance (in the network's coordinate units) at which a network node
+        counts as lying on the boundary. Increase it when the boundary follows
+        a street but its vertices are not exactly on the street's nodes.
+
+    Points exactly on the line count as treated with ``treated_region`` (and
+    are assigned by ``treated_side`` otherwise); pass ``treated=`` to
+    :func:`network_coordinates` to assign them yourself. Everything outside
+    ``treated_region`` is control, so restrict the sample to the two
+    neighbouring areas first.
     """
 
     def __init__(
@@ -41,6 +49,17 @@ class Boundary:
         mask: Iterable | None = None,
         tol: float = 1e-6,
     ):
+        if isinstance(line, BaseGeometry) and line.geom_type in ("Polygon", "MultiPolygon"):
+            raise TypeError("line is a polygon: use Boundary.from_region(polygon) to make its outline the "
+                            "boundary with the inside treated")
+        if isinstance(line, BaseGeometry) and line.geom_type == "MultiLineString":
+            from shapely.ops import linemerge
+
+            line = linemerge(line)
+            if line.geom_type != "LineString":
+                raise ValueError("the boundary has several disconnected pieces; pass one connected line")
+        if isinstance(line, BaseGeometry) and line.geom_type == "LinearRing":
+            line = LineString(line.coords)
         self.line = line if isinstance(line, LineString) else LineString(line)
         if (treated_region is None) == (treated_side is None):
             raise ValueError("give exactly one of treated_region or treated_side")
@@ -59,9 +78,59 @@ class Boundary:
                 self.mask_arcs.append((min(a, b), max(a, b)))
         shapely.prepare(self.line)
 
+    @classmethod
+    def from_points(cls, b, X=None, t=None, *, treated_side: str | None = None, **kwargs) -> "Boundary":
+        """Boundary through ordered points ``b``, the evaluation points of rd2d.
+
+        ``b`` is a ``(J, 2)`` array of points along the boundary, in order. The
+        treated side is ``treated_side`` if given; otherwise it is inferred
+        from observation locations ``X`` and treatment indicators ``t``: the
+        side of the line on which most treated observations lie.
+        """
+        b = np.asarray(b, dtype=float).reshape(-1, 2)
+        keep = np.r_[True, np.any(np.diff(b, axis=0) != 0, axis=1)]
+        b = b[keep]
+        if len(b) < 2:
+            raise ValueError("b needs at least two distinct points to define a boundary line")
+        if treated_side is None:
+            if X is None or t is None:
+                raise ValueError("give treated_side, or X and t to infer it")
+            treated_side = _infer_side(LineString(b), X, t)
+        return cls(b, treated_side=treated_side, **kwargs)
+
+    @classmethod
+    def from_region(cls, region, *, within: BaseGeometry | None = None, **kwargs) -> "Boundary":
+        """Boundary formed by the outline of the treated region (a school zone,
+        a city, a low-emission zone): points inside ``region`` are treated.
+
+        ``within`` keeps only the part of the outline inside that geometry,
+        for example the stretch where the zone borders its neighbour rather
+        than the coast or the edge of the study area. The kept part must be a
+        single connected line.
+        """
+        from shapely.ops import linemerge
+
+        if region.geom_type == "MultiPolygon":
+            region_line = shapely.boundary(region)
+        else:
+            region_line = region.exterior
+        line = region_line if within is None else region_line.intersection(within)
+        if line.geom_type == "MultiLineString":
+            line = linemerge(line)
+        if line.geom_type == "LinearRing":
+            line = LineString(line.coords)
+        if line.geom_type != "LineString" or line.is_empty:
+            raise ValueError("the boundary must be a single connected line; narrow it with within=")
+        return cls(line, treated_region=region, **kwargs)
+
     def __repr__(self) -> str:
         side = f"region" if self.treated_region is not None else self.treated_side
         return f"Boundary(length={self.length:.1f}, treated={side}, masks={len(self.mask_geoms) + len(self.mask_arcs)})"
+
+    @property
+    def closed(self) -> bool:
+        """Whether the line is a closed ring (a zone outline); offsets then wrap around it."""
+        return bool(self.line.is_closed)
 
     @property
     def length(self) -> float:
@@ -123,3 +192,22 @@ class Boundary:
         if spacing is not None:
             return np.arange(start, end + 1e-9, spacing)
         return np.linspace(start, end, 25 if n is None else n)
+
+
+def _infer_side(line: LineString, X, t) -> str:
+    """The side ('left' or 'right') of ``line`` on which treated observations lie."""
+    X = np.asarray(X, dtype=float).reshape(-1, 2)
+    t = np.asarray(t).astype(bool).ravel()
+    if X.shape[0] != t.shape[0]:
+        raise ValueError("X and t must have the same number of observations")
+    if t.all() or not t.any():
+        raise ValueError("t must contain both treated and control observations")
+    left = Boundary(line, treated_side="left").is_treated(X)
+    agree = float(np.mean(left == t))
+    side, share = ("left", agree) if agree >= 0.5 else ("right", 1 - agree)
+    if share < 0.9:
+        import warnings
+
+        warnings.warn(f"only {share:.0%} of observations lie on the side of the boundary that matches t; "
+                      "check that b is ordered along the boundary or pass treated_side/boundary", stacklevel=3)
+    return side

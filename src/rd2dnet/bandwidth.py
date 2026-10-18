@@ -57,8 +57,8 @@ def default_min_obs(q: int) -> int:
     return 20 + len(poly_exponents(q))
 
 
-def _n_terms(p: int) -> int:
-    return (p + 1) * (p + 2) // 2
+def _n_terms(p: int, dim: int = 2) -> int:
+    return p + 1 if dim == 1 else (p + 1) * (p + 2) // 2
 
 
 def _inv_gram(A: np.ndarray) -> np.ndarray:
@@ -70,8 +70,10 @@ def _inv_gram(A: np.ndarray) -> np.ndarray:
     return Li.T @ Li
 
 
-def _rot(s: np.ndarray, o: np.ndarray, kname: str, n_eff: int) -> float:
-    """rd2d's bivariate normal-reference rule of thumb."""
+def _rot(s: np.ndarray, o: np.ndarray, kname: str, n_eff: int, dim: int = 2) -> float:
+    """rd2d's bivariate normal-reference rule of thumb (a univariate one with ``dim=1``)."""
+    if dim == 1:
+        return float(1.06 * np.std(s, ddof=1) * n_eff ** (-1.0 / 5.0))
     mu2, l2 = _ROT_CONST.get(_ALIASES.get(kname, kname), _ROT_CONST["triangular"])
     cov = np.cov(np.vstack([s, o]), ddof=1)
     inv = np.linalg.pinv(cov, rcond=1e-20)
@@ -84,8 +86,9 @@ def _rot(s: np.ndarray, o: np.ndarray, kname: str, n_eff: int) -> float:
 class _Side:
     """Local data on one side of the boundary at one evaluation point."""
 
-    def __init__(self, s, o, d, y, om, kfun, cluster=None):
+    def __init__(self, s, o, d, y, om, kfun, cluster=None, dim=2):
         self.s, self.o, self.d, self.y, self.om, self.kfun = s, o, d, y, om, kfun
+        self.dim = dim
         self.cluster = cluster
         self._basis: dict[float, tuple] = {}
 
@@ -96,12 +99,12 @@ class _Side:
         if hit is None or hit[3] < order:
             w = self.kfun(self.d / h) / h**2 * self.om
             keep = np.flatnonzero(w > 0)
-            hit = (keep, w[keep], poly_basis(self.s[keep] / h, self.o[keep] / h, order), order)
+            hit = (keep, w[keep], poly_basis(self.s[keep] / h, self.o[keep] / h, order, self.dim), order)
             self._basis[h] = hit
         keep, w, R, _ = hit
         yy = (self.y if y is None else y)[keep]
         cl = None if self.cluster is None else self.cluster[keep]
-        return R[:, :_n_terms(order)], w, yy, cl
+        return R[:, :_n_terms(order, self.dim)], w, yy, cl
 
     @staticmethod
     def _sigma(WR, resd, h, cl):
@@ -130,7 +133,7 @@ class _Side:
         R, w, yy, cl = self.design(h, order, y)
         invG = _inv_gram((R.T * w) @ R)
         beta_s = invG @ ((R.T * w) @ yy)
-        degs = np.array([a + c for a, c in poly_exponents(order)])
+        degs = np.array([a + c for a, c in poly_exponents(order, self.dim)])
         beta = beta_s / h**degs
         cov = None
         if varr:
@@ -141,7 +144,7 @@ class _Side:
     def coeff(self, dn: float, p: int, vec: np.ndarray) -> np.ndarray:
         """Projection of the degree p+1 terms onto the target ``vec``: rd2d's ``vec_q``."""
         R, w, _, _ = self.design(dn, p + 1)
-        k = _n_terms(p)
+        k = _n_terms(p, self.dim)
         Rp, S = R[:, :k], R[:, k:]
         invG = _inv_gram((Rp.T * w) @ Rp)
         tail = vec @ invG @ ((Rp.T * w) @ S)
@@ -149,7 +152,7 @@ class _Side:
 
     def consts(self, p: int, vec: np.ndarray, dn: float, bn1: float, bn2: float | None, vce: str, y=None) -> dict:
         R, w, yy, cl = self.design(dn, p + (2 if bn2 is not None else 1), y)
-        kp, kp1 = _n_terms(p), _n_terms(p + 1)
+        kp, kp1 = _n_terms(p, self.dim), _n_terms(p + 1, self.dim)
         Rp, S, Tm = R[:, :kp], R[:, kp:kp1], R[:, kp1:]
         WR = Rp * w[:, None]
         invG = _inv_gram(WR.T @ Rp)
@@ -182,7 +185,7 @@ def _covariate_gamma(sides, Zs, dns, p, outcomes) -> np.ndarray:
     for sd, Zt, dn, yt in zip(sides, Zs, dns, outcomes):
         w = sd.kfun(sd.d / dn) / dn**2 * sd.om
         k = w > 0
-        R = poly_basis(sd.s[k] / dn, sd.o[k] / dn, p)
+        R = poly_basis(sd.s[k] / dn, sd.o[k] / dn, p, sd.dim)
         W, Zk, yk = w[k], Zt[k], yt[k]
         invG = np.linalg.pinv((R.T * W) @ R, rcond=1e-12)
         uz = (R.T * W) @ Zk
@@ -191,9 +194,33 @@ def _covariate_gamma(sides, Zs, dns, p, outcomes) -> np.ndarray:
     return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
+def _check_obs(v, n: int, name: str) -> np.ndarray:
+    v = np.asarray(v, dtype=float).ravel()
+    if v.shape != (n,):
+        raise ValueError(f"{name} must have one value per observation ({n}), got {v.size}")
+    return v
+
+
+def _check_weights(weights, n: int) -> np.ndarray:
+    w = _check_obs(weights, n, "weights")
+    if not np.all(np.isfinite(w)) or np.any(w < 0):
+        raise ValueError("weights must be finite and non-negative")
+    return w
+
+
+def _check_cluster(cluster, n: int) -> np.ndarray:
+    cl = np.asarray(cluster).ravel()
+    if cl.shape != (n,):
+        raise ValueError(f"cluster must have one value per observation ({n}), got {cl.size}")
+    if pd.isna(cl).any():
+        raise ValueError("cluster has missing values")
+    return cl
+
+
 def _kth(d: np.ndarray, k: int) -> float:
+    """Distance to the k-th nearest observation, nudged up so that observation gets positive kernel weight."""
     k = int(min(max(k, 1), d.size))
-    return float(np.partition(d, k - 1)[k - 1])
+    return float(np.partition(d, k - 1)[k - 1]) * (1 + 1e-9)
 
 
 def rdbwnet(
@@ -255,14 +282,16 @@ def rdbwnet(
     bwselect = bwselect.lower()
     if bwselect not in BWSELECT:
         raise ValueError(f"bwselect must be one of {BWSELECT}")
+    if vce not in ("hc0", "hc1", "hc2", "hc3", "cluster", "conley"):
+        raise ValueError("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc1')")
     if vce not in ("hc0", "hc1", "hc2", "hc3"):
         vce = "hc1"
-    y = np.asarray(y, dtype=float)
+    y = _check_obs(y, coords.n_obs, "y")
     kfun = get_kernel(kernel)
     kname = kernel.lower() if isinstance(kernel, str) else "triangular"
-    om = np.ones_like(y) if weights is None else np.asarray(weights, dtype=float)
-    D = None if fuzzy is None else np.asarray(fuzzy, dtype=float)
-    cl = None if cluster is None else np.asarray(cluster)
+    om = np.ones_like(y) if weights is None else _check_weights(weights, coords.n_obs)
+    D = None if fuzzy is None else _check_obs(fuzzy, coords.n_obs, "fuzzy")
+    cl = None if cluster is None else _check_cluster(cluster, coords.n_obs)
     Z = None
     if covs is not None:
         Z = np.asarray(covs, dtype=float)
@@ -272,25 +301,34 @@ def rdbwnet(
     # Effective sample sizes count distinct locations (mass points count once), as in rd2d.
     n_eff = len(np.unique(coords.loc[np.isfinite(s)]))
     n_eff_side = [len(np.unique(coords.loc[np.isfinite(s) & (T == t)])) for t in (False, True)]
-    exps = poly_exponents(p)
     deriv = tuple(int(v) for v in deriv)
     if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:
         raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
     tang = None if tangvec is None else np.broadcast_to(np.asarray(tangvec, dtype=float), (coords.n_eval, 2))
     v_ord = 1 if tang is not None else sum(deriv)
-    e_deriv = np.zeros(len(exps))
-    e_deriv[exps.index(deriv)] = math.factorial(deriv[0]) * math.factorial(deriv[1])
     expo_b = 1.0 / (2 * p + 6)
 
     def point(j):
-        rec = {"eval": j, "arc": coords.eval_arc[j], "status": "ok"}
+        rec = point_dim(j, 2)
+        if rec["status"] == "singular" and deriv[1] == 0 and tang is None:
+            # Few boundary crossings near this point (a river, rail line or highway
+            # crossing the border): the offset o barely varies, so fit in s alone.
+            rec1 = point_dim(j, 1)
+            if rec1["status"] == "ok":
+                return rec1
+        return rec
+
+    def point_dim(j, dim):
+        rec = {"eval": j, "arc": coords.eval_arc[j], "status": "ok", "basis": "s,o" if dim == 2 else "s"}
         if coords.eval_masked[j]:
             rec["status"] = "masked"
             return rec
-        vec = e_deriv.copy()
+        exps_d = poly_exponents(p, dim)
+        vec = np.zeros(len(exps_d))
+        vec[exps_d.index(deriv)] = math.factorial(deriv[0]) * math.factorial(deriv[1])
         if tang is not None:
             vec[:] = 0.0
-            vec[exps.index((1, 0))], vec[exps.index((0, 1))] = tang[j]
+            vec[exps_d.index((1, 0))], vec[exps_d.index((0, 1))] = tang[j]
         d, o = coords.at(j)
         ok = np.isfinite(d) & np.isfinite(o) & np.isfinite(s) & np.isfinite(y) & (om > 0)
         if D is not None:
@@ -301,8 +339,8 @@ def rdbwnet(
         if min(m.sum() for m in masks) < bwcheck:
             rec["status"] = "insufficient"
             return rec
-        sides = [_Side(s[m], o[m], d[m], y[m], om[m], kfun, None if cl is None else cl[m]) for m in masks]
-        dn = _rot(s[ok], o[ok], kname, n_eff)
+        sides = [_Side(s[m], o[m], d[m], y[m], om[m], kfun, None if cl is None else cl[m], dim) for m in masks]
+        dn = _rot(s[ok], o[ok], kname, n_eff, dim)
         bounds = [(_kth(sd.d, bwcheck), float(sd.d.max())) for sd in sides]
         dns = [min(max(dn, lo), hi) for lo, hi in bounds]
         thr = [float(np.median(sd.d)) for sd in sides]

@@ -453,10 +453,17 @@ def as_metric(spec) -> NetworkMetric:
 # --- convenience constructors -------------------------------------------------
 
 def travel_time(speed_attr: str = "speed_kph", length_attr: str = "length", default_kph: float | None = None) -> EdgeCost:
-    """Seconds to traverse each edge, from a length (m) and speed (km/h) attribute."""
+    """Seconds to traverse each edge, from a length (m) and speed (km/h) attribute.
+
+    Edges with a missing (absent or NaN) speed use ``default_kph``. For data in
+    feet and miles per hour, convert first (``length_m = 0.3048 * length_ft``,
+    ``speed_kph = 1.609344 * speed_mph``).
+    """
 
     def _cost(u, v, data):
-        speed = _scalar(data.get(speed_attr, default_kph))
+        speed = _scalar(data.get(speed_attr))
+        if speed is None or (isinstance(speed, float) and np.isnan(speed)):
+            speed = default_kph
         if speed is None:
             raise KeyError(f"edge ({u!r}, {v!r}) has no {speed_attr!r} and no default_kph")
         speed = float(speed)

@@ -38,15 +38,21 @@
 }
 
 # Observation points -> n x 2 matrix.
-.as_points <- function(points) {
+# With `crs`, sf points in another CRS are transformed to it.
+.as_points <- function(points, crs = NULL) {
   if (.is_sf(points)) {
+    if (!is.null(crs) && !inherits(points, "sfg")) {
+      pc <- sf::st_crs(points)
+      if (!is.na(pc) && pc != sf::st_crs(crs)) points <- sf::st_transform(points, crs)
+    }
     return(.sf_parts(points)$parts[[1]])
   }
   if (is.data.frame(points)) {
-    if (!all(c("x", "y") %in% names(points))) {
-      stop("a data frame of points needs `x` and `y` columns", call. = FALSE)
+    if (all(c("x", "y") %in% names(points))) {
+      return(cbind(as.numeric(points$x), as.numeric(points$y)))
     }
-    return(cbind(as.numeric(points$x), as.numeric(points$y)))
+    if (ncol(points) == 2) return(cbind(as.numeric(points[[1]]), as.numeric(points[[2]])))
+    stop("a data frame of points needs `x` and `y` columns (or exactly two columns)", call. = FALSE)
   }
   if (is.numeric(points) && is.null(dim(points)) && length(points) == 2) {
     return(matrix(as.numeric(points), 1, 2))

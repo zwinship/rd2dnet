@@ -22,6 +22,7 @@ geometry is treated as fixed.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -190,6 +191,7 @@ def density(
     weights=None,
     bwselect: str = "common",
     scaleregul: float = 1.0,
+    unique_locations: bool = False,
 ) -> DensityResult:
     """Test for a discontinuity in the density of observations at the boundary.
 
@@ -201,7 +203,7 @@ def density(
         By default the whole boundary is pooled. Masked stretches of the
         boundary are always excluded.
     h
-        Bandwidth, scalar or ``(h_left, h_right)``, in metric units (street-length
+        Bandwidth, scalar or ``(h_control, h_treated)``, in metric units (street-length
         units with ``normalize="network"``). Selected by an MSE plug-in rule per
         side when omitted.
     p, q
@@ -221,6 +223,11 @@ def density(
         let unequal smoothing bias pass for a discontinuity.
     scaleregul
         Weight on the variance of the bias estimate in the bandwidth rule.
+    unique_locations
+        Count each location once (the first observation there). Use this with
+        repeated measurements (panels, repeat sales, sensor readings): the
+        sorting question is about where units are, and repeated rows at the
+        same place otherwise look like a density spike.
 
     Returns
     -------
@@ -240,6 +247,13 @@ def density(
     om = np.ones(coords.n_obs) if weights is None else np.asarray(weights, dtype=float)
     # Masked stretches (parks, rivers) are void by construction: leave them out.
     sel = np.isfinite(s) & (om > 0) & ~coords.boundary.is_masked(np.nan_to_num(coords.crossing_arc, nan=-1.0))
+    first = np.zeros(coords.n_obs, dtype=bool)
+    first[np.unique(coords.loc, return_index=True)[1]] = True
+    if unique_locations:
+        sel &= first
+    elif (sel & ~first).any():
+        warnings.warn("several observations share a location (repeated measurements?); the density test counts "
+                      "each one. Use unique_locations=True to test the density of locations", stacklevel=2)
     center = None
     if eval_index is not None:
         if window is None:
@@ -249,7 +263,8 @@ def density(
     if normalize == "network":
         G_left, G_right = _street_length_transform(coords, center, window)
         s = np.where(T, G_right(s), G_left(s))
-    x = np.where(T, s, -s)[sel]
+    # controls exactly on the boundary (s = 0) stay on the control side
+    x = np.where(T, s, np.where(s == 0, -np.finfo(float).tiny, -s))[sel]
     om = om[sel]
     if len(x) < 20 or (x >= 0).sum() < 10 or (x < 0).sum() < 10:
         raise ValueError("too few observations for a density test")

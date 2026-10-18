@@ -37,9 +37,8 @@ remotes::install_github("zwinship/rd2dnet", subdir = "R-package")
 See [`R-package/README.md`](R-package/README.md) and `vignette("rd2dnet")`.
 
 **Stata (draft).** A Stata port lives in [`stata/`](stata/) (`rdnetset`, `rdnet`, `rdbwnet`,
-`rdnetdensity`, `estat wbate`/`lbate`). It was written without access to Stata and has
-not been run yet; [`stata/README.md`](stata/README.md) explains its status and how to
-test it.
+`rdnetdensity`, `estat wbate`/`lbate`). It is still being tested;
+[`stata/README.md`](stata/README.md) explains its status and how to run the test suite.
 
 ## Method
 

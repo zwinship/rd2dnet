@@ -19,7 +19,9 @@ network_graph(
 \arguments{
 \item{edges}{Data frame with one row per edge: columns \code{from} and \code{to}
 (node ids, as in the node id column of \code{nodes}) plus any edge attributes
-(\code{length}, \code{highway}, \code{speed_kph}, ...). An optional \code{geometry} column
+(\code{length}, \code{highway}, \code{speed_kph}, ...). Without a \code{length} column, each
+edge's length is computed from its geometry (or the straight line between
+its endpoints). An optional \code{geometry} column
 holds each edge's shape as a list of \verb{n x 2} matrices or an sf
 \code{LINESTRING} column; edges without one are straight segments. Repeated
 node pairs (multigraphs) are allowed; self-loops are ignored.}
@@ -61,6 +63,6 @@ net
 node_distance(net, "a", "c")
 }
 \seealso{
-\code{\link[=network_graph_from_adjacency]{network_graph_from_adjacency()}}, \code{\link[=network_graph_from_igraph]{network_graph_from_igraph()}},
+\code{\link[=network_graph_from_lines]{network_graph_from_lines()}}, \code{\link[=network_graph_from_adjacency]{network_graph_from_adjacency()}}, \code{\link[=network_graph_from_igraph]{network_graph_from_igraph()}},
 \code{\link[=network_graph_from_place]{network_graph_from_place()}}, \code{\link[=network_coordinates]{network_coordinates()}}.
 }

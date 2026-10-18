@@ -57,7 +57,7 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
                                 n_eval = 25, snap = "edge", lonlat = FALSE, split_edges = TRUE) {
   .check_network(network)
   .check_boundary(boundary)
-  xy <- .as_points(points)
+  xy <- .as_points(points, network$crs)
   if (lonlat) {
     if (is.null(network$crs)) stop("network has no crs to project lon/lat into", call. = FALSE)
     xy <- project_lonlat(xy[, 1], xy[, 2], network$crs)

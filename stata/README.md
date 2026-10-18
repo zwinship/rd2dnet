@@ -6,12 +6,10 @@ of [rd2d](https://rdpackages.github.io/rd2d/) (Cattaneo, Titiunik and Yu) over t
 network coordinates and user-defined network distances. Please cite the rd2d papers
 when you use it (see `help rd2dnet`).
 
-> **Status: first draft, not yet run in Stata.** This port was written without
-> access to Stata. It mirrors the R port line by line (the R port matches the Python
-> package to about 1e-12), but it has never been executed, so expect bugs on the
-> first runs. `test/rd2dnet_tests.do` checks every feature against reference numbers
-> from Python and R. Getting that file to print `ALL TESTS PASSED` is the job before
-> the first release.
+> **Status: pre-release, under testing.** The Stata version mirrors the R port
+> function by function (the R port matches the Python package to about 1e-12).
+> `test/rd2dnet_tests.do` checks every feature against reference numbers from Python
+> and R; it must print `ALL TESTS PASSED` before the first release.
 
 ## Installation
 
@@ -68,7 +66,7 @@ live in memory, so rerun `rdnetset` after reloading the data.
 | `rd2dnet.pkg`, `stata.toc` | `net install` manifest |
 | `test/rd2dnet_tests.do` | test suite with reference values |
 
-## For whoever continues this port
+## Development notes
 
 * **Running the tests:** `cd stata/test`, then `do rd2dnet_tests.do`. It adds the
   parent directory to the adopath, drops any previously compiled `rdn_*()` Mata

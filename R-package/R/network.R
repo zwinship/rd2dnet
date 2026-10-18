@@ -5,7 +5,9 @@
 #'
 #' @param edges Data frame with one row per edge: columns `from` and `to`
 #'   (node ids, as in the node id column of `nodes`) plus any edge attributes
-#'   (`length`, `highway`, `speed_kph`, ...). An optional `geometry` column
+#'   (`length`, `highway`, `speed_kph`, ...). Without a `length` column, each
+#'   edge's length is computed from its geometry (or the straight line between
+#'   its endpoints). An optional `geometry` column
 #'   holds each edge's shape as a list of `n x 2` matrices or an sf
 #'   `LINESTRING` column; edges without one are straight segments. Repeated
 #'   node pairs (multigraphs) are allowed; self-loops are ignored.
@@ -26,7 +28,7 @@
 #'   Defaults to the metric's own default (1 for length, 0 otherwise).
 #'
 #' @return An object of class `rd2dnet_network`.
-#' @seealso [network_graph_from_adjacency()], [network_graph_from_igraph()],
+#' @seealso [network_graph_from_lines()], [network_graph_from_adjacency()], [network_graph_from_igraph()],
 #'   [network_graph_from_place()], [network_coordinates()].
 #' @examples
 #' nodes <- data.frame(name = c("a", "b", "c"), x = c(0, 100, 200), y = 0)
@@ -67,6 +69,17 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
   if ("geometry" %in% names(edges)) {
     edges$geometry <- .edge_geometries(edges$geometry)
   }
+  if (!"length" %in% names(edges)) {
+    edges$length <- sqrt(rowSums((coords[from, , drop = FALSE] - coords[to, , drop = FALSE])^2))
+    if ("geometry" %in% names(edges)) {
+      has <- !vapply(edges$geometry, is.null, logical(1))
+      edges$length[has] <- vapply(edges$geometry[has], function(m) .segments(m)$total, numeric(1))
+    }
+  }
+  if (.looks_lonlat(coords, crs)) {
+    warning("the network is in longitude/latitude, so distances are in degrees; project it to a ",
+            "metric CRS first (network_graph_from_lines() does this for sf layers)", call. = FALSE)
+  }
   metric <- as_metric(metric)
   structure(
     list(
@@ -83,6 +96,15 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
     ),
     class = "rd2dnet_network"
   )
+}
+
+# A geographic CRS, or (with no CRS) coordinates that look like lon/lat degrees.
+.looks_lonlat <- function(xy, crs) {
+  if (!is.null(crs)) return(grepl("4326|4269|longlat", crs, ignore.case = TRUE))
+  if (nrow(xy) < 2 || !all(is.finite(xy))) return(FALSE)
+  span <- apply(xy, 2, function(v) diff(range(v)))
+  all(abs(xy[, 1]) <= 180) && all(abs(xy[, 2]) <= 90) && max(span) < 2 && max(abs(xy)) > 2 &&
+    any(xy != round(xy))
 }
 
 .as_id <- function(v, ids) {

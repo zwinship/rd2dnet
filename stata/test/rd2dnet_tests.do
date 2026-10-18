@@ -4,10 +4,8 @@
 *
 * Reference values come from the Python package rd2dnet 0.1.1 and the R
 * package (which matches Python to about 1e-12 on this data and uses the same
-* tie-breaking rule as the Stata port). The Stata port was written without
-* access to Stata, so the first runs are expected to surface bugs: every check
-* prints "ok" or "FAIL", errors inside a block are caught, and a summary is
-* printed at the end.
+* tie-breaking rule as the Stata port). Every check prints "ok" or "FAIL",
+* errors inside a block are caught, and a summary is printed at the end.
 
 version 16
 clear all

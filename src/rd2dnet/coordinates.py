@@ -30,12 +30,18 @@ from ._parallel import n_threads
 from .network import NetworkGraph, Snap, project_lonlat
 
 
-def _points_array(points) -> np.ndarray:
+def _points_array(points, crs=None) -> np.ndarray:
     if hasattr(points, "geometry") and hasattr(points, "crs"):  # GeoDataFrame / GeoSeries
         geom = points.geometry if hasattr(points, "columns") else points
+        if crs is not None and geom.crs is not None and geom.crs != crs:
+            geom = geom.to_crs(crs)  # match the network's CRS
         return np.column_stack([geom.x.to_numpy(), geom.y.to_numpy()])
     if isinstance(points, pd.DataFrame):
-        return points[["x", "y"]].to_numpy(dtype=float)
+        if {"x", "y"} <= set(points.columns):
+            return points[["x", "y"]].to_numpy(dtype=float)
+        if points.shape[1] == 2:
+            return points.to_numpy(dtype=float)
+        raise ValueError("a DataFrame of points needs x and y columns (or exactly two columns)")
     arr = np.asarray(points, dtype=float)
     if arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError("points must be an (n, 2) array, a DataFrame with x/y columns, or a GeoSeries")
@@ -204,7 +210,11 @@ class NetworkCoordinates:
         sn = self._lsnap
         d = sn.to_nodes(D[None, :], self._ldepth)[0]
         d = np.minimum(d, self._ldepth + self._along_eval_edge(sn, j))
-        sign = np.sign(self._lcross_arc - self.eval_node_arc[j])
+        diff = self._lcross_arc - self.eval_node_arc[j]
+        if self.boundary.closed:  # the shorter way round the ring
+            L = self.boundary.length
+            diff = (diff + L / 2) % L - L / 2
+        sign = np.sign(diff)
         c = self._lcross
         reach = np.minimum(c.cost_u + D[c.u], c.cost_v + D[c.v])
         reach = np.minimum(reach, self._along_eval_edge(c, j))
@@ -384,6 +394,7 @@ def network_coordinates(
     snap: str = "edge",
     lonlat: bool = False,
     split_edges: bool = True,
+    extensive: Sequence[str] = ("length", "travel_time"),
 ) -> NetworkCoordinates:
     """Translate point locations into network coordinates around a boundary.
 
@@ -394,15 +405,18 @@ def network_coordinates(
     boundary
         The boundary line and treated side.
     points
-        Observation locations: ``(n, 2)`` array, DataFrame with ``x``/``y``, or a
-        GeoSeries/GeoDataFrame of points, in the network's projected CRS (or
-        lon/lat with ``lonlat=True``).
+        Observation locations: ``(n, 2)`` array, DataFrame with ``x``/``y`` (or
+        exactly two columns), or a GeoSeries/GeoDataFrame of points, in the
+        network's projected CRS (or lon/lat with ``lonlat=True``). A
+        GeoSeries/GeoDataFrame in another CRS is reprojected to the network's.
     treated
-        Treatment indicator. Defaults to the side of the boundary each point is on.
+        Treatment indicator (boolean or 0/1). Defaults to the side of the
+        boundary each point is on (points on the line count as treated with a
+        ``treated_region``).
     eval_points
         Arc-length positions along the boundary, or ``(k, 2)`` coordinates to
         project. Defaults to ``n_eval`` equally spaced points spanning the
-        boundary nodes. Each evaluation point is placed on the nearest street
+        boundary nodes (around the whole ring for a closed boundary). Each evaluation point is placed on the nearest street
         segment running along the boundary, or at the nearest boundary node
         when no such segment exists.
     snap
@@ -412,6 +426,9 @@ def network_coordinates(
         (requires pyproj).
     split_edges
         Insert nodes where edges cross the boundary (recommended).
+    extensive
+        Edge attributes divided in proportion when an edge is split at the
+        boundary (the metric's own cost attribute always is); others are copied.
 
     Returns
     -------
@@ -420,25 +437,39 @@ def network_coordinates(
         observation reaches the boundary, and the evaluation points; kernel
         distances and lateral offsets at evaluation point ``j`` come from
         :meth:`NetworkCoordinates.at`. Repeated locations are processed once.
+
+    Notes
+    -----
+    On a directed network (``direction="out"``), distances run from the
+    boundary to each location, following edge directions: on a river drawn
+    downstream, locations upstream of the boundary cannot be reached. Use
+    ``direction="in"`` for distances from each location to the boundary, or
+    ``"both"`` to ignore direction.
     """
-    xy = _points_array(points)
+    xy = _points_array(points, network.crs)
     if lonlat:
         if network.crs is None:
             raise ValueError("network has no CRS to project lon/lat into")
         xy = project_lonlat(xy[:, 0], xy[:, 1], network.crs)
 
+    if not np.isfinite(xy).all():
+        raise ValueError("point coordinates must be finite")
     if split_edges:
-        network = network.with_boundary_crossings(boundary)
+        network = network.with_boundary_crossings(boundary, extensive)
 
-    node_on = boundary.distance(network.coords) <= boundary.tol
+    bdist = boundary.distance(network.coords)
+    node_on = bdist <= boundary.tol
+    near = (bdist > boundary.tol) & (bdist <= 1e-4 * boundary.length)
+    if near.sum() >= 3:
+        warnings.warn(f"{int(near.sum())} network nodes lie within {1e-4 * boundary.length:.3g} of the boundary but "
+                      f"outside Boundary(tol={boundary.tol:g}); if the boundary follows a street, increase tol "
+                      "(in the network's coordinate units) so they count as on it", stacklevel=2)
     node_T = boundary.is_treated(network.coords) & ~node_on
     boundary_nodes = np.flatnonzero(node_on)
     if boundary_nodes.size == 0:
         raise ValueError("no network nodes lie on the boundary; check the CRS or increase Boundary(tol=...)")
 
-    T = None if treated is None else np.asarray(treated, dtype=bool)
-    if T is not None and T.shape != (len(xy),):
-        raise ValueError("treated must have one entry per point")
+    T = None if treated is None else _as_treatment(treated, len(xy))
     # Repeated locations (panels, mass points) are processed once.
     loc, first = _unique_locations(xy, T)
     xy_obs, xy = xy, xy[first]
@@ -471,7 +502,9 @@ def network_coordinates(
     crossing = np.where(on_edge, np.where(cu <= cv, u, v), crossing)
     unreachable = ~np.isfinite(dist) | (crossing < 0)
     if unreachable.any():
-        warnings.warn(f"{int(unreachable.sum())} observations cannot reach the boundary and are dropped", stacklevel=2)
+        n_rows = int(np.isin(loc, np.flatnonzero(unreachable)).sum())
+        warnings.warn(f"{n_rows} observations ({int(unreachable.sum())} locations) have no network path to the "
+                      "boundary and are dropped (disconnected parts of the network, or edge directions)", stacklevel=2)
     s = np.where(unreachable, np.nan, np.where(T, dist, -dist))
     crossing = np.where(unreachable, -1, crossing)
     safe = np.maximum(crossing, 0)
@@ -487,12 +520,28 @@ def network_coordinates(
 
     bnode_arc = boundary.project(network.coords[boundary_nodes])
     if eval_points is None:
-        eval_arc = np.linspace(bnode_arc.min(), bnode_arc.max(), n_eval)
+        if boundary.closed:  # around the ring, without repeating the start
+            eval_arc = (bnode_arc.min() + np.arange(n_eval) * boundary.length / n_eval) % boundary.length
+        else:
+            eval_arc = np.linspace(bnode_arc.min(), bnode_arc.max(), n_eval)
     else:
         ep = np.asarray(eval_points, dtype=float)
         eval_arc = boundary.project(ep) if ep.ndim == 2 else ep.ravel()
+        if eval_arc.size == 0:
+            raise ValueError("eval_points is empty")
+        outside = (eval_arc < bnode_arc.min() - 1e-9) | (eval_arc > bnode_arc.max() + 1e-9)
+        if outside.any() and not boundary.closed:
+            warnings.warn(f"{int(outside.sum())} evaluation points lie beyond the first or last place the network "
+                          "meets the boundary; they are moved to the nearest boundary node", stacklevel=2)
     eval_snap = _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc)
     masked = boundary.is_masked(eval_arc)
+    spot = np.column_stack([np.minimum(eval_snap.u, eval_snap.v), np.maximum(eval_snap.u, eval_snap.v),
+                            np.round(np.where(eval_snap.u <= eval_snap.v, eval_snap.cost_u, eval_snap.cost_v), 6)])
+    n_spots = len(np.unique(spot[~masked], axis=0))
+    if n_spots < 0.75 * (~masked).sum():  # a few repeats near the ends are harmless
+        warnings.warn(f"the {int((~masked).sum())} evaluation points fall on only {n_spots} distinct places (the network "
+                      "meets the boundary at few points); their estimates repeat, so pass one evaluation point "
+                      "per crossing, e.g. eval_points=<crossing coordinates>", stacklevel=2)
 
     def per_obs(snp_or_arr):
         if isinstance(snp_or_arr, Snap):
@@ -520,6 +569,22 @@ def network_coordinates(
         masked,
         loc=loc,
     )
+
+
+def _as_treatment(treated, n: int) -> np.ndarray:
+    """Boolean treatment indicator from bool or 0/1 input, with checks."""
+    t = np.asarray(treated).ravel()
+    if t.dtype != bool:
+        try:
+            tf = t.astype(float)
+        except (TypeError, ValueError):
+            raise ValueError("treated must be boolean or 0/1") from None
+        if np.isnan(tf).any() or not np.isin(tf, (0, 1)).all():
+            raise ValueError("treated must be boolean or 0/1 without missing values")
+        t = tf == 1
+    if t.shape != (n,):
+        raise ValueError(f"treated must have one entry per point ({n}), got {t.size}")
+    return t
 
 
 def _zorder(xy: np.ndarray) -> np.ndarray:
