@@ -1,0 +1,5 @@
+v 3
+d rd2dnet: boundary discontinuity designs on street networks
+d Zach Winship, zachtwinship@gmail.com
+d https://github.com/zwinship/rd2dnet
+p rd2dnet Boundary discontinuity designs on street networks (a network extension of rd2d)

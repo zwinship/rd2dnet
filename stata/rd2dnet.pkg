@@ -1,0 +1,48 @@
+v 3
+d rd2dnet: Boundary discontinuity designs on street networks
+d
+d Estimation and inference for boundary discontinuity designs on street
+d networks. Extends the location-based framework of rd2d (Cattaneo, Titiunik
+d and Yu) from Euclidean coordinates to network coordinates (signed network
+d distance to the boundary and offset along it) and user-defined network
+d distances (edge costs, travel time, road-class transition penalties).
+d Side-specific local polynomial estimates of boundary average treatment
+d effect curves with robust bias-corrected inference, uniform confidence
+d bands, weighted and largest aggregate effects, fuzzy designs, covariates,
+d derivative targets, HC, cluster and network Conley standard errors, a port
+d of rd2d's bandwidth selector, and a network-normalised density test
+d following rddensity (Cattaneo, Jansson and Ma).
+d
+d Please cite the rd2d papers when using this package (see help rd2dnet).
+d
+d KW: regression discontinuity
+d KW: boundary discontinuity
+d KW: rd2d
+d KW: spatial
+d KW: networks
+d KW: causal inference
+d
+d Requires: Stata version 16
+d
+d Distribution-Date: 20261018
+d
+d Author: Zach Winship
+d Support: email zachtwinship@gmail.com
+d
+f rd2dnet.sthlp
+f rd2dnet_mata.ado
+f lrd2dnet.mata
+f rdnetset.ado
+f rdnetset.sthlp
+f rdnet.ado
+f rdnet.sthlp
+f rdnet_estat.ado
+f rdbwnet.ado
+f rdbwnet.sthlp
+f rdnetdensity.ado
+f rdnetdensity.sthlp
+f rdnetmock.ado
+f rdnetmock.sthlp
+f rdnet_mock_obs.dta
+f rdnet_mock_nodes.dta
+f rdnet_mock_edges.dta
