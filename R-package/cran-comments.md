@@ -1,8 +1,13 @@
 ## R CMD check results
 
-0 errors | 0 warnings | 1 note
+0 errors | 0 warnings | 0 notes
 
 * This is a new release.
+
+## Test environments
+
+* GitHub Actions: ubuntu-latest (R release, devel, oldrel-1), macos-latest (R release),
+  windows-latest (R release), all `R CMD check --as-cran`: Status OK.
 
 ## Notes for CRAN
 
