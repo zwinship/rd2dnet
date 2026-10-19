@@ -1,7 +1,7 @@
 # Overnight report (2026-10-19)
 
-Work is in two PRs: #4 (Stata's first run, merged) and #5 (`parity-harness`: the parity
-harness plus all fixes below). Decisions waiting for you are in `DECISIONS-overnight.md`.
+Work is in PRs #4 (Stata's first run) and #5 (the parity harness plus all fixes below),
+both merged into `main` after green CI. Decisions waiting for you are in `DECISIONS-overnight.md`.
 
 ## Status by language
 
@@ -11,6 +11,33 @@ harness plus all fixes below). Decisions waiting for you are in `DECISIONS-overn
 | **Python** | Full test suite green, locally and in CI (3.10-3.13, Windows, notebook). |
 | **R** | Can't be built locally (no Rtools). In CI, R CMD check --as-cran is green on five platforms, including the new regression tests. |
 | **Parity** | New `parity/` harness: 40 random designs covering grids, rivers, rings, directed networks, transition and travel-time costs, fuzzy designs, covariates, clusters, Conley, every bwselect and every kernel. Python vs R runs in CI (`parity` job). Before the fixes, 6 of 40 cases disagreed. |
+
+## First thing this morning: run Stata on the merged code
+
+Both PRs are merged into `main` (766c9ef). In Stata 19 (AppStream), run these, typing
+each line in the Command window:
+
+```stata
+clear all
+do https://raw.githubusercontent.com/zwinship/rd2dnet/766c9efea98cb293d414cf1441f970a8f87b1880/stata/test/fetch.do 766c9efea98cb293d414cf1441f970a8f87b1880
+cd test
+do rd2dnet_tests.do
+```
+
+The test suite must end with `ALL TESTS PASSED`. Failures are listed at the end. Then
+run the install check and the Stata side of the parity harness:
+
+```stata
+do https://raw.githubusercontent.com/zwinship/rd2dnet/766c9efea98cb293d414cf1441f970a8f87b1880/stata/test/install_check.do 766c9efea98cb293d414cf1441f970a8f87b1880
+do https://raw.githubusercontent.com/zwinship/rd2dnet/33ba50e93959f2de8fbd1307b466bc7b61677c38/parity/fetch_stata.do 33ba50e93959f2de8fbd1307b466bc7b61677c38
+do parity/run_stata.do
+```
+
+`run_stata.do` uses the copy that `install_check.do` just installed. It ends with
+`PARITY PASSED` or a list of differences.
+
+The `parity-cases` branch is a scratch branch holding the generated cases for this
+command. It is not for merging; delete it whenever you like.
 
 ## Bugs found and fixed (most severe first)
 
@@ -88,8 +115,9 @@ harness plus all fixes below). Decisions waiting for you are in `DECISIONS-overn
   The warning only fires below 75% distinct places.
 - Feet layers combined with mph speeds give travel times 5.2x off, with no warning.
 - `from_place` quietly falls back to the mock city after a 111 s timeout.
-- Several malformed inputs raise raw numpy or GEOS errors, and collinear covariates
-  give "singular" with no hint (`C:\Users\zwins\agent_robust\repro_all.py`).
+- Several malformed inputs raise raw numpy or GEOS errors
+  (`C:\Users\zwins\agent_robust\repro_all.py`). Collinear covariates now give a warning
+  naming the cause (PR #7).
 - `Boundary.from_region(GeoSeries)` raises a pandas error.
 - The column names in the `rdbwnet` docstring are out of date.
 
