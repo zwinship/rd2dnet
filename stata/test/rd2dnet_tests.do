@@ -15,6 +15,8 @@ capture mata: mata drop rdn_*()
 
 global rdn_fails 0
 global rdn_errors 0
+global rdn_faillist
+global rdn_errlist
 
 capture program drop rdn_expect
 program define rdn_expect
@@ -24,6 +26,7 @@ program define rdn_expect
     if `g' >= . | !(`d' <= `tol') {
         di as err "FAIL  `label': got " %21.15g `g' "  want " %21.15g `want' "  (rel diff " %9.2e `d' ")"
         global rdn_fails = $rdn_fails + 1
+        global rdn_faillist `"$rdn_faillist"' `"`label' (got `: display %12.0g `g'')"'
     }
     else di as txt "ok    `label'"
 end
@@ -48,6 +51,7 @@ program define rdn_block
     if _rc {
         di as err "ERROR in block `name' (rc = " _rc ")"
         global rdn_errors = $rdn_errors + 1
+        global rdn_errlist `"$rdn_errlist"' `"`name' (rc `=_rc')"'
     }
 end
 
@@ -153,7 +157,9 @@ program define t_bandwidth
     matrix R = e(results)
     rdn_expect_rows R 4  "645.51930767128 730.659206427927 560.790448573427 821.495489610758" 1e-6 "auto h"
     rdn_expect_rows R 10 "2.54273718655865 2.42473790752563 2.41529140108223 2.21032099845553" 1e-6 "auto tau_bc"
-    rdn_expect R[1,15] 4 0 "eval 1 has no bandwidth"
+    * eval 1 sits where few streets cross the boundary: fitted in s alone (0.2.0)
+    rdn_expect R[1,15] 0 0 "eval 1 estimated"
+    rdn_expect R[1,22] 2 0 "eval 1 basis = s alone"
     rdbwnet outcome, bwselect(msetwo)
     matrix B = r(bws)
     rdn_expect_rows B 21 "1010.98975735317 750.620801408354 584.100691648631 866.851382283764" 1e-6 "msetwo h0"
@@ -370,4 +376,10 @@ if $rdn_fails == 0 & $rdn_errors == 0 {
 }
 else {
     di as err "failed checks: $rdn_fails   blocks with errors: $rdn_errors"
+    foreach f of global rdn_faillist {
+        di as err "  FAIL `f'"
+    }
+    foreach f of global rdn_errlist {
+        di as err "  ERROR `f'"
+    }
 }

@@ -44,4 +44,5 @@ program define rdnetdensity, rclass
     di as txt "  observations (control/treated) = " as res r(N_left) as txt " / " as res r(N_right) ///
         as txt ", within bandwidth " as res r(N_h_left) as txt " / " as res r(N_h_right)
     di as txt "  bandwidths (control/treated)   = " as res %9.1f r(h_left) as txt " / " as res %9.1f r(h_right)
+    return add
 end

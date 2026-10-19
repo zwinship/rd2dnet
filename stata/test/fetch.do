@@ -1,7 +1,11 @@
-* Download the Stata files of rd2dnet at a given commit into ./rd2dnet_test
+* Download the Stata files of rd2dnet at a given commit into ~/rd2dnet_test
 * usage:  do https://raw.githubusercontent.com/zwinship/rd2dnet/<sha>/stata/test/fetch.do <sha>
+* then:   cd test   and   do rd2dnet_tests.do
 args sha
 if "`sha'" == "" local sha main
+local home : env USERPROFILE
+if "`home'" == "" local home : env HOME
+cd "`home'"
 capture mkdir rd2dnet_test
 cd rd2dnet_test
 local base "https://raw.githubusercontent.com/zwinship/rd2dnet/`sha'/stata"
