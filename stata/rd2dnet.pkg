@@ -43,6 +43,6 @@ f rdnetdensity.ado
 f rdnetdensity.sthlp
 f rdnetmock.ado
 f rdnetmock.sthlp
-f rdnet_mock_obs.dta
-f rdnet_mock_nodes.dta
-f rdnet_mock_edges.dta
+F rdnet_mock_obs.dta
+F rdnet_mock_nodes.dta
+F rdnet_mock_edges.dta
