@@ -394,6 +394,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   has_geom <- "geometry" %in% names(E)
   new_nodes <- list()
   crossing_ids <- character()
+  free_cross <- .fresh_labels(as.character(nodes$name), "rdnet_crossing", length(cand))
   new_edges <- list()
   drop <- integer()
   for (k in cand) {
@@ -405,7 +406,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
     t <- hit$t
     key <- sprintf("%.6f %.6f", round(pt[1], 6), round(pt[2], 6))
     if (!key %in% names(crossing_ids)) {
-      cid <- sprintf("rdnet_crossing_%d", length(crossing_ids))
+      cid <- free_cross[length(crossing_ids) + 1]
       crossing_ids[key] <- cid
       new_nodes[[length(new_nodes) + 1]] <- data.frame(name = cid, x = pt[1], y = pt[2], from = iu[k], to = iv[k],
                                                        t = t)
@@ -471,6 +472,20 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   out
 }
 
+# The first n labels prefix_0, prefix_1, ... not already used as node names
+# (networks split before, such as a coordinates object's network reused for a
+# placebo boundary, already carry such labels).
+.fresh_labels <- function(existing, prefix, n) {
+  out <- character()
+  k <- 0L
+  while (length(out) < n) {
+    cand <- sprintf("%s_%d", prefix, k:(k + n + length(existing)))
+    out <- c(out, setdiff(cand, existing))
+    k <- k + n + length(existing) + 1L
+  }
+  out[seq_len(n)]
+}
+
 # Whether locations on edges must become nodes for exact distances. A location
 # partway along an edge is normally reached through the edge's end nodes plus
 # part of the edge's cost; that ignores one-way edges and the penalty for
@@ -488,8 +503,8 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
 .with_point_nodes <- function(net, u, v, frac, extensive = c("length", "travel_time")) {
   frac <- pmin(pmax(frac, 0), 1)
   node <- integer(length(u))
-  at_u <- (u == v) | (frac <= 1e-12)
-  at_v <- !at_u & (frac >= 1 - 1e-12)
+  at_u <- (u == v) | (frac <= 1e-9)
+  at_v <- !at_u & (frac >= 1 - 1e-9)
   node[at_u] <- u[at_u]
   node[at_v] <- v[at_v]
   mid <- which(!at_u & !at_v)
@@ -508,7 +523,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   xy <- net$coords[S$lo, , drop = FALSE] + (net$coords[S$hi, , drop = FALSE] - net$coords[S$lo, , drop = FALSE]) * S$t
   nodes <- net$nodes
   nodes$name <- as.character(nodes$name)
-  added <- data.frame(name = sprintf("rdnet_point_%d", seq_len(nrow(S)) - 1L), x = xy[, 1], y = xy[, 2],
+  added <- data.frame(name = .fresh_labels(nodes$name, "rdnet_point", nrow(S)), x = xy[, 1], y = xy[, 2],
                       stringsAsFactors = FALSE)
   added <- cbind(added, .between(nodes, S$lo, S$hi, S$t))
   all_nodes <- rbind(nodes, added[names(nodes)])

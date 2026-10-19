@@ -171,3 +171,29 @@ test_that("node contrasts add up across an edge split at the boundary", {
   split <- with_boundary_crossings(net, bnd)
   expect_equal(node_distance(split, "a", "b"), 240)
 })
+
+test_that("reusing a split network gives the same coordinates", {
+  # coords$network carries inserted nodes; splitting it again must not reuse their labels
+  g <- expand.grid(i = 0:5, j = 0:5)
+  nodes <- data.frame(name = paste(g$i, g$j), x = 100 * g$i, y = 100 * g$j)
+  e <- list()
+  for (r in seq_len(nrow(g))) {
+    i <- g$i[r]
+    j <- g$j[r]
+    for (dd in list(c(1, 0), c(0, 1))) {
+      if (i + dd[1] <= 5 && j + dd[2] <= 5) {
+        a <- paste(i, j)
+        b <- paste(i + dd[1], j + dd[2])
+        e[[length(e) + 1]] <- data.frame(from = a, to = b, length = 100)
+        if ((i + j) %% 3 != 0) e[[length(e) + 1]] <- data.frame(from = b, to = a, length = 100)
+      }
+    }
+  }
+  net <- network_graph(do.call(rbind, e), nodes, directed = TRUE, direction = "out")
+  bnd <- boundary(rbind(c(-50, 250), c(550, 250)), treated_side = "right")
+  set.seed(0)
+  pts <- matrix(runif(600, 0, 500), ncol = 2)
+  cc <- network_coordinates(net, bnd, pts, n_eval = 5)
+  cc2 <- network_coordinates(cc$network, bnd, pts, n_eval = 5)
+  expect_equal(cc2$s, cc$s, tolerance = 1e-12)
+})

@@ -1337,8 +1337,8 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
     real scalar n, i, k, m, ns, a, b, share, fwd, r
     n = rows(u)
     frac = rowmin((rowmax((frac0, J(n, 1, 0))), J(n, 1, 1)))
-    atu = (u :== v) :| (frac :<= 1e-12)
-    atv = (!atu) :& (frac :>= 1 - 1e-12)
+    atu = (u :== v) :| (frac :<= 1e-9)
+    atv = (!atu) :& (frac :>= 1 - 1e-9)
     node = rdn_where(atu, u, rdn_where(atv, v, J(n, 1, .)))
     mid = selectindex((!atu) :& (!atv))
     if (rows(mid) == 0) return(node)

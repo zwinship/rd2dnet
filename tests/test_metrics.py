@@ -196,3 +196,25 @@ def test_node_contrast_is_preserved_when_an_edge_is_split_at_the_boundary():
     split = net.with_boundary_crossings(bnd)
     # 200 m plus a contrast of 10 * |5 - 1| = 40 from a to b, through the crossing node
     assert split.node_distance("a", "b") == pytest.approx(240.0)
+
+
+def test_reusing_a_split_network_gives_the_same_coordinates():
+    # coords.network carries inserted nodes; splitting it again must not reuse their labels
+    G = nx.DiGraph()
+    for i in range(6):
+        for j in range(6):
+            G.add_node((i, j), x=100.0 * i, y=100.0 * j)
+    for i in range(6):
+        for j in range(6):
+            for di, dj in ((1, 0), (0, 1)):
+                if i + di < 6 and j + dj < 6:
+                    G.add_edge((i, j), (i + di, j + dj), length=100.0)
+                    if (i + j) % 3:
+                        G.add_edge((i + di, j + dj), (i, j), length=100.0)
+    net = rd2dnet.NetworkGraph(G, direction="out")
+    bnd = rd2dnet.Boundary([(-50, 250), (550, 250)], treated_side="right")
+    rng = np.random.default_rng(0)
+    pts = rng.uniform(0, 500, (300, 2))
+    c = rd2dnet.network_coordinates(net, bnd, pts, n_eval=5)
+    c2 = rd2dnet.network_coordinates(c.network, bnd, pts, n_eval=5)
+    np.testing.assert_allclose(c2.s, c.s, rtol=1e-12, equal_nan=True)

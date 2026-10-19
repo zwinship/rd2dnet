@@ -271,6 +271,7 @@ class NetworkGraph:
             return self
         G = self.graph.copy()
         crossing_ids: dict[tuple[float, float], Hashable] = {}
+        next_cross = 0
         n_split = 0
         for k in cand:
             u, v, key, data = edges[k]
@@ -288,7 +289,8 @@ class NetworkGraph:
             t = geom.project(point) / geom.length if geom.length > 0 else 0.5
             key_xy = (round(point.x, 6), round(point.y, 6))
             if key_xy not in crossing_ids:
-                cid = f"rdnet_crossing_{len(crossing_ids)}"
+                cid = _fresh_label(G, "rdnet_crossing", next_cross)
+                next_cross = int(cid.rsplit("_", 1)[1]) + 1
                 G.add_node(cid, **{**_between(self.graph.nodes[u], self.graph.nodes[v], t),
                                    self.x_attr: point.x, self.y_attr: point.y, "rdnet_crossing": True})
                 crossing_ids[key_xy] = cid
@@ -339,8 +341,8 @@ class NetworkGraph:
         v = np.asarray(v, dtype=np.int64)
         frac = np.clip(np.asarray(frac, dtype=float), 0.0, 1.0)
         node_label = np.empty(len(u), dtype=object)
-        at_u = (u == v) | (frac <= 1e-12)
-        at_v = ~at_u & (frac >= 1 - 1e-12)
+        at_u = (u == v) | (frac <= 1e-9)
+        at_v = ~at_u & (frac >= 1 - 1e-9)
         node_label[at_u] = [self.nodes[k] for k in u[at_u]]
         node_label[at_v] = [self.nodes[k] for k in v[at_v]]
         mid = np.flatnonzero(~at_u & ~at_v)
@@ -360,8 +362,8 @@ class NetworkGraph:
             if key not in spots:
                 xa, xb = self.coords[a], self.coords[b]
                 xy = xa + (xb - xa) * key
-                pid = f"rdnet_point_{n_new}"
-                n_new += 1
+                pid = _fresh_label(G, "rdnet_point", n_new)
+                n_new = int(pid.rsplit("_", 1)[1]) + 1
                 G.add_node(pid, **{**_between(self.graph.nodes[self.nodes[a]], self.graph.nodes[self.nodes[b]], key),
                                    self.x_attr: float(xy[0]), self.y_attr: float(xy[1]), "rdnet_point": True})
                 spots[key] = pid
@@ -649,6 +651,17 @@ class NetworkGraph:
         if metric == "weight" and "weight" not in g.es.attributes() and "length" in g.es.attributes():
             metric = "length"
         return cls(G, metric, x_attr=x_attr, y_attr=y_attr, **kwargs)
+
+
+def _fresh_label(G, prefix: str, k: int) -> str:
+    """``prefix_k``, or the next free ``prefix_k'`` when the graph already has that node.
+
+    Networks that were split before (a coordinates object's network, reused for a
+    placebo boundary) already carry such labels.
+    """
+    while f"{prefix}_{k}" in G:
+        k += 1
+    return f"{prefix}_{k}"
 
 
 def _between(a: dict, b: dict, t: float) -> dict:

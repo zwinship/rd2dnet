@@ -46,6 +46,8 @@
 * Covariates (and `pooled = TRUE`) with different bandwidths on the two sides: each side's
   kernel weights are divided by its `h^2`, as in rd2d. Estimates with one bandwidth are
   unchanged.
+* Splitting a network that was split before (such as `coords$network`, reused for a
+  placebo boundary) no longer reuses the labels of nodes inserted the first time.
 * HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
   with leverage 1 no longer add rounding noise to the standard errors.
 * Nodes inserted where edges cross the boundary now get interpolated numeric node
