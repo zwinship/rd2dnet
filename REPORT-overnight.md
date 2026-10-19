@@ -1,7 +1,9 @@
 # Overnight report (2026-10-19)
 
-Work is in PRs #4 (Stata's first run) and #5 (the parity harness plus all fixes below),
-both merged into `main` after green CI. Decisions waiting for you are in `DECISIONS-overnight.md`.
+Work is in PRs #4 (Stata's first run), #5 (parity harness and most fixes), #7 (collinear covariates)
+and #8 (input errors); #6 is this report. All were merged into `main` after green CI
+(the live-OSM job failed once on an Overpass HTTP 502 and passed on rerun). Nothing was
+published. Decisions waiting for you are in `DECISIONS-overnight.md`.
 
 ## Status by language
 
@@ -14,12 +16,12 @@ both merged into `main` after green CI. Decisions waiting for you are in `DECISI
 
 ## First thing this morning: run Stata on the merged code
 
-Both PRs are merged into `main` (766c9ef). In Stata 19 (AppStream), run these, typing
+All PRs (#4-#8) are merged into `main` (027f206). In Stata 19 (AppStream), run these, typing
 each line in the Command window:
 
 ```stata
 clear all
-do https://raw.githubusercontent.com/zwinship/rd2dnet/766c9efea98cb293d414cf1441f970a8f87b1880/stata/test/fetch.do 766c9efea98cb293d414cf1441f970a8f87b1880
+do https://raw.githubusercontent.com/zwinship/rd2dnet/027f206176ba34a3bc411fd6e54983d8e663bfd7/stata/test/fetch.do 027f206176ba34a3bc411fd6e54983d8e663bfd7
 cd test
 do rd2dnet_tests.do
 ```
@@ -28,7 +30,7 @@ The test suite must end with `ALL TESTS PASSED`. Failures are listed at the end.
 run the install check and the Stata side of the parity harness:
 
 ```stata
-do https://raw.githubusercontent.com/zwinship/rd2dnet/766c9efea98cb293d414cf1441f970a8f87b1880/stata/test/install_check.do 766c9efea98cb293d414cf1441f970a8f87b1880
+do https://raw.githubusercontent.com/zwinship/rd2dnet/027f206176ba34a3bc411fd6e54983d8e663bfd7/stata/test/install_check.do 027f206176ba34a3bc411fd6e54983d8e663bfd7
 do https://raw.githubusercontent.com/zwinship/rd2dnet/33ba50e93959f2de8fbd1307b466bc7b61677c38/parity/fetch_stata.do 33ba50e93959f2de8fbd1307b466bc7b61677c38
 do parity/run_stata.do
 ```
