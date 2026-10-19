@@ -423,7 +423,9 @@ def rdnet(
         d, o = coords.at(j)
         base = np.isfinite(d) & np.isfinite(o) & finite & (intensity > 0)
         hside = np.where(T, H[j, 1], H[j, 0])
-        w = kfun(d / hside) * intensity
+        # each side's kernel weights scaled by 1 / h_side^2, as in rd2d: this matters
+        # for the coefficients shared across sides (covariates, pooled slopes)
+        w = kfun(d / hside) / hside**2 * intensity
         use = (w > 0) & base
         i1, i0 = np.flatnonzero(use & T), np.flatnonzero(use & ~T)
         rec["n1"], rec["n0"] = len(i1), len(i0)
@@ -447,7 +449,7 @@ def rdnet(
             aux = None
             if vce == "conley":
                 hs = hside * conley_resid_scale
-                wk = kfun(d / hs) * intensity
+                wk = kfun(d / hs) / hs**2 * intensity
                 m = np.flatnonzero((wk > 0) & base)
                 Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
                              None if zcols is None else Z[m][:, zcols], False, dim)

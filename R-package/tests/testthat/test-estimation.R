@@ -383,3 +383,23 @@ test_that("LBATE", {
   expect_output(print(s), "WBATE")
   expect_output(print(s), "LBATE")
 })
+
+test_that("covariates with side bandwidths weight each side by 1 / h^2, as rd2d does", {
+  cc <- mock_coords()
+  set.seed(1)
+  X <- rnorm(cc$n_obs) + 0.002 * cc$s
+  y <- 0.0005 * cc$s + 2 * cc$treated + 3 * X + rnorm(cc$n_obs)
+  h0 <- 400
+  h1 <- 700
+  j <- 4
+  res <- rdnet(y, cc, h = c(h0, h1), covs = X, cbands = FALSE)
+  at <- coords_at(cc, j)
+  hs <- ifelse(cc$treated, h1, h0)
+  u <- at$d / hs
+  w <- pmax(1 - abs(u), 0) / hs^2
+  use <- w > 0 & is.finite(at$d) & is.finite(at$o) & is.finite(cc$s)
+  df <- data.frame(y = y, T = as.numeric(cc$treated), C = as.numeric(!cc$treated), s = cc$s / hs,
+                   o = at$o / hs, X = X, w = w)[use, ]
+  fit <- lm(y ~ 0 + T + T:s + T:o + C + C:s + C:o + X, data = df, weights = w)
+  expect_equal(res$table$tau[j], unname(coef(fit)["T"] - coef(fit)["C"]), tolerance = 1e-8)
+})

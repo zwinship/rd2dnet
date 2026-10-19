@@ -243,7 +243,9 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     o <- at$o
     base <- is.finite(d) & is.finite(o) & finite & intensity > 0
     hside <- ifelse(T, H[j, 2], H[j, 1])
-    w <- kfun(d / hside) * intensity
+    # each side's kernel weights scaled by 1 / h_side^2, as in rd2d: this matters
+    # for the coefficients shared across sides (covariates, pooled slopes)
+    w <- kfun(d / hside) / hside^2 * intensity
     use <- w > 0 & base
     i1 <- which(use & T)
     i0 <- which(use & !T)
@@ -274,7 +276,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       aux <- NULL
       if (conley) {
         hs <- hside * conley_resid_scale
-        wk <- kfun(d / hs) * intensity
+        wk <- kfun(d / hs) / hs^2 * intensity
         m <- which(wk > 0 & base)
         Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
                       if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim)

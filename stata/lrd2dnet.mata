@@ -2214,7 +2214,9 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         rdn_coords_at(C, j, d, o)
         base = (d :< .) :& (o :< .) :& fin :& (om :> 0)
         hside = rdn_where(T, H[j, 2], H[j, 1])
-        w = rdn_kernel(d :/ hside, kcode) :* editmissing(om, 0)
+        // each side's kernel weights scaled by 1 / h_side^2, as in rd2d: this matters
+        // for the coefficients shared across sides (covariates, pooled slopes)
+        w = rdn_kernel(d :/ hside, kcode) :/ (hside :^ 2) :* editmissing(om, 0)
         use = (w :> 0) :& base
         i1 = selectindex(use :& T)
         i0 = selectindex(use :& (!T))
@@ -2246,7 +2248,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         rdn_set_dim(dimlist[dimi])
         if (conley) {
             hs = hside :* rscale
-            wk = rdn_kernel(d :/ hs, kcode) :* editmissing(om, 0)
+            wk = rdn_kernel(d :/ hs, kcode) :/ (hs :^ 2) :* editmissing(om, 0)
             m = selectindex((wk :> 0) :& base)
             Xa = rdn_design(s[m] :/ hs[m], o[m] :/ hs[m], Tf[m], auxorder,
                 (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0)

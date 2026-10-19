@@ -359,3 +359,32 @@ def test_lbate(coords, city):
     np.testing.assert_allclose(nb[["ci_lo", "ci_hi"]], lb[["ci_lo", "ci_hi"]])
     text = res.summary(wbate=res.table["status"].eq("ok").astype(float), lbate=True)
     assert "WBATE" in text and "LBATE" in text
+
+
+def test_covariate_adjustment_with_side_bandwidths_scales_weights_by_h2(big_coords):
+    # rd2d divides each side's kernel weights by h_side^2; with h0 != h1 this sets the
+    # relative weight of the two sides in the common covariate coefficient
+    from rd2dnet.kernels import triangular
+
+    city, c = big_coords
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=c.n_obs) + 0.002 * c.s
+    y = 0.0005 * c.s + 2.0 * c.treated + 3.0 * X + rng.normal(0, 1, c.n_obs)
+    h0, h1 = 400.0, 700.0
+    adj = rd2dnet.rdnet(y, c, h=(h0, h1), covs=X, cbands=False).table
+    d, o = c.at(0)
+    sides = []
+    for t, h in ((True, h1), (False, h0)):
+        w = triangular(d / h) / h**2
+        i = np.flatnonzero((w > 0) & np.isfinite(d) & (c.treated == t))
+        sides.append((i, w, h))
+    A = B = 0.0
+    for i, w, h in sides:
+        R = poly_basis(c.s[i] / h, o[i] / h, 1)
+        G = np.linalg.inv((R.T * w[i]) @ R)
+        uz = (R.T * w[i]) @ X[i]
+        A += (X[i] * w[i]) @ X[i] - uz @ G @ uz
+        B += (X[i] * w[i]) @ y[i] - uz @ G @ ((R.T * w[i]) @ y[i])
+    ya = y - (B / A) * X
+    t1, t0 = (wls(poly_basis(c.s[i] / h, o[i] / h, 1), ya[i], w[i]).beta[0] for i, w, h in sides)
+    assert adj["tau"][0] == pytest.approx(t1 - t0, rel=1e-8)
