@@ -423,6 +423,39 @@ class Precomputed(NetworkMetric):
             raise ValueError("precomputed distances must be non-negative and not NaN")
         self.nodes = list(nodes) if nodes is not None else None
 
+    @classmethod
+    def from_od(cls, table, origin: str = "origin", destination: str = "destination", cost: str = "cost", *,
+                nodes: Sequence[Hashable] | None = None, symmetric: bool = False) -> "Precomputed":
+        """Build the matrix from a long origin-destination table (one row per pair).
+
+        Pairs that are not listed are unreachable (``inf``), the diagonal is 0,
+        and repeated pairs keep their smallest cost. With ``symmetric=True`` a
+        listed ``a -> b`` also gives ``b -> a`` when that pair is not listed.
+        ``nodes`` sets the row order (default: the sorted ids in the table);
+        the ids must be the network's node labels.
+        """
+        o = list(table[origin])
+        d = list(table[destination])
+        c = np.asarray(table[cost], dtype=float)
+        if np.isnan(c).any() or (c < 0).any():
+            raise ValueError("OD costs must be non-negative and not missing")
+        if nodes is None:
+            nodes = sorted(set(o) | set(d), key=lambda v: (str(type(v)), v))
+        index = {n: i for i, n in enumerate(nodes)}
+        missing = [x for x in set(o) | set(d) if x not in index]
+        if missing:
+            raise ValueError(f"OD table has ids not in nodes, e.g. {missing[:3]!r}")
+        k = len(nodes)
+        M = np.full((k, k), np.inf)
+        i = np.array([index[x] for x in o], dtype=np.int64)
+        j = np.array([index[x] for x in d], dtype=np.int64)
+        np.minimum.at(M, (i, j), c)
+        if symmetric:
+            fill = ~np.isfinite(M.T) & np.isfinite(M)
+            M.T[fill] = M[fill]
+        np.fill_diagonal(M, 0.0)
+        return cls(M, nodes)
+
     def __repr__(self) -> str:
         return f"Precomputed(shape={self.matrix.shape})"
 

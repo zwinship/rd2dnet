@@ -197,3 +197,12 @@ test_that("reusing a split network gives the same coordinates", {
   cc2 <- network_coordinates(cc$network, bnd, pts, n_eval = 5)
   expect_equal(cc2$s, cc$s, tolerance = 1e-12)
 })
+
+test_that("precomputed metric from a long OD table", {
+  od <- data.frame(origin = c("a", "a", "b", "a"), destination = c("b", "c", "c", "b"), cost = c(5, 9, 3, 4))
+  m <- precomputed_from_od(od, symmetric = TRUE)
+  expect_equal(m$nodes, c("a", "b", "c"))
+  expect_equal(m$matrix, rbind(c(0, 4, 9), c(4, 0, 3), c(9, 3, 0)))
+  expect_true(is.infinite(precomputed_from_od(od)$matrix[2, 1]))
+  expect_error(precomputed_from_od(transform(od, cost = -1)), "non-negative")
+})

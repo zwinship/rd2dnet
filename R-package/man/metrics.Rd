@@ -5,6 +5,7 @@
 \alias{edge_cost}
 \alias{transition_cost}
 \alias{precomputed}
+\alias{precomputed_from_od}
 \alias{travel_time}
 \alias{node_contrast}
 \title{Network metrics}
@@ -23,6 +24,15 @@ transition_cost(
 
 precomputed(matrix, nodes = NULL)
 
+precomputed_from_od(
+  table,
+  origin = "origin",
+  destination = "destination",
+  cost = "cost",
+  nodes = NULL,
+  symmetric = FALSE
+)
+
 travel_time(
   speed_attr = "speed_kph",
   length_attr = "length",
@@ -32,7 +42,8 @@ travel_time(
 node_contrast(attr, weight, base = "length", snap_scale = NULL)
 }
 \arguments{
-\item{cost}{Edge column name or a vectorised function (see Details).}
+\item{cost}{Edge column name or a vectorised function (see Details). For
+\code{precomputed_from_od()}: the column with the origin-destination cost.}
 
 \item{snap_scale}{Cost per unit of off-network snapping distance. Defaults
 to 1 when the cost is \code{"length"} and 0 otherwise.}
@@ -60,6 +71,15 @@ links, crosswalks).}
 
 \item{nodes}{Node ids for the rows and columns. Defaults to the network's
 node order.}
+
+\item{table}{For \code{precomputed_from_od()}: a long origin-destination table,
+one row per pair. Pairs not listed are unreachable (\code{Inf}), the diagonal
+is 0 and repeated pairs keep their smallest cost.}
+
+\item{origin, destination}{Columns with the origin and destination node ids.}
+
+\item{symmetric}{Whether a listed pair \code{a -> b} also gives \code{b -> a} when
+that pair is not listed.}
 
 \item{speed_attr, length_attr}{Edge columns with the speed (km/h) and length (m).}
 

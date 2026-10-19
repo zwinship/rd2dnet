@@ -1,5 +1,6 @@
 import networkx as nx
 import numpy as np
+import pandas as pd
 import pytest
 
 import rd2dnet
@@ -218,3 +219,15 @@ def test_reusing_a_split_network_gives_the_same_coordinates():
     c = rd2dnet.network_coordinates(net, bnd, pts, n_eval=5)
     c2 = rd2dnet.network_coordinates(c.network, bnd, pts, n_eval=5)
     np.testing.assert_allclose(c2.s, c.s, rtol=1e-12, equal_nan=True)
+
+
+def test_precomputed_from_od_table():
+    od = pd.DataFrame({"origin": ["a", "a", "b", "a"], "destination": ["b", "c", "c", "b"],
+                       "cost": [5.0, 9.0, 3.0, 4.0]})
+    m = Precomputed.from_od(od, symmetric=True)
+    assert m.nodes == ["a", "b", "c"]
+    np.testing.assert_allclose(m.matrix, [[0, 4, 9], [4, 0, 3], [9, 3, 0]])
+    m2 = Precomputed.from_od(od)
+    assert np.isinf(m2.matrix[1, 0])
+    with pytest.raises(ValueError, match="non-negative"):
+        Precomputed.from_od(od.assign(cost=-1.0))

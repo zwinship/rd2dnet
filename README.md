@@ -131,7 +131,7 @@ beyond the first and last points, or when you have the treated zone as a polygon
 | a networkx graph (nodes with `x`, `y`) | `NetworkGraph(G)` |
 | an OSMnx graph, or just a place name | `NetworkGraph.from_osmnx(G)`, `NetworkGraph.from_place("...")` |
 | an igraph graph or a weighted adjacency matrix | `NetworkGraph.from_igraph(g)`, `NetworkGraph.from_adjacency(A, coords)` |
-| a travel-time matrix from another router | `NetworkGraph(G, Precomputed(D, nodes))` (the boundary must pass through nodes) |
+| a travel-time matrix from another router | `NetworkGraph(G, Precomputed(D, nodes))`, or `Precomputed.from_od(table, "origin", "destination", "cost")` for a long table (the boundary must pass through nodes) |
 
 Directed networks (one-way streets, rivers drawn downstream) take `directed=True` in
 `from_lines`/`from_frames` and `direction="out"` (distances run from the boundary to

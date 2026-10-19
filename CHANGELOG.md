@@ -100,6 +100,8 @@ Fixes from cross-language and invariance testing:
   other inputs.
 - Cluster-robust standard errors warn when some evaluation point has fewer than 10
   clusters on a side within the bandwidth (Monte Carlo coverage near 0.7 with 5-6).
+- `Precomputed.from_od(table, origin, destination, cost)` builds a precomputed metric
+  from a long origin-destination table (for example a router's travel-time output).
 - `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
