@@ -51,9 +51,9 @@
   if (vce == "hc1") {
     e <- e * sqrt(n / max(n - k, 1))
   } else if (vce == "hc2") {
-    e <- e / sqrt(pmax(1 - .leverage(f), 1e-12))
+    e <- e / sqrt(pmax(1 - .leverage(f), 1e-8))
   } else if (vce == "hc3") {
-    e <- e / pmax(1 - .leverage(f), 1e-12)
+    e <- e / pmax(1 - .leverage(f), 1e-8)
   }
   .loadings(f, c) * e
 }

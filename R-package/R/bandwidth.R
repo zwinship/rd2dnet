@@ -99,7 +99,7 @@
   }
   if (vce %in% c("hc2", "hc3")) {
     hii <- w * rowSums((R %*% invG) * R)
-    return(if (vce == "hc2") resd / sqrt(pmax(1 - hii, 1e-12)) else resd / pmax(1 - hii, 1e-12))
+    return(if (vce == "hc2") resd / sqrt(pmax(1 - hii, 1e-8)) else resd / pmax(1 - hii, 1e-8))
   }
   resd
 }

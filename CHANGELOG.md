@@ -66,8 +66,12 @@ Fixes from cross-language and invariance testing:
 - Covariates (and `pooled=True`) with different bandwidths on the two sides: each side's
   kernel weights are now divided by its `h**2`, as in rd2d, which sets the relative weight
   of the sides in the common coefficients. Estimates with one bandwidth are unchanged.
+- HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
+  with leverage 1 have zero residuals, and the tighter clip turned rounding error in
+  those residuals into visible standard-error noise (about 1e-3).
 - `parity/`: random designs run in Python and R (CI job `parity`) and Stata
-  (`parity/run_stata.do`), compared to 1e-8.
+  (`parity/run_stata.do`), compared to 1e-7 (differences at rounding level in
+  automatically selected bandwidths reach a few times 1e-8).
 
 Stata (first run in Stata 19; the test suite passes):
 

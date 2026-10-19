@@ -2027,8 +2027,8 @@ real colvector rdn_influence(struct rdn_fit scalar F, real colvector c, string s
     n = rows(ed)
     k = rows(F.beta)
     if (vce == "hc1") ed = ed :* sqrt(n / max((n - k, 1)))
-    else if (vce == "hc2") ed = ed :/ sqrt(rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-12))))
-    else if (vce == "hc3") ed = ed :/ rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-12)))
+    else if (vce == "hc2") ed = ed :/ sqrt(rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-8))))
+    else if (vce == "hc3") ed = ed :/ rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-8)))
     return(rdn_loadings(F, c) :* ed)
 }
 
@@ -2517,8 +2517,8 @@ real colvector rdn_bw_adjust(real colvector resd, real matrix R, real colvector 
     if (vce == "hc1" & n > k) return(resd :* sqrt(n / (n - k)))
     if (vce == "hc2" | vce == "hc3") {
         hii = w :* rowsum((R * invG) :* R)
-        if (vce == "hc2") return(resd :/ sqrt(rowmax((1 :- hii, J(n, 1, 1e-12)))))
-        return(resd :/ rowmax((1 :- hii, J(n, 1, 1e-12))))
+        if (vce == "hc2") return(resd :/ sqrt(rowmax((1 :- hii, J(n, 1, 1e-8)))))
+        return(resd :/ rowmax((1 :- hii, J(n, 1, 1e-8))))
     }
     return(resd)
 }

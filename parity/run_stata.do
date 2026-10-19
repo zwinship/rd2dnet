@@ -9,7 +9,7 @@
 
 version 16
 set more off
-global par_tol 1e-8
+global par_tol 1e-7
 global par_worst 0
 global par_bad
 global par_err

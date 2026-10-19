@@ -125,7 +125,7 @@ class _Side:
             return resd * np.sqrt(n / (n - k))
         if vce in ("hc2", "hc3"):
             hii = w * np.einsum("ij,jk,ik->i", R, invG, R)
-            return resd / (np.sqrt(np.maximum(1 - hii, 1e-12)) if vce == "hc2" else np.maximum(1 - hii, 1e-12))
+            return resd / (np.sqrt(np.maximum(1 - hii, 1e-8)) if vce == "hc2" else np.maximum(1 - hii, 1e-8))
         return resd
 
     def lm(self, h: float, order: int, vce: str = "hc1", varr: bool = False, y=None):

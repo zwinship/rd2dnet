@@ -2,7 +2,7 @@ name: parity
 
 # Cross-language parity: random designs are run in Python (the reference) and in
 # R, and every coordinate, estimate, standard error, bandwidth and status must
-# agree to 1e-8. The Stata side is run by hand with parity/run_stata.do.
+# agree to 1e-7. The Stata side is run by hand with parity/run_stata.do.
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
       - name: Run R
         run: Rscript parity/run_r.R parity/cases
       - name: Compare
-        run: python parity/compare.py parity/cases --prefix r --tol 1e-8
+        run: python parity/compare.py parity/cases --prefix r --tol 1e-7
       - name: Upload cases on failure
         if: failure()
         uses: actions/upload-artifact@v6
