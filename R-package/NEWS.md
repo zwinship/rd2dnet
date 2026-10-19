@@ -43,6 +43,9 @@
   the class of a location's own edge was not charged. For directed networks (with
   `direction` other than `"both"`) and `transition_cost()`, locations and evaluation
   points are now placed on nodes (their edges are split there).
+* Covariates (and `pooled = TRUE`) with different bandwidths on the two sides: each side's
+  kernel weights are divided by its `h^2`, as in rd2d. Estimates with one bandwidth are
+  unchanged.
 * Nodes inserted where edges cross the boundary now get interpolated numeric node
   attributes, so `node_contrast()` costs on split edges are right.
 

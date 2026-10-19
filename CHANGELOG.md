@@ -63,6 +63,9 @@ Fixes from cross-language and invariance testing:
 - Nodes inserted where edges cross the boundary had no node attributes, so
   `node_contrast()` costs on split edges counted the contrast twice (against 0). Numeric
   node attributes are now interpolated along the edge.
+- Covariates (and `pooled=True`) with different bandwidths on the two sides: each side's
+  kernel weights are now divided by its `h**2`, as in rd2d, which sets the relative weight
+  of the sides in the common coefficients. Estimates with one bandwidth are unchanged.
 - `parity/`: random designs run in Python and R (CI job `parity`) and Stata
   (`parity/run_stata.do`), compared to 1e-8.
 
