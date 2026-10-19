@@ -103,6 +103,12 @@ Fixes from cross-language and invariance testing:
 - `Precomputed.from_od(table, origin, destination, cost)` builds a precomputed metric
   from a long origin-destination table (for example a router's travel-time output).
 - `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
+- Bandwidth selector: local designs whose Gram matrix has a condition number above 1e8
+  (was 1e12) count as singular. Between the two, plug-in variances could change sign
+  with rounding, so the selected basis and bandwidth differed across platforms (Linux
+  and Windows Python disagreed by 0.3% on an `imserd` bandwidth). Well-posed designs are
+  far below 1e8 (no fit on the mock city is above 1e7), so their results do not change.
+  The `Reg1` term is also clamped at 0 (Python, R, Stata).
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
   those residuals into visible standard-error noise (about 1e-3).

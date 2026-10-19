@@ -435,3 +435,13 @@ def test_few_clusters_within_the_bandwidth_warn(coords, city):
     blocks = (city.obs["x"] // 700).to_numpy()  # a handful of wide blocks
     with pytest.warns(UserWarning, match="few clusters"):
         rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cluster=blocks, seed=0)
+
+
+def test_selector_treats_badly_conditioned_local_designs_as_singular():
+    # plug-in constants from a Gram matrix with condition number ~1e10 can flip sign with rounding
+    from rd2dnet.bandwidth import _inv_gram
+
+    A = np.diag([1.0, 1e-10])
+    with pytest.raises(np.linalg.LinAlgError):
+        _inv_gram(A)
+    np.testing.assert_allclose(_inv_gram(np.diag([1.0, 1e-6])), np.diag([1.0, 1e6]))

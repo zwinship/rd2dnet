@@ -23,8 +23,11 @@
 .default_min_obs <- function(q) 20L + as.integer(.n_terms(q))
 
 # Inverse of a local Gram matrix; errors when the local design is degenerate.
+# The bases are scaled by the bandwidth, so well-posed designs have condition
+# numbers far below 1e8; above it the plug-in constants are unreliable (they can
+# change sign with rounding) and the design counts as singular.
 .inv_gram <- function(A) {
-  if (!all(is.finite(A)) || .cond(A) > 1e12) stop(.singular())
+  if (!all(is.finite(A)) || .cond(A) > 1e8) stop(.singular())
   chol2inv(chol(A))
 }
 
@@ -150,6 +153,9 @@
   fit1 <- .side_lm(sd, bn1, p + 1, vce, varr = TRUE, y = y)
   B <- sum(vec_q * fit1$beta)
   reg1 <- drop(vec_q %*% fit1$cov %*% vec_q) / bn1^(2 + 2 * (p + 1))
+  # a quadratic form in a covariance matrix: negative values are rounding
+  # (a degenerate bias direction), and their sign must not decide the fit
+  if (is.finite(reg1) && reg1 < 0) reg1 <- 0
   reg2 <- NA_real_
   if (!is.null(bn2)) {
     Tm <- R[, -seq_len(kp1), drop = FALSE]

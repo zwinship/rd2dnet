@@ -63,8 +63,15 @@ def _n_terms(p: int, dim: int = 2) -> int:
 
 
 def _inv_gram(A: np.ndarray) -> np.ndarray:
-    """Inverse of a local Gram matrix; raises when the local design is degenerate."""
-    if not np.all(np.isfinite(A)) or np.linalg.cond(A) > 1e12:
+    """Inverse of a local Gram matrix; raises when the local design is degenerate.
+
+    The bases are scaled by the bandwidth, so well-posed designs have condition
+    numbers far below the 1e8 cut-off. Between about 1e8 and 1e12 the
+    inverse is accurate to a few digits only, and the plug-in constants built
+    from it (variances, biases) can change sign with rounding, which made the
+    selected basis and bandwidth depend on the platform.
+    """
+    if not np.all(np.isfinite(A)) or np.linalg.cond(A) > 1e8:
         raise np.linalg.LinAlgError("local design matrix is singular")
     L = np.linalg.cholesky(A)
     Li = np.linalg.inv(L)
@@ -165,6 +172,9 @@ class _Side:
         beta1, cov1 = self.lm(bn1, p + 1, vce, varr=True, y=y)
         B = float(vec_q @ beta1)
         reg1 = float(vec_q @ cov1 @ vec_q / bn1 ** (2 + 2 * (p + 1)))
+        # a quadratic form in a covariance matrix: negative values are rounding
+        # (a degenerate bias direction), and their sign must not decide the fit
+        reg1 = 0.0 if reg1 < 0 else reg1
         reg2 = np.nan
         if bn2 is not None:
             vec_t = np.r_[np.zeros(kp1), vec @ invG @ (WR.T @ Tm)]

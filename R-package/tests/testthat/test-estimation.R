@@ -451,3 +451,8 @@ test_that("few clusters within the bandwidth warn", {
   expect_warning(rdnet(city$obs$outcome, mock_coords(), h = 600, cluster = city$obs$x %/% 700, seed = 0),
                  "few clusters")
 })
+
+test_that("the selector treats badly conditioned local designs as singular", {
+  expect_error(rd2dnet:::.inv_gram(diag(c(1, 1e-10))))
+  expect_equal(rd2dnet:::.inv_gram(diag(c(1, 1e-6))), diag(c(1, 1e6)))
+})

@@ -198,8 +198,10 @@ real matrix rdn_inv_checked(real matrix G)
 // Inverse of a local Gram matrix through its Cholesky factor (rd2d's way).
 real matrix rdn_inv_gram(real matrix A)
 {
+    // bases are scaled by the bandwidth, so well-posed designs have condition
+    // numbers far below 1e8; above it the plug-in constants are unreliable
     if (hasmissing(A)) return(J(rows(A), cols(A), .))
-    if (!(cond(A) <= 1e12)) return(J(rows(A), cols(A), .))
+    if (!(cond(A) <= 1e8)) return(J(rows(A), cols(A), .))
     return(cholinv(A))
 }
 
@@ -2632,6 +2634,9 @@ real rowvector rdn_side_consts(struct rdn_side scalar sd, real scalar p, real co
     rdn_side_lm(sd, bn1, p + 1, vce, 1, yalt, beta1, cov1)
     B = vecq' * beta1
     reg1 = (vecq' * cov1 * vecq) / bn1^(2 + 2 * (p + 1))
+    // a quadratic form in a covariance matrix: negative values are rounding
+    // (a degenerate bias direction), and their sign must not decide the fit
+    if (reg1 < 0) reg1 = 0
     reg2 = .
     if (bn2 < .) {
         Tm = R[., ((kp1 + 1)..cols(R))]

@@ -65,6 +65,9 @@
 * Cluster-robust standard errors warn when some point has fewer than 10 clusters on a side.
 * `precomputed_from_od()` builds a precomputed metric from a long origin-destination table.
 * `plot(true_tau = )` accepts a single value or a function of arc position.
+* Bandwidth selector: local designs with a Gram condition number above 1e8 (was 1e12) count
+  as singular, so rounding no longer decides between bases (results differed across
+  platforms). Well-posed designs are unaffected.
 * HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
   with leverage 1 no longer add rounding noise to the standard errors.
 * Nodes inserted where edges cross the boundary now get interpolated numeric node
