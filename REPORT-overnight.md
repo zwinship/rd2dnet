@@ -115,8 +115,9 @@ command. It is not for merging; delete it whenever you like.
   The warning only fires below 75% distinct places.
 - Feet layers combined with mph speeds give travel times 5.2x off, with no warning.
 - `from_place` quietly falls back to the mock city after a 111 s timeout.
-- Several malformed inputs raise raw numpy or GEOS errors, and collinear covariates
-  give "singular" with no hint (`C:\Users\zwins\agent_robust\repro_all.py`).
+- Several malformed inputs raise raw numpy or GEOS errors
+  (`C:\Users\zwins\agent_robust\repro_all.py`). Collinear covariates now give a warning
+  naming the cause (PR #7).
 - `Boundary.from_region(GeoSeries)` raises a pandas error.
 - The column names in the `rdbwnet` docstring are out of date.
 
