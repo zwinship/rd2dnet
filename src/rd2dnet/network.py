@@ -85,6 +85,9 @@ class NetworkGraph:
             ).reshape(-1, 2)
         except KeyError as e:
             raise KeyError(f"every node needs {x_attr!r} and {y_attr!r} coordinates") from e
+        if not np.isfinite(self.coords).all():
+            bad = self.nodes[int(np.flatnonzero(~np.isfinite(self.coords).all(axis=1))[0])]
+            raise ValueError(f"node coordinates must be finite (node {bad!r} has {self.coords[self.node_index[bad]]})")
         if _looks_lonlat(self.coords, self.crs):
             warnings.warn("the network is in longitude/latitude, so distances are in degrees; project it to a "
                           "metric CRS first (NetworkGraph.from_osmnx and from_lines do this)", stacklevel=2)
@@ -491,7 +494,13 @@ class NetworkGraph:
 
         A = sparse.coo_matrix(adjacency)
         coords = np.asarray(coords, dtype=float)
+        if A.shape[0] != A.shape[1]:
+            raise ValueError(f"adjacency must be square, got shape {A.shape}")
+        if coords.shape != (A.shape[0], 2):
+            raise ValueError(f"coords must be ({A.shape[0]}, 2), one row per node, got shape {coords.shape}")
         nodes = list(nodes) if nodes is not None else list(range(A.shape[0]))
+        if len(nodes) != A.shape[0]:
+            raise ValueError(f"nodes must have {A.shape[0]} labels, got {len(nodes)}")
         G = nx.DiGraph() if directed else nx.Graph()
         for n, (x, y) in zip(nodes, coords):
             G.add_node(n, x=x, y=y)
