@@ -201,5 +201,6 @@ test_that("inputs that used to pass silently are rejected", {
   net <- city$network("length")
   expect_error(network_coordinates(net, city$boundary, city$obs, eval_points = c(NA, 500)), "finite")
   expect_error(network_coordinates(net, city$boundary, city$obs, n_eval = 0), "positive integer")
-  expect_error(network_graph(net$edges[, c("from", "to", "length")], net$nodes, snap_scale = -5), "snap_scale")
+  nodes <- data.frame(name = 1:2, x = c(0, 100), y = 0)
+  expect_error(network_graph(data.frame(from = 1, to = 2, length = 100), nodes, snap_scale = -5), "snap_scale")
 })
