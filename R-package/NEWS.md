@@ -55,6 +55,10 @@
   errors.
 * With one evaluation point the uniform critical value is `qnorm()` itself, not simulated.
 * `min_obs` counts distinct locations rather than rows.
+* `boundary_grid()` on a closed ring no longer returns both 0 and the ring's length.
+* Side inference in `boundary_from_points()` and `rd2dnet()` ignores observations beyond the
+  ends of the line through `b`.
+* `plot(true_tau = )` accepts a single value or a function of arc position.
 * HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
   with leverage 1 no longer add rounding noise to the standard errors.
 * Nodes inserted where edges cross the boundary now get interpolated numeric node

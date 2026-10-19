@@ -198,10 +198,14 @@ class Boundary:
 
     def grid(self, n: int | None = None, spacing: float | None = None, start: float = 0.0, end: float | None = None) -> np.ndarray:
         """Equally spaced arc-length positions along the boundary."""
+        ring = self.closed and end is None and start == 0.0
         end = self.length if end is None else end
         if spacing is not None:
-            return np.arange(start, end + 1e-9, spacing)
-        return np.linspace(start, end, 25 if n is None else n)
+            out = np.arange(start, end + 1e-9, spacing)
+            # on a closed ring the end is the start again
+            return out[out < end - 1e-9] if ring else out
+        k = 25 if n is None else n
+        return np.linspace(start, end, k, endpoint=not ring)
 
 
 def _infer_side(line: LineString, X, t) -> str:
@@ -212,7 +216,14 @@ def _infer_side(line: LineString, X, t) -> str:
         raise ValueError("X and t must have the same number of observations")
     if t.all() or not t.any():
         raise ValueError("t must contain both treated and control observations")
-    left = Boundary(line, treated_side="left").is_treated(X)
+    bl = Boundary(line, treated_side="left")
+    left = bl.is_treated(X)
+    # observations beyond the ends of the line have no clear side: use those whose
+    # nearest point on the line is inside it, when there are enough of both groups
+    arc = bl.project(X)
+    inner = (arc > 1e-9 * bl.length) & (arc < bl.length * (1 - 1e-9))
+    if t[inner].sum() >= 5 and (~t[inner]).sum() >= 5:
+        left, t = left[inner], t[inner]
     agree = float(np.mean(left == t))
     side, share = ("left", agree) if agree >= 0.5 else ("right", 1 - agree)
     if share < 0.9:

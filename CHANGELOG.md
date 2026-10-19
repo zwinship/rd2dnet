@@ -82,6 +82,15 @@ Fixes from cross-language and invariance testing:
   (1.96 at 95%) instead of a simulated value that varied with the seed (1.88-2.04).
 - `min_obs` counts distinct locations, so a point with 28 rows from 7 panel sites is no
   longer estimated with an order-2 fit (Python, R, Stata).
+- `network_coordinates(lonlat=True)` also projects `eval_points` given as coordinates.
+- `NetworkGraph.from_lines()` projects segment tables and plain line lists given with a
+  geographic `crs` (as it does GeoDataFrames), instead of keeping degrees.
+- `Boundary.grid()` on a closed ring no longer returns both 0 and the ring's length (the
+  same point).
+- Treated side inferred from `t` (`Boundary.from_points`, `rd2dnet()`): observations
+  beyond the ends of the line through `b` no longer count, which removes spurious
+  "only 54% of observations lie on the side" warnings.
+- `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
   those residuals into visible standard-error noise (about 1e-3).

@@ -536,9 +536,10 @@ class NetworkGraph:
             Lines are drawn in the direction of travel or flow (one-way streets,
             rivers). Combine with ``direction="out"`` (downstream) or ``"in"``.
         to_crs
-            For a GeoDataFrame in longitude/latitude: ``"utm"`` (default) projects
-            it to its local UTM zone so distances are in metres; any other CRS
-            projects to that; ``None`` keeps degrees.
+            For lines in longitude/latitude (a GeoDataFrame in a geographic CRS,
+            or plain coordinates with a geographic ``crs``): ``"utm"`` (default)
+            projects them to their local UTM zone so distances are in metres;
+            any other CRS projects to that; ``None`` keeps degrees.
         crs
             The CRS of plain (non-geopandas) coordinates, if known.
         **kwargs
@@ -724,6 +725,26 @@ def project_lonlat(lon, lat, to_crs) -> np.ndarray:
     return np.column_stack([x, y])
 
 
+def _project_plain_lines(geoms, crs, to_crs):
+    """Project lines given as plain coordinates in a geographic ``crs`` (as GeoDataFrames are)."""
+    try:
+        from pyproj import CRS, Transformer
+    except ImportError as e:  # pragma: no cover - depends on environment
+        raise ImportError("projecting lon/lat lines requires pyproj (pip install pyproj)") from e
+    src = CRS.from_user_input(crs)
+    if not src.is_geographic:
+        return geoms, src.to_string()
+    if to_crs == "utm":
+        lon, lat = shapely.get_coordinates(geoms).mean(axis=0)
+        zone = int((lon + 180) // 6) + 1
+        target = CRS.from_epsg((32600 if lat >= 0 else 32700) + zone)
+    else:
+        target = CRS.from_user_input(to_crs)
+    tr = Transformer.from_crs(src, target, always_xy=True)
+    out = shapely.transform(geoms, lambda xy: np.column_stack(tr.transform(xy[:, 0], xy[:, 1])))
+    return out, target.to_string()
+
+
 def _lines_input(lines, coords, to_crs, crs):
     """Geometries, per-line attribute dicts and CRS from any supported line input."""
     if hasattr(lines, "geometry") and hasattr(lines, "crs"):  # GeoDataFrame / GeoSeries
@@ -753,6 +774,8 @@ def _lines_input(lines, coords, to_crs, crs):
         geoms, idx = parts
         attrs = [{} for _ in idx]
     attrs = [{k: v for k, v in a.items() if not (np.isscalar(v) and pd.isna(v))} for a in attrs]
+    if not (hasattr(lines, "geometry") and hasattr(lines, "crs")) and crs is not None and to_crs is not None:
+        geoms, crs = _project_plain_lines(np.asarray(geoms, dtype=object), crs, to_crs)
     bad = ~np.isin(shapely.get_type_id(geoms), (1, 2))  # LineString, LinearRing
     if bad.any():
         raise TypeError("every geometry must be a LineString or MultiLineString")

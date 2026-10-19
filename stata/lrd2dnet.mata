@@ -1250,13 +1250,24 @@ void rdn_read_lines(struct rdn_net scalar N, string scalar fedges, string rowvec
 string scalar rdn_infer_side(real matrix line, real matrix xy, real colvector T)
 {
     struct rdn_bnd scalar BL
-    real colvector left
+    real colvector left, arc, inner, TT
     real scalar agree, share
     if (rows(T) != rows(xy)) _error(198, "treated() is needed to infer the treated side")
     if (sum(T) == 0 | sum(T) == rows(T)) _error(198, "treated() must contain treated and control observations")
     BL = rdn_boundary(line, J(0, 2, .), "left", J(0, 2, .), J(0, 3, .), 1e-6)
     left = rdn_btreated(BL, xy)
-    agree = mean(left :== T)
+    // observations beyond the ends of the line have no clear side: use those whose
+    // nearest point on the line is inside it, when there are enough of both groups
+    arc = rdn_bproject(BL, xy)
+    inner = selectindex((arc :> 1e-9 * BL.blen) :& (arc :< BL.blen * (1 - 1e-9)))
+    TT = T
+    if (rows(inner)) {
+        if (sum(T[inner]) >= 5 & sum(!T[inner]) >= 5) {
+            left = left[inner]
+            TT = T[inner]
+        }
+    }
+    agree = mean(left :== TT)
     share = max((agree, 1 - agree))
     if (share < 0.9) {
         printf("{txt}warning: only %4.1f%% of observations lie on the side of the boundary that matches treated();\n", 100 * share)

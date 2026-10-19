@@ -1,4 +1,8 @@
+import warnings
+
+import networkx as nx
 import numpy as np
+import pandas as pd
 import pytest
 from shapely.geometry import LineString, box
 
@@ -163,3 +167,59 @@ def test_threaded_geometry_matches_serial(city, monkeypatch):
     for attr in ("s", "treated", "crossing_arc"):
         np.testing.assert_array_equal(getattr(a, attr), getattr(b, attr))
     np.testing.assert_array_equal(a.snap.cost_u, b.snap.cost_u)
+
+
+def test_grid_on_a_closed_ring_does_not_repeat_the_start():
+    ring = rd2dnet.Boundary.from_region(box(0, 0, 100, 100))
+    g = ring.grid(4)
+    np.testing.assert_allclose(g, [0, 100, 200, 300])
+    assert ring.grid(spacing=100).tolist() == [0, 100, 200, 300]
+
+
+def test_side_inference_ignores_points_beyond_the_ends_of_b():
+    rng = np.random.default_rng(0)
+    X = rng.uniform(-1000, 1000, (2000, 2))
+    t = X[:, 1] < 0
+    # b covers only the middle fifth of the border; the line is drawn through it
+    b = np.array([[-200.0, 0.0], [200.0, 0.0]])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        bnd = rd2dnet.Boundary.from_points(b, X, t)
+    assert bnd.is_treated(np.array([[0.0, -10.0]]))[0]
+
+
+def test_lonlat_eval_point_coordinates_are_projected():
+    pytest.importorskip("pyproj")
+    from rd2dnet import project_lonlat
+
+    lon0, lat0 = -71.2, 42.37
+    lon = lon0 + np.linspace(-0.01, 0.01, 11)
+    lat = lat0 + np.linspace(-0.01, 0.01, 11)
+    G = nx.Graph()
+    crs = "EPSG:32619"
+    for i, a in enumerate(lon):
+        for j, c in enumerate(lat):
+            x, y = project_lonlat([a], [c], crs)[0]
+            G.add_node((i, j), x=x, y=y)
+    for i in range(11):
+        for j in range(11):
+            for di, dj in ((1, 0), (0, 1)):
+                if i + di < 11 and j + dj < 11:
+                    p, q = G.nodes[(i, j)], G.nodes[(i + di, j + dj)]
+                    G.add_edge((i, j), (i + di, j + dj), length=float(np.hypot(p["x"] - q["x"], p["y"] - q["y"])))
+    net = rd2dnet.NetworkGraph(G, crs=crs)
+    line = project_lonlat([lon0 - 0.02, lon0 + 0.02], [lat0 + 0.0005, lat0 + 0.0005], crs)
+    bnd = rd2dnet.Boundary(line, treated_side="left")
+    pts = np.column_stack([lon0 + np.linspace(-0.009, 0.009, 50), lat0 + np.tile([-0.004, 0.004], 25)])
+    ep = np.array([[lon0 - 0.005, lat0 + 0.0005], [lon0 + 0.005, lat0 + 0.0005]])
+    c = rd2dnet.network_coordinates(net, bnd, pts, lonlat=True, eval_points=ep)
+    want = bnd.project(project_lonlat(ep[:, 0], ep[:, 1], crs))
+    np.testing.assert_allclose(c.eval_arc, want)
+
+
+def test_from_lines_projects_plain_lonlat_segments():
+    pytest.importorskip("pyproj")
+    seg = pd.DataFrame({"x1": [-71.20, -71.19], "y1": [42.37, 42.37], "x2": [-71.19, -71.18], "y2": [42.37, 42.37]})
+    net = rd2dnet.NetworkGraph.from_lines(seg, crs="EPSG:4326")
+    assert "326" in net.crs  # a UTM zone
+    assert 1500 < net.node_distance(net.nodes[0], net.nodes[-1]) < 1800  # about 1.6 km, not degrees

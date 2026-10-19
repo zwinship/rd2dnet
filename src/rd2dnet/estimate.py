@@ -128,7 +128,11 @@ class RDNetResult:
         return self.summary()
 
     def plot(self, ax=None, *, band: bool = True, true_tau=None):
-        """Plot the BATEC curve with pointwise CIs and the uniform band."""
+        """Plot the BATEC curve with pointwise CIs and the uniform band.
+
+        ``true_tau`` (optional, drawn dashed) is one value per evaluation point, a
+        single value, or a function of the arc position.
+        """
         import matplotlib.pyplot as plt
 
         if ax is None:
@@ -141,7 +145,9 @@ class RDNetResult:
                     fmt="none", capsize=2, lw=0.8, label=f"{self.level:g}% robust CI")
         ax.plot(t["arc"], t["tau"], "o-", ms=3, label="tau(b)")
         if true_tau is not None:
-            ax.plot(t["arc"], true_tau, "k--", lw=1, label="truth")
+            truth = np.broadcast_to(np.asarray(true_tau(t["arc"].to_numpy()) if callable(true_tau) else true_tau,
+                                               dtype=float), (len(t),))
+            ax.plot(t["arc"], truth, "k--", lw=1, label="truth")
         ax.set_xlabel("position along boundary")
         ax.set_ylabel("treatment effect")
         ax.legend(frameon=False)

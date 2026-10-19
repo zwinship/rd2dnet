@@ -49,7 +49,8 @@
 
 \item{band}{Draw the uniform band.}
 
-\item{true_tau}{Optional true effects at the evaluation points, drawn dashed.}
+\item{true_tau}{Optional true effects at the evaluation points, drawn dashed: one
+value per point, a single value, or a function of the arc position.}
 }
 \value{
 \code{summary()} returns an object of class \code{summary.rdnet}; \code{coef()} the

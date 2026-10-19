@@ -421,3 +421,11 @@ def test_min_obs_counts_locations_not_repeated_measurements(city):
     s3 = rd2dnet.rdnet(np.repeat(y, 3), c3, h=180.0, cbands=False).table["status"]
     assert (s1 == "insufficient").any()
     assert list(s3) == list(s1)
+
+
+def test_plot_accepts_a_scalar_or_callable_truth(coords, city):
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg")
+    res = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cbands=False)
+    res.plot(true_tau=2.0)
+    res.plot(true_tau=lambda arc: 1.5 + 0 * arc)

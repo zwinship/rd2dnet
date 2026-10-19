@@ -575,7 +575,8 @@ lbate <- function(x) {
 #' @param level Confidence level for `confint()` as a proportion.
 #' @param type For `coef()`: `"tau_bc"` (bias-corrected, default) or `"tau"`.
 #' @param band Draw the uniform band.
-#' @param true_tau Optional true effects at the evaluation points, drawn dashed.
+#' @param true_tau Optional true effects at the evaluation points, drawn dashed: one
+#'   value per point, a single value, or a function of the arc position.
 #' @param ... Further arguments (passed to `plot()` for the plot method).
 #' @return `summary()` returns an object of class `summary.rdnet`; `coef()` the
 #'   estimates by evaluation point; `vcov()` the joint covariance `x$cov`;
@@ -655,6 +656,8 @@ as.data.frame.rdnet <- function(x, row.names = NULL, optional = FALSE, ...) x$ta
 #' @export
 plot.rdnet <- function(x, band = TRUE, true_tau = NULL, ...) {
   t <- x$table
+  if (is.function(true_tau)) true_tau <- true_tau(t$arc)
+  if (!is.null(true_tau)) true_tau <- rep_len(as.numeric(true_tau), nrow(t))
   rng <- range(c(t$ci_lo, t$ci_hi, if (band && "cb_lo" %in% names(t)) c(t$cb_lo, t$cb_hi), t$tau,
                  true_tau, 0), na.rm = TRUE, finite = TRUE)
   args <- utils::modifyList(list(x = t$arc, y = t$tau, type = "n", ylim = rng,

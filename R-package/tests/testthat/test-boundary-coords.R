@@ -177,3 +177,18 @@ test_that("points can be given as sf objects", {
   cc <- network_coordinates(net, b, pts, eval_points = 150)
   expect_equal(cc$s, c(150, 80))
 })
+
+test_that("a grid on a closed ring does not repeat the start", {
+  ring <- boundary_from_region(rect_polygon(0, 0, 100, 100))
+  expect_equal(boundary_grid(ring, 4), c(0, 100, 200, 300))
+  expect_equal(boundary_grid(ring, spacing = 100), c(0, 100, 200, 300))
+})
+
+test_that("side inference ignores points beyond the ends of b", {
+  set.seed(0)
+  X <- matrix(runif(4000, -1000, 1000), ncol = 2)
+  t <- X[, 2] < 0
+  b <- rbind(c(-200, 0), c(200, 0))
+  bnd <- expect_silent(boundary_from_points(b, X, t))
+  expect_true(boundary_is_treated(bnd, rbind(c(0, -10))))
+})

@@ -201,9 +201,14 @@ boundary_is_masked <- function(b, arc) {
 #' @export
 boundary_grid <- function(b, n = NULL, spacing = NULL, start = 0, end = NULL) {
   .check_boundary(b)
+  # on a closed ring the end is the start again: leave it out
+  ring <- isTRUE(b$closed) && is.null(end) && start == 0
   end <- end %||% b$length
   if (!is.null(spacing)) {
-    return(seq(start, end + 1e-9, by = spacing))
+    out <- seq(start, end + 1e-9, by = spacing)
+    return(if (ring) out[out < end - 1e-9] else out)
   }
-  seq(start, end, length.out = n %||% 25)
+  k <- n %||% 25
+  if (ring) return(start + (end - start) * (seq_len(k) - 1) / k)
+  seq(start, end, length.out = k)
 }

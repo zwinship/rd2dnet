@@ -437,3 +437,11 @@ test_that("min_obs counts locations, not repeated measurements", {
   expect_true(any(s1 == "insufficient"))
   expect_equal(s3, s1)
 })
+
+test_that("plot accepts a scalar or function truth", {
+  res <- rdnet(mock_city()$obs$outcome, mock_coords(), h = 600, cbands = FALSE)
+  pdf(NULL)
+  on.exit(dev.off())
+  expect_silent(plot(res, true_tau = 2))
+  expect_silent(plot(res, true_tau = function(arc) 1.5 + 0 * arc))
+})

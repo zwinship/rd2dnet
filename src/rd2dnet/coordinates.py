@@ -501,6 +501,8 @@ def network_coordinates(
             eval_arc = np.linspace(bnode_arc.min(), bnode_arc.max(), n_eval)
     else:
         ep = np.asarray(eval_points, dtype=float)
+        if lonlat and ep.ndim == 2:  # coordinates in lon/lat like the points
+            ep = project_lonlat(ep[:, 0], ep[:, 1], network.crs)
         eval_arc = boundary.project(ep) if ep.ndim == 2 else ep.ravel()
         if eval_arc.size == 0:
             raise ValueError("eval_points is empty")
