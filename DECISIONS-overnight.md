@@ -16,7 +16,20 @@ Each entry: the decision, the alternatives, and why. All are reversible.
    frame from the mock city's streets with `frlink`/`frget` and mentions the CSV route
    in the text. Alternative: ship a `roads.csv`; rejected to keep the package small.
 
-4. **R tooling.** Rtools is not installed on this machine, so the R package (which has
-   C++ code) cannot be built locally at first. I installed Rtools 4.5 from CRAN into
-   the user folder (`C:\Users\zwins\rtools45`) to run R tests locally; CI (R CMD check
-   on five platforms) remains the authority.
+4. **R tooling.** Rtools is not installed on this machine, so the R package (C++ code) cannot
+   be built locally. I tried a silent per-user install of Rtools 4.5 from CRAN; the
+   installer asked for administrator rights and is waiting behind a Windows elevation
+   prompt (processes `rtools45.exe`/`rtools45.tmp`, which I cannot stop without
+   elevation). Cancel that prompt in the morning, or install Rtools if you want local R
+   checks. R is verified through CI (R CMD check --as-cran on five platforms) and,
+   for cross-language numbers, through a GitHub Actions job that runs R on the same data.
+
+5. **s-only fallback triggered by pilot fits (needs your decision).** On a jittered 100 m
+   grid (parity case 05), points are fitted in `s` alone although the order-p (s, o) fit
+   is identified: only 2-3 streets cross the boundary within the bandwidth, so the
+   cubic bias-pilot fit in `o` is rank-deficient, `rdbwnet` marks (s, o) "singular" and
+   falls back. Options: keep (documented behaviour), or reduce only the pilot's degree
+   in `o`. Left unchanged.
+
+6. **Parity harness on its own branch (`parity-harness`)**; generated cases are not
+   committed (`parity/.gitignore`); CI regenerates them.
