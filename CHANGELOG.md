@@ -78,6 +78,10 @@ Fixes from cross-language and invariance testing:
   `fuzzy` or `weights` are errors; `density()` rejects negative or missing weights (as
   `rdnet` does); boundaries with coinciding vertices, non-finite `eval_points`,
   `n_eval < 1` and negative or missing `snap_scale` are errors.
+- With one evaluation point the uniform band's critical value is the normal quantile
+  (1.96 at 95%) instead of a simulated value that varied with the seed (1.88-2.04).
+- `min_obs` counts distinct locations, so a point with 28 rows from 7 panel sites is no
+  longer estimated with an order-2 fit (Python, R, Stata).
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
   those residuals into visible standard-error noise (about 1e-3).

@@ -417,3 +417,23 @@ test_that("the bandwidth floor counts locations, not repeated measurements", {
   expect_equal(b3$hmin0[ok], b1$hmin0[ok], tolerance = 1e-12)
   expect_equal(b3$hmin1[ok], b1$hmin1[ok], tolerance = 1e-12)
 })
+
+test_that("a one-point band uses the normal quantile", {
+  city <- mock_city()
+  cc <- network_coordinates(city$network("length"), city$boundary, city$obs, eval_points = 520)
+  res <- rdnet(city$obs$outcome, cc, h = 600)
+  expect_equal(res$crit, qnorm(0.975), tolerance = 1e-12)
+})
+
+test_that("min_obs counts locations, not repeated measurements", {
+  city <- mock_city()
+  net <- city$network("length")
+  xy <- as.matrix(city$obs[, c("x", "y")])
+  y <- city$obs$outcome
+  c1 <- network_coordinates(net, city$boundary, xy, n_eval = 9)
+  c3 <- network_coordinates(net, city$boundary, xy[rep(seq_len(nrow(xy)), each = 3), ], n_eval = 9)
+  s1 <- rdnet(y, c1, h = 180, cbands = FALSE)$table$status
+  s3 <- rdnet(rep(y, each = 3), c3, h = 180, cbands = FALSE)$table$status
+  expect_true(any(s1 == "insufficient"))
+  expect_equal(s3, s1)
+})

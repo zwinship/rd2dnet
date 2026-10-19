@@ -403,3 +403,21 @@ def test_bandwidth_floor_counts_locations_not_repeated_measurements(city):
     ok = (b1["status"] == "ok").to_numpy()
     np.testing.assert_allclose(b3["hmin0"][ok], b1["hmin0"][ok], rtol=1e-12)
     np.testing.assert_allclose(b3["hmin1"][ok], b1["hmin1"][ok], rtol=1e-12)
+
+
+def test_one_point_band_uses_the_normal_quantile(coords, city):
+    res = rd2dnet.rdnet(city.obs["outcome"], rd2dnet.network_coordinates(
+        city.network("length"), city.boundary, city.obs[["x", "y"]], eval_points=[520.0]), h=600.0)
+    assert res.crit == pytest.approx(1.959963984540054, rel=1e-12)
+
+
+def test_min_obs_counts_locations_not_repeated_measurements(city):
+    net = city.network("length")
+    xy = city.obs[["x", "y"]].to_numpy()
+    y = city.obs["outcome"].to_numpy()
+    c1 = rd2dnet.network_coordinates(net, city.boundary, xy, n_eval=9)
+    c3 = rd2dnet.network_coordinates(net, city.boundary, np.repeat(xy, 3, axis=0), n_eval=9)
+    s1 = rd2dnet.rdnet(y, c1, h=180.0, cbands=False).table["status"]
+    s3 = rd2dnet.rdnet(np.repeat(y, 3), c3, h=180.0, cbands=False).table["status"]
+    assert (s1 == "insufficient").any()
+    assert list(s3) == list(s1)

@@ -425,7 +425,8 @@ def rdnet(
         use = (w > 0) & base
         i1, i0 = np.flatnonzero(use & T), np.flatnonzero(use & ~T)
         rec["n1"], rec["n0"] = len(i1), len(i0)
-        if min(len(i1), len(i0)) < min_obs:
+        # count distinct locations: repeated measurements at one site add no design points
+        if min(len(np.unique(coords.loc[i1])), len(np.unique(coords.loc[i0]))) < min_obs:
             rec["status"] = "insufficient"
             continue
         idx = np.r_[i1, i0]
@@ -599,6 +600,8 @@ def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
 
 def _uniform_critical_value(Sigma, level, repp, seed) -> float:
     """Critical value for a uniform band: quantile of max |Z| with Z ~ N(0, corr)."""
+    if Sigma.shape[0] == 1:  # one point: the normal quantile itself, no simulation
+        return float(stats.norm.ppf(0.5 + level / 200))
     sd = np.sqrt(np.clip(np.diag(Sigma), 1e-300, None))
     corr = Sigma / np.outer(sd, sd)
     evals, evecs = np.linalg.eigh(corr)

@@ -2093,6 +2093,8 @@ real scalar rdn_uniform_crit(real matrix Sigma, real scalar level, real scalar r
     real rowvector L
     real scalar crit
     transmorphic st
+    // one point: the normal quantile itself, no simulation
+    if (rows(Sigma) == 1) return(invnormal(0.5 + level / 200))
     sd = sqrt(rowmax((diagonal(Sigma), J(rows(Sigma), 1, 1e-300))))
     corr = Sigma :/ (sd * sd')
     symeigensystem(corr, X, L)
@@ -2235,7 +2237,8 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         i0 = selectindex(use :& (!T))
         R[j, 7] = rows(i1)
         R[j, 6] = rows(i0)
-        if (min((rows(i1), rows(i0))) < minobs) {
+        // count distinct locations: repeated measurements at one site add no design points
+        if (min((rows(rdn_first_per_value(C.loc[i1])), rows(rdn_first_per_value(C.loc[i0])))) < minobs) {
             R[j, 15] = 2
             continue
         }

@@ -251,7 +251,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     i0 <- which(use & !T)
     tab$n1[j] <- length(i1)
     tab$n0[j] <- length(i0)
-    if (min(length(i1), length(i0)) < min_obs) {
+    # count distinct locations: repeated measurements at one site add no design points
+    if (min(length(unique(coords$loc[i1])), length(unique(coords$loc[i0]))) < min_obs) {
       tab$status[j] <- "insufficient"
       next
     }
@@ -490,6 +491,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 
 # Critical value for a uniform band: quantile of max |Z| with Z ~ N(0, corr).
 .uniform_critical_value <- function(Sigma, level, repp, seed) {
+  # one point: the normal quantile itself, no simulation
+  if (nrow(Sigma) == 1) return(stats::qnorm(0.5 + level / 200))
   sd <- sqrt(pmax(diag(Sigma), 1e-300))
   corr <- Sigma / outer(sd, sd)
   ev <- eigen(corr, symmetric = TRUE)
