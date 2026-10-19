@@ -1573,7 +1573,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     struct rdn_snap scalar S
     real colvector bnodes, loc, firstl, TL, u, v, cu, cv, dep, m, allowed, depc
     real colvector viau, viav, dist, xnode, onedge, unreach, safe, bnarc, tot, frac, idx
-    real colvector pu, pv, pc, onends, pnode
+    real colvector pu, pv, pc, onends, pnode, off
     struct rdn_net scalar NP
     real matrix xyl, D
     real scalar n, side, j, Jn, useT
@@ -1588,7 +1588,17 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     firstl = .
     rdn_unique_locations(xy, Tin, useT, loc, firstl)
     xyl = xy[firstl, .]
-    if (useT) TL = Tin[firstl]
+    if (useT) {
+        TL = Tin[firstl]
+        off = (TL :!= rdn_btreated(C.B, xyl)) :& (rdn_bdistance(C.B, xyl) :> C.B.tol)
+        if (sum(off)) {
+            printf("{txt}note: %g observations have a treated() value that does not match their side of the boundary;
+",
+                sum(off[loc]))
+            printf("{txt}      they are attached to the network on the side treated() gives
+")
+        }
+    }
     else TL = rdn_btreated(C.B, xyl)
     n = rows(xyl)
     u = J(n, 1, .)

@@ -475,7 +475,16 @@ def network_coordinates(
     # Repeated locations (panels, mass points) are processed once.
     loc, first = _unique_locations(xy, T)
     xy_obs, xy = xy, xy[first]
-    T = boundary.is_treated(xy) if T is None else T[first]
+    if T is None:
+        T = boundary.is_treated(xy)
+    else:
+        T = T[first]
+        off = (T != boundary.is_treated(xy)) & (boundary.distance(xy) > boundary.tol)
+        if off.any():
+            n_rows = int(np.isin(loc, np.flatnonzero(off)).sum())
+            warnings.warn(f"{n_rows} observations ({n_rows / len(loc):.1%}) have a treatment status that does not "
+                          "match their side of the boundary; they are attached to the network on the side "
+                          "`treated` gives (check the boundary's treated side, or data errors)", stacklevel=2)
 
     # Snap each observation to the network on its own side of the boundary.
     n = len(xy)

@@ -223,3 +223,10 @@ def test_from_lines_projects_plain_lonlat_segments():
     net = rd2dnet.NetworkGraph.from_lines(seg, crs="EPSG:4326")
     assert "326" in net.crs  # a UTM zone
     assert 1500 < net.node_distance(net.nodes[0], net.nodes[-1]) < 1800  # about 1.6 km, not degrees
+
+
+def test_treatment_that_contradicts_geography_warns(city):
+    t = city.obs["treated"].to_numpy().astype(bool).copy()
+    t[:30] = ~t[:30]
+    with pytest.warns(UserWarning, match="30 observations"):
+        rd2dnet.network_coordinates(city.network("length"), city.boundary, city.obs[["x", "y"]], treated=t, n_eval=5)

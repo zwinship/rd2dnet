@@ -192,3 +192,11 @@ test_that("side inference ignores points beyond the ends of b", {
   bnd <- expect_silent(boundary_from_points(b, X, t))
   expect_true(boundary_is_treated(bnd, rbind(c(0, -10))))
 })
+
+test_that("a treatment that contradicts geography warns", {
+  city <- mock_city()
+  t <- as.logical(city$obs$treated)
+  t[1:30] <- !t[1:30]
+  expect_warning(network_coordinates(city$network("length"), city$boundary, city$obs, treated = t, n_eval = 5),
+                 "30 observations")
+})

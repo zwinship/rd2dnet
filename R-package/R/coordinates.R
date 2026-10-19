@@ -101,6 +101,16 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
   loc <- ul$loc
   xy_l <- xy[ul$first, , drop = FALSE]
   T_l <- if (is.null(Tin)) boundary_is_treated(boundary, xy_l) else Tin[ul$first]
+  if (!is.null(Tin)) {
+    off <- T_l != boundary_is_treated(boundary, xy_l) & boundary_distance(boundary, xy_l) > boundary$tol
+    if (any(off)) {
+      n_rows <- sum(off[loc])
+      warning(sprintf(paste0("%d observations (%.1f%%) have a treatment status that does not match their side ",
+                             "of the boundary; they are attached to the network on the side `treated` gives ",
+                             "(check the boundary's treated side, or data errors)"),
+                      n_rows, 100 * n_rows / length(loc)), call. = FALSE)
+    }
+  }
 
   # Snap each location to the network on its own side of the boundary.
   n <- nrow(xy_l)

@@ -90,6 +90,9 @@ Fixes from cross-language and invariance testing:
 - Treated side inferred from `t` (`Boundary.from_points`, `rd2dnet()`): observations
   beyond the ends of the line through `b` no longer count, which removes spurious
   "only 54% of observations lie on the side" warnings.
+- `network_coordinates(treated=...)` warns when treatment labels contradict the side of
+  the boundary an observation lies on (such observations are attached to the other
+  side's streets, far from where they are).
 - `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
