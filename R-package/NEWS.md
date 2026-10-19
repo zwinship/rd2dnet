@@ -36,6 +36,43 @@
   `length` and `travel_time` (`network_coordinates(extensive = )` adds others).
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
+## Fixes from cross-language testing
+
+* Directed networks: locations partway along one-way edges were reached through either
+  end node, as if the edge were two-way. Transition costs: the penalty for switching onto
+  the class of a location's own edge was not charged. For directed networks (with
+  `direction` other than `"both"`) and `transition_cost()`, locations and evaluation
+  points are now placed on nodes (their edges are split there).
+* Covariates (and `pooled = TRUE`) with different bandwidths on the two sides: each side's
+  kernel weights are divided by its `h^2`, as in rd2d. Estimates with one bandwidth are
+  unchanged.
+* Splitting a network that was split before (such as `coords$network`, reused for a
+  placebo boundary) no longer reuses the labels of nodes inserted the first time.
+* Panels and other repeated measurements: the bandwidth floor (`bwcheck`) now counts distinct
+  locations instead of observations.
+* Input checks: matrices with several columns for `y`, `fuzzy` or `weights`, boundaries with
+  coinciding vertices, non-finite `eval_points`, `n_eval < 1` and negative `snap_scale` are
+  errors.
+* With one evaluation point the uniform critical value is `qnorm()` itself, not simulated.
+* `min_obs` counts distinct locations rather than rows.
+* `boundary_grid()` on a closed ring no longer returns both 0 and the ring's length.
+* Side inference in `boundary_from_points()` and `rd2dnet()` ignores observations beyond the
+  ends of the line through `b`.
+* `network_coordinates(treated = )` warns when treatment labels contradict the side of the
+  boundary an observation lies on.
+* `network_coordinates()` warns when the points lie far from the network (lon/lat points
+  without `lonlat = TRUE`, or a CRS mismatch).
+* Cluster-robust standard errors warn when some point has fewer than 10 clusters on a side.
+* `precomputed_from_od()` builds a precomputed metric from a long origin-destination table.
+* `plot(true_tau = )` accepts a single value or a function of arc position.
+* Bandwidth selector: local designs with a Gram condition number above 1e8 (was 1e12) count
+  as singular, so rounding no longer decides between bases (results differed across
+  platforms). Well-posed designs are unaffected.
+* HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
+  with leverage 1 no longer add rounding noise to the standard errors.
+* Nodes inserted where edges cross the boundary now get interpolated numeric node
+  attributes, so `node_contrast()` costs on split edges are right.
+
 ## Checks and messages
 
 * Errors for `level` given as a proportion, non-finite weights, cluster labels of the wrong

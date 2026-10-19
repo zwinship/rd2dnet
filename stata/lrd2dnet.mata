@@ -106,6 +106,19 @@ real scalar rdn_kth(real colvector d, real scalar k)
     return(s[kk])
 }
 
+// Positions of the first entry for each distinct value of x.
+real colvector rdn_first_per_value(real colvector x)
+{
+    real colvector o, keep
+    real scalar i
+    if (rows(x) == 0) return(J(0, 1, .))
+    o = order((x, (1::rows(x))), (1, 2))
+    keep = J(rows(x), 1, 0)
+    keep[1] = 1
+    for (i = 2; i <= rows(x); i++) keep[i] = (x[o[i]] != x[o[i - 1]])
+    return(sort(o[selectindex(keep)], 1))
+}
+
 // Quantile with linear interpolation (numpy default, R type 7).
 real scalar rdn_quantile(real colvector x, real scalar p)
 {
@@ -185,8 +198,10 @@ real matrix rdn_inv_checked(real matrix G)
 // Inverse of a local Gram matrix through its Cholesky factor (rd2d's way).
 real matrix rdn_inv_gram(real matrix A)
 {
+    // bases are scaled by the bandwidth, so well-posed designs have condition
+    // numbers far below 1e8; above it the plug-in constants are unreliable
     if (hasmissing(A)) return(J(rows(A), cols(A), .))
-    if (!(cond(A) <= 1e12)) return(J(rows(A), cols(A), .))
+    if (!(cond(A) <= 1e8)) return(J(rows(A), cols(A), .))
     return(cholinv(A))
 }
 
@@ -1237,13 +1252,24 @@ void rdn_read_lines(struct rdn_net scalar N, string scalar fedges, string rowvec
 string scalar rdn_infer_side(real matrix line, real matrix xy, real colvector T)
 {
     struct rdn_bnd scalar BL
-    real colvector left
+    real colvector left, arc, inner, TT
     real scalar agree, share
     if (rows(T) != rows(xy)) _error(198, "treated() is needed to infer the treated side")
     if (sum(T) == 0 | sum(T) == rows(T)) _error(198, "treated() must contain treated and control observations")
     BL = rdn_boundary(line, J(0, 2, .), "left", J(0, 2, .), J(0, 3, .), 1e-6)
     left = rdn_btreated(BL, xy)
-    agree = mean(left :== T)
+    // observations beyond the ends of the line have no clear side: use those whose
+    // nearest point on the line is inside it, when there are enough of both groups
+    arc = rdn_bproject(BL, xy)
+    inner = selectindex((arc :> 1e-9 * BL.blen) :& (arc :< BL.blen * (1 - 1e-9)))
+    TT = T
+    if (rows(inner)) {
+        if (sum(T[inner]) >= 5 & sum(!T[inner]) >= 5) {
+            left = left[inner]
+            TT = T[inner]
+        }
+    }
+    agree = mean(left :== TT)
     share = max((agree, 1 - agree))
     if (share < 0.9) {
         printf("{txt}warning: only %4.1f%% of observations lie on the side of the boundary that matches treated();\n", 100 * share)
@@ -1311,6 +1337,105 @@ void rdn_split(struct rdn_net scalar N, struct rdn_bnd scalar B)
     N.iscross = N.iscross \ J(rows(newxy), 1, 1)
     N.n = rows(N.xy)
     N.ncross = sum(drop)
+}
+
+// Whether locations on edges must become nodes for exact distances. A location
+// partway along an edge is normally reached through the edge's end nodes plus
+// part of the edge's cost; that ignores one-way edges and the penalty for
+// switching onto the location's edge class, so directed networks and
+// transition costs place each location on a node instead.
+real scalar rdn_needs_point_nodes(struct rdn_net scalar N)
+{
+    return((N.directed & N.direction != "both") | N.metric == 2)
+}
+
+// Insert a node at each location frac of the way from node u to node v,
+// splitting every stored edge between u and v (both directions, parallel
+// edges) with cost and length divided in proportion. Returns the node of each
+// location (an end node when frac is 0 or 1).
+real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real colvector v, real colvector frac0)
+{
+    real colvector frac, node, atu, atv, mid, lo, hi, t, slo, shi, st, sp, ts, ids, o, cut, chain
+    real colvector drop, keep, nf, nt, nco, nle
+    string colvector ncl
+    transmorphic spots, pairs
+    string scalar key, pkey
+    real scalar n, i, k, m, ns, a, b, share, fwd, r
+    n = rows(u)
+    frac = rowmin((rowmax((frac0, J(n, 1, 0))), J(n, 1, 1)))
+    atu = (u :== v) :| (frac :<= 1e-9)
+    atv = (!atu) :& (frac :>= 1 - 1e-9)
+    node = rdn_where(atu, u, rdn_where(atv, v, J(n, 1, .)))
+    mid = selectindex((!atu) :& (!atv))
+    if (rows(mid) == 0) return(node)
+    // positions measured from the smaller node index
+    lo = rowmin((u[mid], v[mid]))
+    hi = rowmax((u[mid], v[mid]))
+    t = rdn_where(u[mid] :== lo, frac[mid], 1 :- frac[mid])
+    spots = asarray_create()
+    pairs = asarray_create()
+    slo = J(0, 1, .)
+    shi = J(0, 1, .)
+    st = J(0, 1, .)
+    for (i = 1; i <= rows(mid); i++) {
+        key = strofreal(lo[i]) + " " + strofreal(hi[i]) + " " + strofreal(t[i], "%21.12f")
+        if (!asarray_contains(spots, key)) {
+            slo = slo \ lo[i]
+            shi = shi \ hi[i]
+            st = st \ strtoreal(strofreal(t[i], "%21.12f"))
+            asarray(spots, key, rows(st))
+            pkey = strofreal(lo[i]) + " " + strofreal(hi[i])
+            if (asarray_contains(pairs, pkey)) asarray(pairs, pkey, asarray(pairs, pkey) \ rows(st))
+            else asarray(pairs, pkey, rows(st))
+        }
+        node[mid[i]] = N.n + asarray(spots, key)
+    }
+    ns = rows(st)
+    m = rows(N.efrom)
+    drop = J(m, 1, 0)
+    nf = J(0, 1, .)
+    nt = J(0, 1, .)
+    nco = J(0, 1, .)
+    nle = J(0, 1, .)
+    ncl = J(0, 1, "")
+    for (k = 1; k <= m; k++) {
+        a = min((N.efrom[k], N.eto[k]))
+        b = max((N.efrom[k], N.eto[k]))
+        if (a == b) continue
+        pkey = strofreal(a) + " " + strofreal(b)
+        if (!asarray_contains(pairs, pkey)) continue
+        sp = asarray(pairs, pkey)
+        o = order(st[sp], 1)
+        ts = st[sp[o]]
+        ids = N.n :+ sp[o]
+        fwd = (N.efrom[k] == a)
+        if (!fwd) {
+            ts = 1 :- ts[rows(ts)::1]
+            ids = ids[rows(ids)::1]
+        }
+        chain = N.efrom[k] \ ids \ N.eto[k]
+        cut = 0 \ ts \ 1
+        for (r = 1; r < rows(chain); r++) {
+            share = cut[r + 1] - cut[r]
+            nf = nf \ chain[r]
+            nt = nt \ chain[r + 1]
+            nco = nco \ N.ecost[k] * share
+            nle = nle \ N.elen[k] * share
+            ncl = ncl \ N.eclass[k]
+        }
+        drop[k] = 1
+    }
+    keep = selectindex(!drop)
+    N.efrom = N.efrom[keep] \ nf
+    N.eto = N.eto[keep] \ nt
+    N.ecost = N.ecost[keep] \ nco
+    N.elen = N.elen[keep] \ nle
+    N.eclass = N.eclass[keep] \ ncl
+    N.xy = N.xy \ (N.xy[slo, .] + (N.xy[shi, .] - N.xy[slo, .]) :* st)
+    N.ids = N.ids \ ("rdnet_point_" :+ strofreal((0::(ns - 1))))
+    N.iscross = N.iscross \ J(ns, 1, 0)
+    N.n = rows(N.xy)
+    return(node)
 }
 
 // ---------------------------------------------------------------------------
@@ -1450,6 +1575,8 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     struct rdn_snap scalar S
     real colvector bnodes, loc, firstl, TL, u, v, cu, cv, dep, m, allowed, depc
     real colvector viau, viav, dist, xnode, onedge, unreach, safe, bnarc, tot, frac, idx
+    real colvector pu, pv, pc, onends, pnode, off
+    struct rdn_net scalar NP
     real matrix xyl, D
     real scalar n, side, j, Jn, useT
     C.nodeon = (rdn_bdistance(C.B, C.N.xy) :<= C.B.tol)
@@ -1463,7 +1590,15 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     firstl = .
     rdn_unique_locations(xy, Tin, useT, loc, firstl)
     xyl = xy[firstl, .]
-    if (useT) TL = Tin[firstl]
+    if (useT) {
+        TL = Tin[firstl]
+        off = (TL :!= rdn_btreated(C.B, xyl)) :& (rdn_bdistance(C.B, xyl) :> C.B.tol)
+        if (sum(off)) {
+            printf("{txt}note: %g observations have a treated() value that does not match their side of the boundary;\n",
+                sum(off[loc]))
+            printf("{txt}      they are attached to the network on the side treated() gives\n")
+        }
+    }
     else TL = rdn_btreated(C.B, xyl)
     n = rows(xyl)
     u = J(n, 1, .)
@@ -1489,6 +1624,44 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
         dep[m] = S.depth
     }
     depc = dep :* C.N.snapscale
+
+    bnarc = rdn_bproject(C.B, C.N.xy[bnodes, .])
+    if (rows(evalarc)) C.evalarc = evalarc
+    else if (neval == 1) C.evalarc = min(bnarc)
+    else if (rdn_bclosed(C.B)) {
+        // around the ring, without repeating the start
+        C.evalarc = mod(min(bnarc) :+ (0::(neval - 1)) :* (C.B.blen / neval), C.B.blen)
+    }
+    else C.evalarc = min(bnarc) :+ (max(bnarc) - min(bnarc)) :* ((0::(neval - 1)) :/ (neval - 1))
+    rdn_snap_eval(C, bnodes, bnarc)
+
+    if (rdn_needs_point_nodes(C.N)) {
+        // one-way edges and class-change penalties: put every location and
+        // evaluation point on a node, so that paths respect both
+        pu = u \ C.eu
+        pv = v \ C.ev
+        pc = cu \ C.ecu
+        tot = pc + (cv \ C.ecv)
+        frac = rdn_where(tot :> 0, pc :/ tot, J(rows(tot), 1, 0))
+        onends = C.nodeon[pu] :& C.nodeon[pv]
+        NP = C.N
+        pnode = rdn_point_nodes(NP, pu, pv, frac)
+        rdn_edge_frame(NP)
+        rdn_compile(NP)
+        C.N = NP
+        C.nodeon = (rdn_bdistance(C.B, C.N.xy) :<= C.B.tol)
+        if (sum(onends)) C.nodeon[pnode[selectindex(onends)]] = J(sum(onends), 1, 1)
+        C.nodeT = rdn_btreated(C.B, C.N.xy) :& (!C.nodeon)
+        bnodes = selectindex(C.nodeon)
+        u = pnode[(1::n)]
+        v = u
+        cu = J(n, 1, 0)
+        cv = J(n, 1, 0)
+        C.eu = pnode[((n + 1)::rows(pnode))]
+        C.ev = C.eu
+        C.ecu = J(rows(C.eu), 1, 0)
+        C.ecv = C.ecu
+    }
     ndist = .
     nsrc = .
     rdn_nearest_source(C.N.E, bnodes, ndist, nsrc)
@@ -1519,15 +1692,6 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     C.Carc = rdn_where(unreach, ., C.Carc)
     C.Cnode = xnode
 
-    bnarc = rdn_bproject(C.B, C.N.xy[bnodes, .])
-    if (rows(evalarc)) C.evalarc = evalarc
-    else if (neval == 1) C.evalarc = min(bnarc)
-    else if (rdn_bclosed(C.B)) {
-        // around the ring, without repeating the start
-        C.evalarc = mod(min(bnarc) :+ (0::(neval - 1)) :* (C.B.blen / neval), C.B.blen)
-    }
-    else C.evalarc = min(bnarc) :+ (max(bnarc) - min(bnarc)) :* ((0::(neval - 1)) :/ (neval - 1))
-    rdn_snap_eval(C, bnodes, bnarc)
     C.emasked = rdn_bmasked(C.B, C.evalarc)
     tot = C.ecu + C.ecv
     frac = rdn_where(tot :> 0, C.ecu :/ tot, 0)
@@ -1897,8 +2061,8 @@ real colvector rdn_influence(struct rdn_fit scalar F, real colvector c, string s
     n = rows(ed)
     k = rows(F.beta)
     if (vce == "hc1") ed = ed :* sqrt(n / max((n - k, 1)))
-    else if (vce == "hc2") ed = ed :/ sqrt(rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-12))))
-    else if (vce == "hc3") ed = ed :/ rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-12)))
+    else if (vce == "hc2") ed = ed :/ sqrt(rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-8))))
+    else if (vce == "hc3") ed = ed :/ rowmax((1 :- rdn_leverage(F), J(n, 1, 1e-8)))
     return(rdn_loadings(F, c) :* ed)
 }
 
@@ -1950,6 +2114,8 @@ real scalar rdn_uniform_crit(real matrix Sigma, real scalar level, real scalar r
     real rowvector L
     real scalar crit
     transmorphic st
+    // one point: the normal quantile itself, no simulation
+    if (rows(Sigma) == 1) return(invnormal(0.5 + level / 200))
     sd = sqrt(rowmax((diagonal(Sigma), J(rows(Sigma), 1, 1e-300))))
     corr = Sigma :/ (sd * sd')
     symeigensystem(corr, X, L)
@@ -2023,7 +2189,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     real colvector cvec, vtgt, psi, betaa, raux, uni, pos, se_all, ok, keys, f, qc, qj, clu
     real rowvector tj
     real scalar nJ, z, j, conley, hasD, hasZ, hascl, nord, oi, ordr, k, vord, ti, tau, itt, fs
-    real scalar basevce_is, status, kk, nc, cc, gg, fail, auxorder, haveband, dimi
+    real scalar basevce_is, status, kk, nc, cc, gg, fail, auxorder, haveband, dimi, gside, gmin
     real colvector dimlist, bwbasis
     string scalar basevce
     struct rdn_fit scalar F, Fa
@@ -2068,6 +2234,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     hj = J(0, 1, .)
     hname = J(0, 1, .)
     orders = (p == q ? p : (p \ q))
+    gmin = .  // clusters per side at the estimated points (fewest side)
     for (j = 1; j <= nJ; j++) {
         if (C.emasked[j]) {
             R[j, 15] = 1
@@ -2084,13 +2251,16 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         rdn_coords_at(C, j, d, o)
         base = (d :< .) :& (o :< .) :& fin :& (om :> 0)
         hside = rdn_where(T, H[j, 2], H[j, 1])
-        w = rdn_kernel(d :/ hside, kcode) :* editmissing(om, 0)
+        // each side's kernel weights scaled by 1 / h_side^2, as in rd2d: this matters
+        // for the coefficients shared across sides (covariates, pooled slopes)
+        w = rdn_kernel(d :/ hside, kcode) :/ (hside :^ 2) :* editmissing(om, 0)
         use = (w :> 0) :& base
         i1 = selectindex(use :& T)
         i0 = selectindex(use :& (!T))
         R[j, 7] = rows(i1)
         R[j, 6] = rows(i0)
-        if (min((rows(i1), rows(i0))) < minobs) {
+        // count distinct locations: repeated measurements at one site add no design points
+        if (min((rows(rdn_first_per_value(C.loc[i1])), rows(rdn_first_per_value(C.loc[i0])))) < minobs) {
             R[j, 15] = 2
             continue
         }
@@ -2102,7 +2272,9 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             if (rows(zc)) Zi = Z[idx, zc']
         }
         if (hascl) {
-            if (min((rdn_nunique(cl[i1]), rdn_nunique(cl[i0]))) < 2) {
+            gside = min((rdn_nunique(cl[i1]), rdn_nunique(cl[i0])))
+            if (gside >= 2) gmin = min((gmin, gside))
+            if (gside < 2) {
                 R[j, 15] = 6
                 continue
             }
@@ -2116,7 +2288,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         rdn_set_dim(dimlist[dimi])
         if (conley) {
             hs = hside :* rscale
-            wk = rdn_kernel(d :/ hs, kcode) :* editmissing(om, 0)
+            wk = rdn_kernel(d :/ hs, kcode) :/ (hs :^ 2) :* editmissing(om, 0)
             m = selectindex((wk :> 0) :& base)
             Xa = rdn_design(s[m] :/ hs[m], o[m] :/ hs[m], Tf[m], auxorder,
                 (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0)
@@ -2297,6 +2469,10 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         ok = selectindex(diagonal(cov) :< .)
         if (rows(ok)) {
             crit = rdn_uniform_crit(cov[ok, ok], level, repp, seed)
+            if (hascl & gmin < 10) {
+                printf("{txt}note: cluster-robust standard errors rest on few clusters (as few as %g per side within\n", gmin)
+                printf("{txt}      the bandwidth); with fewer than about 10 per side they are too small. Consider vce(conley #).\n")
+            }
             if (cbands) {
                 R[., 17] = R[., 10] :- crit :* R[., 11]
                 R[., 18] = R[., 10] :+ crit :* R[., 11]
@@ -2385,8 +2561,8 @@ real colvector rdn_bw_adjust(real colvector resd, real matrix R, real colvector 
     if (vce == "hc1" & n > k) return(resd :* sqrt(n / (n - k)))
     if (vce == "hc2" | vce == "hc3") {
         hii = w :* rowsum((R * invG) :* R)
-        if (vce == "hc2") return(resd :/ sqrt(rowmax((1 :- hii, J(n, 1, 1e-12)))))
-        return(resd :/ rowmax((1 :- hii, J(n, 1, 1e-12))))
+        if (vce == "hc2") return(resd :/ sqrt(rowmax((1 :- hii, J(n, 1, 1e-8)))))
+        return(resd :/ rowmax((1 :- hii, J(n, 1, 1e-8))))
     }
     return(resd)
 }
@@ -2458,6 +2634,9 @@ real rowvector rdn_side_consts(struct rdn_side scalar sd, real scalar p, real co
     rdn_side_lm(sd, bn1, p + 1, vce, 1, yalt, beta1, cov1)
     B = vecq' * beta1
     reg1 = (vecq' * cov1 * vecq) / bn1^(2 + 2 * (p + 1))
+    // a quadratic form in a covariance matrix: negative values are rounding
+    // (a degenerate bias direction), and their sign must not decide the fit
+    if (reg1 < 0) reg1 = 0
     reg2 = .
     if (bn2 < .) {
         Tm = R[., ((kp1 + 1)..cols(R))]
@@ -2525,7 +2704,7 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
     struct rdn_side scalar s0, s1, sd
     real matrix Out, Zs0, Zs1, g
     real colvector T, s, fin, d, o, ok, m0, m1, edv, vtgt, zc, gy, gd, D0, D1, ybw0, ybw1, vq, Bc0, Bc1
-    real colvector num, den, h, good, rg, r2, okc
+    real colvector num, den, h, good, rg, r2, okc, f0, f1
     real rowvector bnd0, bnd1, dns, thr, bc, hc0, hc1
     real colvector bnv
     real scalar nJ, j, neff, neff0, neff1, vord, nt, i10, i01, expo_b, dn, itt, fs, t, sgn, bt, expo
@@ -2580,7 +2759,11 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
         if (hasZ) ok = ok :& (rowmissing(Z) :== 0)
         m0 = selectindex(ok :& (!T))
         m1 = selectindex(ok :& T)
-        if (min((rows(m0), rows(m1))) < bwcheck) {
+        // bwcheck counts distinct locations (repeated measurements count once), as
+        // rdrobust and rd2d count unique observations
+        f0 = rdn_first_per_value(C.loc[m0])
+        f1 = rdn_first_per_value(C.loc[m1])
+        if (min((rows(f0), rows(f1))) < bwcheck) {
             Out[j, 3] = 2
             continue
         }
@@ -2595,8 +2778,8 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
         okc = selectindex(ok)
         dn = rdn_rot(s[okc], o[okc], kcode, neff)
         // nudged up so the bwcheck-th observation gets positive kernel weight
-        bnd0 = (rdn_kth(s0.d, bwcheck) * (1 + 1e-9), max(s0.d))
-        bnd1 = (rdn_kth(s1.d, bwcheck) * (1 + 1e-9), max(s1.d))
+        bnd0 = (rdn_kth(s0.d[f0], bwcheck) * (1 + 1e-9), max(s0.d))
+        bnd1 = (rdn_kth(s1.d[f1], bwcheck) * (1 + 1e-9), max(s1.d))
         dns = (min((max((dn, bnd0[1])), bnd0[2])), min((max((dn, bnd1[1])), bnd1[2])))
         thr = (rdn_median(s0.d), rdn_median(s1.d))
         if (hasD) {

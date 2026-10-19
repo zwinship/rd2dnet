@@ -16,7 +16,87 @@ Each entry: the decision, the alternatives, and why. All are reversible.
    frame from the mock city's streets with `frlink`/`frget` and mentions the CSV route
    in the text. Alternative: ship a `roads.csv`; rejected to keep the package small.
 
-4. **R tooling.** Rtools is not installed on this machine, so the R package (which has
-   C++ code) cannot be built locally at first. I installed Rtools 4.5 from CRAN into
-   the user folder (`C:\Users\zwins\rtools45`) to run R tests locally; CI (R CMD check
-   on five platforms) remains the authority.
+4. **R tooling.** Rtools is not installed on this machine, so the R package (C++ code) cannot
+   be built locally. I tried a silent per-user install of Rtools 4.5 from CRAN; the
+   installer asked for administrator rights and is waiting behind a Windows elevation
+   prompt (processes `rtools45.exe`/`rtools45.tmp`, which I cannot stop without
+   elevation). Cancel that prompt in the morning, or install Rtools if you want local R
+   checks. R is verified through CI (R CMD check --as-cran on five platforms) and,
+   for cross-language numbers, through a GitHub Actions job that runs R on the same data.
+
+5. **s-only fallback triggered by pilot fits (needs your decision).** On a jittered 100 m
+   grid (parity case 05), points are fitted in `s` alone although the order-p (s, o) fit
+   is identified: only 2-3 streets cross the boundary within the bandwidth, so the
+   cubic bias-pilot fit in `o` is rank-deficient, `rdbwnet` marks (s, o) "singular" and
+   falls back. Options: keep (documented behaviour), or reduce only the pilot's degree
+   in `o`. Left unchanged.
+
+6. **Parity harness on its own branch (`parity-harness`)**; generated cases are not
+   committed (`parity/.gitignore`); CI regenerates them.
+
+7. **Exact distances on directed networks and with transition costs: split edges at the
+   locations.** Alternatives: (a) state-level "arc entry" distances in the engine (no graph
+   growth, but a rewrite of every distance routine in three languages, including the Conley
+   kernel); (b) split only for these metrics (chosen). Undirected plain-cost networks, the
+   common case, are untouched. Cost: the network grows by one node per distinct location for
+   directed/transition metrics. `coords.network` therefore carries `rdnet_point_*` nodes.
+
+8. **Covariate side weights 1/h_side² (rd2d's choice)** applied in all languages, also in the
+   Conley auxiliary fit and for `pooled`. Changes estimates only when h0 != h1.
+
+9. **Leverage clip 1e-8 (rd2d) instead of 1e-12.**
+
+10. **Parity tolerance 1e-7** instead of 1e-8: automatic bandwidths differ by up to 3.5e-8
+    between Python and R from rounding in near-ill-conditioned fits.
+
+11. **AppStream sign-in.** The Stata session expired around 06:30 and the link now asks for an
+    AWS sign-in; per the rules I did not sign in. Stata changes after commit 253b969 are
+    untested in Stata. PR #5 is merged only if CI is green, on the basis that main is
+    unpublished and the Stata port has never been released; please run the Stata suite
+    before any release.
+
+## Waiting for your decision (from the audits)
+
+- **Near-singular q-fits:** (a) flag points whose order-q fit has leverage 1 or a condition
+  number above a threshold (new status "unstable"); (b) when only the q-fit is singular in
+  (s, o), keep the p-fit in (s, o) and compute the bias correction in s alone, instead of
+  refitting everything in s alone. I recommend both; not done because it changes results.
+- **Density bandwidth selector** is not rddensity's (normal-reference pilots, `comb` default).
+  rd2dnet uses rd2d-style constants and `common = min(hl, hr)`. Together with the
+  over-rejection on round zones, consider porting rddensity's selector.
+- **min_obs/bwcheck default:** rd2d's `rd2d()` uses 50 + p + 1; rd2dnet uses 20 + #terms(q).
+- **Cluster SEs:** rdnet uses rd2d's `vce="hc0"` + CR1; rd2d's default (`hc1` + cluster) is
+  about 1.7% larger. Also clustering under-covers in several Monte Carlo runs; Conley does well.
+- **Uniform band:** rd2d uses repp=1000, a fixed seed and type-2 quantiles; rd2dnet uses
+  repp=2000, `seed=None`. Consider a fixed default seed for reproducibility.
+- **Off-network snapping cost for travel-time metrics** (currently free).
+
+## Later decisions (morning of 2026-10-19)
+
+12. **Counting locations instead of rows** for `bwcheck` and `min_obs` (panels). rd2d and
+    rdrobust count unique observations for `bwcheck`; for `min_obs` I applied the same
+    rule. Results change only with repeated locations.
+13. **J = 1 critical value = normal quantile.** No simulation for one point.
+14. **New warnings (no change to results):** pandas index not 0..n-1; treatment labels that
+    contradict the boundary side; points far from the network (median snap distance
+    above the network's extent); cluster-robust SEs with fewer than 10 clusters per side
+    at some point (threshold chosen from the Monte Carlo: 5-6 clusters gave 0.70 coverage).
+    Alternative for the clusters: a new status that drops such points. Rejected as too
+    aggressive without your input.
+15. **New errors for inputs that silently gave wrong results:** 2-D `y`/`weights`, negative
+    or NaN `density()` weights, zero-length boundaries, NaN `eval_points`, `n_eval < 1`,
+    negative or NaN `snap_scale`.
+16. **Treated-side inference** uses only observations whose nearest point on the line
+    through `b` is inside it (when at least 5 treated and 5 control qualify).
+17. **`Precomputed.from_od` / `precomputed_from_od()`**: added (additive API) because the
+    brief listed the missing OD constructor. Missing pairs are unreachable; `symmetric`
+    is off by default.
+18. **Not done, deliberately (need your call):** changing the density test's default
+    normalisation, decoupling the p- and q-fit bases, deduplicating evaluation points in
+    the default WBATE, a default off-network cost for travel-time metrics, the
+    `from_place` offline fallback default, a "flow" direction for rivers, and `lbate`
+    min/abs options.
+
+Note: the Monte Carlo agent ran `taskkill /F /IM python.exe` once early on, which
+stopped every Python process on this machine at that moment. Nothing of yours was
+running as far as I can tell, but check if you had Python jobs open overnight.

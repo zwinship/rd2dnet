@@ -124,3 +124,85 @@ test_that("bounded searches find exactly the pairs within the limit", {
     expect_equal(pr$dist, full[cbind(pr$i, pr$node)])
   }
 })
+
+small_net <- function(pos, pairs, attrs = NULL, ...) {
+  nodes <- data.frame(name = names(pos), x = vapply(pos, `[`, 0, 1), y = vapply(pos, `[`, 0, 2))
+  from <- vapply(pairs, `[`, "", 1)
+  to <- vapply(pairs, `[`, "", 2)
+  len <- sqrt((nodes$x[match(from, nodes$name)] - nodes$x[match(to, nodes$name)])^2 +
+                (nodes$y[match(from, nodes$name)] - nodes$y[match(to, nodes$name)])^2)
+  edges <- data.frame(from = from, to = to, length = len)
+  if (!is.null(attrs)) edges <- cbind(edges, attrs)
+  network_graph(edges, nodes, ...)
+}
+
+test_that("points on one-way edges are reached in the edge's direction", {
+  # X is on the boundary; the one-way edge N -> M can only be entered at N (via X -> R -> N)
+  pos <- list(X = c(0, 0), M = c(0, -100), N = c(0, -200), R = c(300, -100), T = c(0, 100),
+              L = c(-100, 0), Rb = c(100, 0))
+  pairs <- list(c("X", "M"), c("N", "M"), c("X", "R"), c("R", "N"), c("X", "T"), c("L", "X"), c("X", "Rb"))
+  net <- small_net(pos, pairs, directed = TRUE, direction = "out")
+  bnd <- boundary(rbind(c(-100, 0), c(100, 0)), treated_side = "left")
+  cc <- network_coordinates(net, bnd, rbind(c(0, -110), c(0, -150)), eval_points = 100)
+  want <- 2 * sqrt(300^2 + 100^2) + c(90, 50)
+  expect_equal(cc$s, -want, tolerance = 1e-12)
+  expect_equal(coords_at(cc, 1)$d, want, tolerance = 1e-12)
+})
+
+test_that("the transition penalty applies to the edge a point sits on", {
+  pos <- list(P = c(0, -200), Q = c(0, -100), X = c(0, 0), Y = c(0, 100), S = c(300, -100),
+              Z = c(300, 0), W = c(300, 100))
+  pairs <- list(c("P", "Q"), c("Q", "X"), c("X", "Y"), c("Q", "S"), c("S", "Z"), c("Z", "W"), c("X", "Z"))
+  cls <- data.frame(highway = c("primary", "residential", "residential", "primary", "primary", "primary",
+                                "primary"))
+  m <- transition_cost("length", class_attr = "highway", default_penalty = 1000)
+  net <- small_net(pos, pairs, cls, metric = m)
+  bnd <- boundary(rbind(c(-50, 0), c(350, 0)), treated_side = "left")
+  cc <- network_coordinates(net, bnd, rbind(c(0, -150), c(0, -199.9), c(0, -200)), eval_points = 50)
+  expect_equal(cc$s, c(-450, -499.9, -500), tolerance = 1e-12)
+})
+
+test_that("node contrasts add up across an edge split at the boundary", {
+  nodes <- data.frame(name = c("a", "b", "c", "d"), x = c(0, 0, 200, 200), y = c(-100, 100, -100, 100),
+                      far = c(1, 5, 1, 5))
+  edges <- data.frame(from = c("a", "c", "a", "b"), to = c("b", "d", "c", "d"), length = 200)
+  net <- network_graph(edges, nodes, node_contrast("far", 10))
+  bnd <- boundary(rbind(c(-50, 0), c(250, 0)), treated_side = "right")
+  split <- with_boundary_crossings(net, bnd)
+  expect_equal(node_distance(split, "a", "b"), 240)
+})
+
+test_that("reusing a split network gives the same coordinates", {
+  # coords$network carries inserted nodes; splitting it again must not reuse their labels
+  g <- expand.grid(i = 0:5, j = 0:5)
+  nodes <- data.frame(name = paste(g$i, g$j), x = 100 * g$i, y = 100 * g$j)
+  e <- list()
+  for (r in seq_len(nrow(g))) {
+    i <- g$i[r]
+    j <- g$j[r]
+    for (dd in list(c(1, 0), c(0, 1))) {
+      if (i + dd[1] <= 5 && j + dd[2] <= 5) {
+        a <- paste(i, j)
+        b <- paste(i + dd[1], j + dd[2])
+        e[[length(e) + 1]] <- data.frame(from = a, to = b, length = 100)
+        if ((i + j) %% 3 != 0) e[[length(e) + 1]] <- data.frame(from = b, to = a, length = 100)
+      }
+    }
+  }
+  net <- network_graph(do.call(rbind, e), nodes, directed = TRUE, direction = "out")
+  bnd <- boundary(rbind(c(-50, 250), c(550, 250)), treated_side = "right")
+  set.seed(0)
+  pts <- matrix(runif(600, 0, 500), ncol = 2)
+  cc <- network_coordinates(net, bnd, pts, n_eval = 5)
+  cc2 <- network_coordinates(cc$network, bnd, pts, n_eval = 5)
+  expect_equal(cc2$s, cc$s, tolerance = 1e-12)
+})
+
+test_that("precomputed metric from a long OD table", {
+  od <- data.frame(origin = c("a", "a", "b", "a"), destination = c("b", "c", "c", "b"), cost = c(5, 9, 3, 4))
+  m <- precomputed_from_od(od, symmetric = TRUE)
+  expect_equal(m$nodes, c("a", "b", "c"))
+  expect_equal(m$matrix, rbind(c(0, 4, 9), c(4, 0, 3), c(9, 3, 0)))
+  expect_true(is.infinite(precomputed_from_od(od)$matrix[2, 1]))
+  expect_error(precomputed_from_od(transform(od, cost = -1)), "non-negative")
+})

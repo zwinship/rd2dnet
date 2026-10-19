@@ -96,6 +96,8 @@ class NetworkGraph:
                 raise KeyError(f"{missing} edges have no {cost!r} attribute for the metric; edge attributes "
                                f"available: {have}")
         self.snap_scale = self.metric.default_snap_scale if snap_scale is None else float(snap_scale)
+        if not (np.isfinite(self.snap_scale) and self.snap_scale >= 0):
+            raise ValueError(f"snap_scale must be finite and non-negative, got {snap_scale!r}")
         self._engine = None
         self._edges: pd.DataFrame | None = None
         self._split: tuple | None = None  # (boundary, split network) cache
@@ -271,6 +273,7 @@ class NetworkGraph:
             return self
         G = self.graph.copy()
         crossing_ids: dict[tuple[float, float], Hashable] = {}
+        next_cross = 0
         n_split = 0
         for k in cand:
             u, v, key, data = edges[k]
@@ -288,8 +291,10 @@ class NetworkGraph:
             t = geom.project(point) / geom.length if geom.length > 0 else 0.5
             key_xy = (round(point.x, 6), round(point.y, 6))
             if key_xy not in crossing_ids:
-                cid = f"rdnet_crossing_{len(crossing_ids)}"
-                G.add_node(cid, **{self.x_attr: point.x, self.y_attr: point.y, "rdnet_crossing": True})
+                cid = _fresh_label(G, "rdnet_crossing", next_cross)
+                next_cross = int(cid.rsplit("_", 1)[1]) + 1
+                G.add_node(cid, **{**_between(self.graph.nodes[u], self.graph.nodes[v], t),
+                                   self.x_attr: point.x, self.y_attr: point.y, "rdnet_crossing": True})
                 crossing_ids[key_xy] = cid
             cid = crossing_ids[key_xy]
             first, second = dict(data), dict(data)
@@ -311,6 +316,99 @@ class NetworkGraph:
         out.n_crossings_inserted = n_split
         self._split = (boundary, out)
         return out
+
+    @property
+    def needs_point_nodes(self) -> bool:
+        """Whether locations on edges must become nodes for exact distances.
+
+        A location partway along an edge is normally reached through the edge's
+        end nodes plus part of the edge's cost. That ignores one-way edges and
+        the penalty for switching onto the location's edge class, so directed
+        networks and transition costs place each location on a node instead.
+        """
+        if not self.metric.supports_edge_splitting:
+            return False
+        directed = self.graph.is_directed() and self.direction != "both"
+        return directed or hasattr(self.metric, "transition_penalty")
+
+    def _with_point_nodes(self, u, v, frac, extensive: Sequence[str] = ("length", "travel_time")):
+        """Insert a node at each location ``frac`` of the way from node ``u`` to node ``v``.
+
+        Every stored edge between ``u`` and ``v`` (both directions, parallel
+        edges) is split there, with its extensive attributes and the metric's
+        cost attribute divided in proportion. Returns the new network and the
+        node index of each location (an end node when ``frac`` is 0 or 1).
+        """
+        u = np.asarray(u, dtype=np.int64)
+        v = np.asarray(v, dtype=np.int64)
+        frac = np.clip(np.asarray(frac, dtype=float), 0.0, 1.0)
+        node_label = np.empty(len(u), dtype=object)
+        at_u = (u == v) | (frac <= 1e-9)
+        at_v = ~at_u & (frac >= 1 - 1e-9)
+        node_label[at_u] = [self.nodes[k] for k in u[at_u]]
+        node_label[at_v] = [self.nodes[k] for k in v[at_v]]
+        mid = np.flatnonzero(~at_u & ~at_v)
+        if mid.size == 0:
+            return self, np.array([self.node_index[x] for x in node_label], dtype=np.int64)
+        extensive = set(extensive) | _cost_attributes(self.metric)
+        # positions measured from the smaller node index, so that a location
+        # snapped as (u, v, f) and one snapped as (v, u, 1 - f) coincide
+        lo, hi = np.minimum(u[mid], v[mid]), np.maximum(u[mid], v[mid])
+        t = np.where(u[mid] == lo, frac[mid], 1 - frac[mid])
+        cuts: dict[tuple[int, int], dict[float, Hashable]] = {}
+        G = self.graph.copy()
+        n_new = 0
+        for k, a, b, tk in zip(mid, lo, hi, t):
+            spots = cuts.setdefault((int(a), int(b)), {})
+            key = round(float(tk), 12)
+            if key not in spots:
+                xa, xb = self.coords[a], self.coords[b]
+                xy = xa + (xb - xa) * key
+                pid = _fresh_label(G, "rdnet_point", n_new)
+                n_new = int(pid.rsplit("_", 1)[1]) + 1
+                G.add_node(pid, **{**_between(self.graph.nodes[self.nodes[a]], self.graph.nodes[self.nodes[b]], key),
+                                   self.x_attr: float(xy[0]), self.y_attr: float(xy[1]), "rdnet_point": True})
+                spots[key] = pid
+            node_label[k] = spots[key]
+        multi = self.graph.is_multigraph()
+        for (a, b), spots in cuts.items():
+            la, lb = self.nodes[a], self.nodes[b]
+            ts = sorted(spots)
+            stored = []
+            for p, q in ((la, lb), (lb, la)) if G.is_directed() else ((la, lb),):
+                if not G.has_edge(p, q):
+                    continue
+                if multi:
+                    stored += [(p, q, key, dict(d)) for key, d in G[p][q].items()]
+                else:
+                    stored.append((p, q, None, dict(G[p][q])))
+            for p, q, key, data in stored:
+                forward = p == la  # edge runs from the smaller-index node
+                pos = ts if forward else [1 - x for x in reversed(ts)]
+                ids = [spots[x] for x in (ts if forward else list(reversed(ts)))]
+                geom = data.get("geometry")
+                if geom is not None:
+                    gp = shapely.get_point(geom, 0)
+                    if Point(self.graph.nodes[p][self.x_attr], self.graph.nodes[p][self.y_attr]).distance(
+                            gp) > Point(self.graph.nodes[q][self.x_attr], self.graph.nodes[q][self.y_attr]).distance(gp):
+                        geom = shapely.reverse(geom)
+                if multi:
+                    G.remove_edge(p, q, key)
+                else:
+                    G.remove_edge(p, q)
+                chain = [p, *ids, q]
+                cut = [0.0, *pos, 1.0]
+                for i in range(len(chain) - 1):
+                    share = cut[i + 1] - cut[i]
+                    piece = dict(data)
+                    for attr in extensive:
+                        if attr in data and data[attr] is not None:
+                            piece[attr] = float(data[attr]) * share
+                    if geom is not None:
+                        piece["geometry"] = substring(geom, cut[i], cut[i + 1], normalized=True)
+                    G.add_edge(chain[i], chain[i + 1], **piece)
+        out = self._replace_graph(G)
+        return out, np.array([out.node_index[x] for x in node_label], dtype=np.int64)
 
     # --- constructors --------------------------------------------------------
 
@@ -438,9 +536,10 @@ class NetworkGraph:
             Lines are drawn in the direction of travel or flow (one-way streets,
             rivers). Combine with ``direction="out"`` (downstream) or ``"in"``.
         to_crs
-            For a GeoDataFrame in longitude/latitude: ``"utm"`` (default) projects
-            it to its local UTM zone so distances are in metres; any other CRS
-            projects to that; ``None`` keeps degrees.
+            For lines in longitude/latitude (a GeoDataFrame in a geographic CRS,
+            or plain coordinates with a geographic ``crs``): ``"utm"`` (default)
+            projects them to their local UTM zone so distances are in metres;
+            any other CRS projects to that; ``None`` keeps degrees.
         crs
             The CRS of plain (non-geopandas) coordinates, if known.
         **kwargs
@@ -557,6 +656,31 @@ class NetworkGraph:
         return cls(G, metric, x_attr=x_attr, y_attr=y_attr, **kwargs)
 
 
+def _fresh_label(G, prefix: str, k: int) -> str:
+    """``prefix_k``, or the next free ``prefix_k'`` when the graph already has that node.
+
+    Networks that were split before (a coordinates object's network, reused for a
+    placebo boundary) already carry such labels.
+    """
+    while f"{prefix}_{k}" in G:
+        k += 1
+    return f"{prefix}_{k}"
+
+
+def _between(a: dict, b: dict, t: float) -> dict:
+    """Node attributes for a node a fraction ``t`` of the way from a node with ``a`` to one with ``b``.
+
+    Numeric attributes both ends share are interpolated, so that costs built
+    from node attributes (``node_contrast``) add up along a split edge.
+    """
+    out = {}
+    for k, x in a.items():
+        y = b.get(k)
+        if isinstance(x, (int, float, np.number)) and isinstance(y, (int, float, np.number))                 and not isinstance(x, bool) and not isinstance(y, bool):
+            out[k] = float(x) + (float(y) - float(x)) * t
+    return out
+
+
 def _cost_attributes(metric) -> set:
     """Edge attributes a metric reads as additive costs (split in proportion when an edge is cut)."""
     out = set()
@@ -601,6 +725,26 @@ def project_lonlat(lon, lat, to_crs) -> np.ndarray:
     return np.column_stack([x, y])
 
 
+def _project_plain_lines(geoms, crs, to_crs):
+    """Project lines given as plain coordinates in a geographic ``crs`` (as GeoDataFrames are)."""
+    try:
+        from pyproj import CRS, Transformer
+    except ImportError as e:  # pragma: no cover - depends on environment
+        raise ImportError("projecting lon/lat lines requires pyproj (pip install pyproj)") from e
+    src = CRS.from_user_input(crs)
+    if not src.is_geographic:
+        return geoms, src.to_string()
+    if to_crs == "utm":
+        lon, lat = shapely.get_coordinates(geoms).mean(axis=0)
+        zone = int((lon + 180) // 6) + 1
+        target = CRS.from_epsg((32600 if lat >= 0 else 32700) + zone)
+    else:
+        target = CRS.from_user_input(to_crs)
+    tr = Transformer.from_crs(src, target, always_xy=True)
+    out = shapely.transform(geoms, lambda xy: np.column_stack(tr.transform(xy[:, 0], xy[:, 1])))
+    return out, target.to_string()
+
+
 def _lines_input(lines, coords, to_crs, crs):
     """Geometries, per-line attribute dicts and CRS from any supported line input."""
     if hasattr(lines, "geometry") and hasattr(lines, "crs"):  # GeoDataFrame / GeoSeries
@@ -630,6 +774,8 @@ def _lines_input(lines, coords, to_crs, crs):
         geoms, idx = parts
         attrs = [{} for _ in idx]
     attrs = [{k: v for k, v in a.items() if not (np.isscalar(v) and pd.isna(v))} for a in attrs]
+    if not (hasattr(lines, "geometry") and hasattr(lines, "crs")) and crs is not None and to_crs is not None:
+        geoms, crs = _project_plain_lines(np.asarray(geoms, dtype=object), crs, to_crs)
     bad = ~np.isin(shapely.get_type_id(geoms), (1, 2))  # LineString, LinearRing
     if bad.any():
         raise TypeError("every geometry must be a LineString or MultiLineString")

@@ -92,6 +92,10 @@
 }
 
 .check_obs <- function(v, n, name) {
+  if (length(dim(v)) == 2 && min(dim(v)) > 1) {
+    stop(sprintf("%s must be a vector, got a %d x %d object", name, nrow(v), ncol(v)), call. = FALSE)
+  }
+  if (is.data.frame(v)) v <- v[[1]]
   v <- as.numeric(v)
   if (length(v) != n) {
     stop(sprintf("%s must have one value per observation (%d), got %d", name, n, length(v)), call. = FALSE)

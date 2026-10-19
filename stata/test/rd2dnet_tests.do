@@ -338,6 +338,96 @@ program define t_floor
     rdn_expect R[2,5] 1000 0 "h(800 1000): h1 = 1000"
 end
 
+capture program drop t_pointnodes
+program define t_pointnodes
+    * a location on a one-way edge is reached in the edge's direction
+    * (X on the boundary; the one-way edge N -> M is entered at N via X -> R -> N)
+    capture frame drop pn_nodes
+    capture frame drop pn_edges
+    frame create pn_nodes
+    frame pn_nodes {
+        set obs 7
+        gen id = _n
+        gen x = 0
+        gen y = 0
+        replace y = -100 in 2
+        replace y = -200 in 3
+        replace x = 300 in 4
+        replace y = -100 in 4
+        replace y = 100 in 5
+        replace x = -100 in 6
+        replace x = 100 in 7
+    }
+    frame create pn_edges
+    frame pn_edges {
+        set obs 7
+        gen from = .
+        gen to = .
+        local k 0
+        foreach e in "1 2" "3 2" "1 4" "4 3" "1 5" "6 1" "1 7" {
+            local ++k
+            replace from = real(word("`e'", 1)) in `k'
+            replace to = real(word("`e'", 2)) in `k'
+        }
+        gen double length = 100
+        replace length = sqrt(300^2 + 100^2) if (from == 1 & to == 4) | (from == 4 & to == 3)
+    }
+    clear
+    set obs 2
+    gen double x = 0
+    gen double y = cond(_n == 1, -110, -150)
+    matrix PL = (-100, 0 \ 100, 0)
+    matrix PE = (100)
+    rdnetset x y, nodes(pn_nodes) edges(pn_edges) boundary(PL) treatedside(left) evalpoints(PE) ///
+        directed direction(out)
+    local w1 = -(2 * sqrt(300^2 + 100^2) + 90)
+    local w2 = -(2 * sqrt(300^2 + 100^2) + 50)
+    rdn_expect _rdn_s[1] `w1' 1e-12 "one-way edge: s[1]"
+    rdn_expect _rdn_s[2] `w2' 1e-12 "one-way edge: s[2]"
+    * the transition penalty applies to the edge a location sits on: points on the
+    * primary edge P-Q reach the boundary along primary streets via Z, not via X
+    frame pn_nodes {
+        clear
+        set obs 7
+        gen id = _n
+        gen x = cond(_n >= 5, 300, 0)
+        gen y = 0
+        replace y = -200 in 1
+        replace y = -100 in 2
+        replace y = 100 in 4
+        replace y = -100 in 5
+        replace y = 100 in 7
+    }
+    frame pn_edges {
+        clear
+        set obs 7
+        gen from = .
+        gen to = .
+        gen str12 highway = "primary"
+        local k 0
+        foreach e in "1 2" "2 3" "3 4" "2 5" "5 6" "6 7" "3 6" {
+            local ++k
+            replace from = real(word("`e'", 1)) in `k'
+            replace to = real(word("`e'", 2)) in `k'
+        }
+        replace highway = "residential" in 2/3
+        gen double length = cond(inlist(_n, 4, 7), 300, 100)
+    }
+    clear
+    set obs 3
+    gen double x = 0
+    gen double y = -150
+    replace y = -199.9 in 2
+    replace y = -200 in 3
+    matrix PL = (-50, 0 \ 350, 0)
+    matrix PE = (50)
+    rdnetset x y, nodes(pn_nodes) edges(pn_edges) boundary(PL) treatedside(left) evalpoints(PE) ///
+        classvar(highway) penalty(1000)
+    rdn_expect _rdn_s[1] -450 1e-12 "transition, own edge class: s[1]"
+    rdn_expect _rdn_s[2] -499.9 1e-12 "transition, own edge class: s[2]"
+    rdn_expect _rdn_s[3] -500 1e-12 "transition, own edge class: s[3]"
+end
+
 capture program drop t_errors
 program define t_errors
     rdnetmock, clear
@@ -368,6 +458,7 @@ rdn_block t_options
 rdn_block t_entry
 rdn_block t_river
 rdn_block t_floor
+rdn_block t_pointnodes
 rdn_block t_errors
 
 di _n "{hline 70}"

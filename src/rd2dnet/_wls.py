@@ -69,9 +69,9 @@ class Fit:
         if vce == "hc1":
             e = e * np.sqrt(self.n / max(self.n - self.k, 1))
         elif vce == "hc2":
-            e = e / np.sqrt(np.clip(1 - self.leverage, 1e-12, None))
+            e = e / np.sqrt(np.clip(1 - self.leverage, 1e-8, None))
         elif vce == "hc3":
-            e = e / np.clip(1 - self.leverage, 1e-12, None)
+            e = e / np.clip(1 - self.leverage, 1e-8, None)
         return (self.X @ self._row(coef)) * self.w * e
 
     def coef_cov(self, vce: str = "hc1") -> np.ndarray:

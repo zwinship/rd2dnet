@@ -190,3 +190,17 @@ test_that("igraph input: weight falls back to length, directed override, vertex 
   expect_equal(node_distance(net3, 1, 2), 50)
   expect_equal(net3$crs, "EPSG:32618")
 })
+
+test_that("inputs that used to pass silently are rejected", {
+  cc <- mock_coords()
+  y <- mock_city()$obs$outcome
+  expect_error(rdnet(cbind(y, y)[seq_len(cc$n_obs / 2), ], cc, h = 600), "must be a vector")
+  expect_error(density(cc, weights = rep(-1, cc$n_obs)), "finite and non-negative")
+  expect_error(boundary(rbind(c(500, 1000), c(500, 1000)), treated_side = "left"), "zero length")
+  city <- mock_city()
+  net <- city$network("length")
+  expect_error(network_coordinates(net, city$boundary, city$obs, eval_points = c(NA, 500)), "finite")
+  expect_error(network_coordinates(net, city$boundary, city$obs, n_eval = 0), "positive integer")
+  nodes <- data.frame(name = 1:2, x = c(0, 100), y = 0)
+  expect_error(network_graph(data.frame(from = 1, to = 2, length = 100), nodes, snap_scale = -5), "snap_scale")
+})

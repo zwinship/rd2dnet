@@ -51,6 +51,71 @@ Fixes:
 - `travel_time(default_kph=...)` also fills missing (NaN) speeds.
 - `from_igraph` uses `length` when there is no `weight` attribute.
 
+Fixes from cross-language and invariance testing:
+
+- Directed networks: a location partway along a one-way edge was reached through
+  either end node, as if the edge ran both ways, so `s` and kernel distances were too
+  short. Transition costs: the penalty for switching onto the class of the edge a
+  location sits on was never charged. With `direction="out"`/`"in"` on a directed
+  network, or with `TransitionCost`, every location and evaluation point is now placed
+  on a node of the network (its edge is split there), so paths respect edge direction
+  and class changes. Fixed in Python, R and Stata.
+- Nodes inserted where edges cross the boundary had no node attributes, so
+  `node_contrast()` costs on split edges counted the contrast twice (against 0). Numeric
+  node attributes are now interpolated along the edge.
+- Covariates (and `pooled=True`) with different bandwidths on the two sides: each side's
+  kernel weights are now divided by its `h**2`, as in rd2d, which sets the relative weight
+  of the sides in the common coefficients. Estimates with one bandwidth are unchanged.
+- Splitting a network that was split before (for example `coords.network`, reused for a
+  placebo boundary) reused the labels of the nodes inserted the first time and silently
+  moved those nodes. New nodes now get labels that are not in use.
+- Panels and other repeated measurements: the bandwidth floor (`bwcheck`) counted
+  observations, so with 30 readings per site it fell to the second-nearest site and fits
+  turned singular. It now counts distinct locations, as rdrobust and rd2d count unique
+  observations (Python, R, Stata).
+- Inputs that used to give wrong results silently are now checked: pandas inputs whose
+  index is not 0..n-1 warn that values are matched by position; two-dimensional `y`,
+  `fuzzy` or `weights` are errors; `density()` rejects negative or missing weights (as
+  `rdnet` does); boundaries with coinciding vertices, non-finite `eval_points`,
+  `n_eval < 1` and negative or missing `snap_scale` are errors.
+- With one evaluation point the uniform band's critical value is the normal quantile
+  (1.96 at 95%) instead of a simulated value that varied with the seed (1.88-2.04).
+- `min_obs` counts distinct locations, so a point with 28 rows from 7 panel sites is no
+  longer estimated with an order-2 fit (Python, R, Stata).
+- `network_coordinates(lonlat=True)` also projects `eval_points` given as coordinates.
+- `NetworkGraph.from_lines()` projects segment tables and plain line lists given with a
+  geographic `crs` (as it does GeoDataFrames), instead of keeping degrees.
+- `Boundary.grid()` on a closed ring no longer returns both 0 and the ring's length (the
+  same point).
+- Treated side inferred from `t` (`Boundary.from_points`, `rd2dnet()`): observations
+  beyond the ends of the line through `b` no longer count, which removes spurious
+  "only 54% of observations lie on the side" warnings.
+- `network_coordinates(treated=...)` warns when treatment labels contradict the side of
+  the boundary an observation lies on (such observations are attached to the other
+  side's streets, far from where they are).
+- `network_coordinates` warns when the points lie far from the network (median snapping
+  distance larger than the network's extent): lon/lat points without `lonlat=True`, or a
+  CRS mismatch.
+- `Boundary.from_region` accepts a GeoSeries/GeoDataFrame and gives a clear error for
+  other inputs.
+- Cluster-robust standard errors warn when some evaluation point has fewer than 10
+  clusters on a side within the bandwidth (Monte Carlo coverage near 0.7 with 5-6).
+- `Precomputed.from_od(table, origin, destination, cost)` builds a precomputed metric
+  from a long origin-destination table (for example a router's travel-time output).
+- `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
+- Bandwidth selector: local designs whose Gram matrix has a condition number above 1e8
+  (was 1e12) count as singular. Between the two, plug-in variances could change sign
+  with rounding, so the selected basis and bandwidth differed across platforms (Linux
+  and Windows Python disagreed by 0.3% on an `imserd` bandwidth). Well-posed designs are
+  far below 1e8 (no fit on the mock city is above 1e7), so their results do not change.
+  The `Reg1` term is also clamped at 0 (Python, R, Stata).
+- HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
+  with leverage 1 have zero residuals, and the tighter clip turned rounding error in
+  those residuals into visible standard-error noise (about 1e-3).
+- `parity/`: random designs run in Python and R (CI job `parity`) and Stata
+  (`parity/run_stata.do`), compared to 1e-7 (differences at rounding level in
+  automatically selected bandwidths reach a few times 1e-8).
+
 Stata (first run in Stata 19; the test suite passes):
 
 - `rdnetdensity` now returns its results in `r()` (they were cleared when the command ended).

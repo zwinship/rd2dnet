@@ -19,7 +19,7 @@ import pandas as pd
 from scipy import stats
 
 from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
-from .bandwidth import _check_cluster, _check_obs, _check_weights, default_min_obs, rdbwnet
+from .bandwidth import _check_cluster, _check_covs, _check_obs, _check_weights, default_min_obs, rdbwnet
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -128,7 +128,11 @@ class RDNetResult:
         return self.summary()
 
     def plot(self, ax=None, *, band: bool = True, true_tau=None):
-        """Plot the BATEC curve with pointwise CIs and the uniform band."""
+        """Plot the BATEC curve with pointwise CIs and the uniform band.
+
+        ``true_tau`` (optional, drawn dashed) is one value per evaluation point, a
+        single value, or a function of the arc position.
+        """
         import matplotlib.pyplot as plt
 
         if ax is None:
@@ -141,7 +145,9 @@ class RDNetResult:
                     fmt="none", capsize=2, lw=0.8, label=f"{self.level:g}% robust CI")
         ax.plot(t["arc"], t["tau"], "o-", ms=3, label="tau(b)")
         if true_tau is not None:
-            ax.plot(t["arc"], true_tau, "k--", lw=1, label="truth")
+            truth = np.broadcast_to(np.asarray(true_tau(t["arc"].to_numpy()) if callable(true_tau) else true_tau,
+                                               dtype=float), (len(t),))
+            ax.plot(t["arc"], truth, "k--", lw=1, label="truth")
         ax.set_xlabel("position along boundary")
         ax.set_ylabel("treatment effect")
         ax.legend(frameon=False)
@@ -347,11 +353,7 @@ def rdnet(
     D = None if fuzzy is None else _check_obs(fuzzy, coords.n_obs, "fuzzy")
     Z = None
     if covs is not None:
-        Z = np.asarray(covs, dtype=float)
-        if Z.ndim == 1:
-            Z = Z[:, None]
-        if Z.shape[0] != len(y):
-            raise ValueError("covs must have one row per observation")
+        Z = _check_covs(covs, coords.n_obs)
     if cluster is not None:
         vce = "cluster"
         cluster = _check_cluster(cluster, coords.n_obs)
@@ -406,6 +408,7 @@ def rdnet(
         if vce == "cluster":  # variance() applies g / (g - 1); rd2d's CR1 also has (n - 1) / (n - k)
             v *= _cluster_dof(len(idx), k, cluster[idx])
         return v
+    g_min: list[int] = []  # clusters per side at each point (fewest side)
     for j in range(J):
         rec = dict(eval=j, arc=coords.eval_arc[j], node_arc=coords.eval_node_arc[j], h0=H[j, 0], h1=H[j, 1],
                    n0=0, n1=0, tau=np.nan, se=np.nan, tau_bc=np.nan, se_rb=np.nan,
@@ -423,11 +426,14 @@ def rdnet(
         d, o = coords.at(j)
         base = np.isfinite(d) & np.isfinite(o) & finite & (intensity > 0)
         hside = np.where(T, H[j, 1], H[j, 0])
-        w = kfun(d / hside) * intensity
+        # each side's kernel weights scaled by 1 / h_side^2, as in rd2d: this matters
+        # for the coefficients shared across sides (covariates, pooled slopes)
+        w = kfun(d / hside) / hside**2 * intensity
         use = (w > 0) & base
         i1, i0 = np.flatnonzero(use & T), np.flatnonzero(use & ~T)
         rec["n1"], rec["n0"] = len(i1), len(i0)
-        if min(len(i1), len(i0)) < min_obs:
+        # count distinct locations: repeated measurements at one site add no design points
+        if min(len(np.unique(coords.loc[i1])), len(np.unique(coords.loc[i0]))) < min_obs:
             rec["status"] = "insufficient"
             continue
         idx = np.r_[i1, i0]
@@ -439,6 +445,7 @@ def rdnet(
         Zi = None if zcols is None else Z[idx][:, zcols]
         if vce == "cluster":
             g_side = min(len(np.unique(cluster[i1])), len(np.unique(cluster[i0])))
+            g_min.append(g_side)
             if g_side < 2:
                 rec["status"] = "few clusters"
                 continue
@@ -447,7 +454,7 @@ def rdnet(
             aux = None
             if vce == "conley":
                 hs = hside * conley_resid_scale
-                wk = kfun(d / hs) * intensity
+                wk = kfun(d / hs) / hs**2 * intensity
                 m = np.flatnonzero((wk > 0) & base)
                 Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
                              None if zcols is None else Z[m][:, zcols], False, dim)
@@ -550,6 +557,12 @@ def rdnet(
         if cbands:
             table["cb_lo"] = table["tau_bc"] - crit * table["se_rb"]
             table["cb_hi"] = table["tau_bc"] + crit * table["se_rb"]
+    g_ok = [g for g in g_min if g >= 2]
+    if g_ok and min(g_ok) < 10:
+        warnings.warn(f"cluster-robust standard errors rest on few clusters: as few as {min(g_ok)} per side within "
+                      "the bandwidth at some evaluation points; with fewer than about 10 per side they are too "
+                      "small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff=...",
+                      stacklevel=2)
     return RDNetResult(table, p, q, kname, vce, level, repr(coords.network.metric), fuzzy=D is not None,
                        crit=crit, cov=cov, bandwidths=bw, coords=coords)
 
@@ -601,6 +614,8 @@ def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
 
 def _uniform_critical_value(Sigma, level, repp, seed) -> float:
     """Critical value for a uniform band: quantile of max |Z| with Z ~ N(0, corr)."""
+    if Sigma.shape[0] == 1:  # one point: the normal quantile itself, no simulation
+        return float(stats.norm.ppf(0.5 + level / 200))
     sd = np.sqrt(np.clip(np.diag(Sigma), 1e-300, None))
     corr = Sigma / np.outer(sd, sd)
     evals, evecs = np.linalg.eigh(corr)

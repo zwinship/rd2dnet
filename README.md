@@ -69,7 +69,7 @@ rd2dnet.NetworkGraph(G, "length")                      # metres along streets
 rd2dnet.NetworkGraph(G, travel_time())                 # seconds, from speed_kph
 rd2dnet.NetworkGraph(G, node_contrast("far", 50.0))    # length + 50 * |land-use change|
 rd2dnet.NetworkGraph(G, lambda u, v, d: ...)           # any non-negative edge cost
-rd2dnet.NetworkGraph(G, Precomputed(D, nodes))         # your own node-by-node matrix
+rd2dnet.NetworkGraph(G, Precomputed(D, list(G.nodes))) # your own node-by-node matrix (rows in that order)
 
 # Switching road class costs extra. Ramps are transparent connectors, so
 # highway -> ramp -> highway is close while highway -> ramp -> local street is far.
@@ -101,7 +101,8 @@ res.plot()
 
 res.bandwidths                                         # the bandwidths rdnet selected
 print(rd2dnet.density(coords))                         # sorting test per metre of street
-rd2dnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design (take_up = your 0/1 or share)
+take_up = city.obs["treated"]                          # stand-in: your 0/1 (or share) take-up
+rd2dnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design
 ```
 
 ### Getting your data in
@@ -130,7 +131,7 @@ beyond the first and last points, or when you have the treated zone as a polygon
 | a networkx graph (nodes with `x`, `y`) | `NetworkGraph(G)` |
 | an OSMnx graph, or just a place name | `NetworkGraph.from_osmnx(G)`, `NetworkGraph.from_place("...")` |
 | an igraph graph or a weighted adjacency matrix | `NetworkGraph.from_igraph(g)`, `NetworkGraph.from_adjacency(A, coords)` |
-| a travel-time matrix from another router | `NetworkGraph(G, Precomputed(D, nodes))` (the boundary must pass through nodes) |
+| a travel-time matrix from another router | `NetworkGraph(G, Precomputed(D, nodes))`, or `Precomputed.from_od(table, "origin", "destination", "cost")` for a long table (the boundary must pass through nodes) |
 
 Directed networks (one-way streets, rivers drawn downstream) take `directed=True` in
 `from_lines`/`from_frames` and `direction="out"` (distances run from the boundary to
@@ -225,6 +226,13 @@ default). It falls back to the bundled mock network with a warning when offline.
   of `s` is jagged, and street supply differs across sides (for example a park
   frontage), so the unnormalised test (`normalize="none"`) can flag geometry as
   sorting. The default `bwselect="common"` uses one bandwidth for both sides.
+  **Curved boundaries:** the street-length normalisation is only valid when
+  observations lie on the streets. For off-street locations (parcels, households)
+  next to a curved or round boundary (a zone outline), street supply within a given
+  distance differs by side even without sorting, and the default test over-rejects
+  badly (98-100% rejection at 5% in a Monte Carlo on a round zone; 44% for a wavy
+  school zone). `normalize="none"` is much better there but still oversized (10-20%).
+  Treat density tests on curved boundaries with caution.
 
 ## Validation (Monte Carlo on the bundled mock city)
 
@@ -264,6 +272,11 @@ each cell is pointwise / uniform-band coverage):
   samples, max error about 8 with matching large standard errors). The plain Monte Carlo
   sd (0.42) then exceeds the mean SE (0.25); on the robust scale the SE is about 10%
   too small, and coverage is 0.91.
+- **Clustering with few clusters per side within the bandwidth under-covers badly.** In a
+  Monte Carlo with 300 m block shocks and clustering by block (5-6 clusters per side in the
+  bandwidth), pointwise coverage was 0.70-0.74 and uniform-band coverage about 0.2. Use
+  Conley errors for spatially correlated shocks. For panels, clustering by unit needs many
+  sites per side (coverage 0.88 with about 48 sites per side, 0.94 with about 190).
 - Cluster-robust errors use the local fit's own residuals, as rd2d does. When clusters
   are small relative to the bandwidth they are too small: clustering by city block
   (n = 4,000, selected bandwidths, 400 replications) gives 95% coverage of 0.78 with

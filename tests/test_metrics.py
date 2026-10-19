@@ -1,5 +1,6 @@
 import networkx as nx
 import numpy as np
+import pandas as pd
 import pytest
 
 import rd2dnet
@@ -141,3 +142,92 @@ def test_pairs_within_matches_full_dijkstra(city, kind):
     got[i, node] = True
     np.testing.assert_array_equal(got, full < 400.0)
     np.testing.assert_allclose(d, full[i, node])
+
+
+def _add_edge(G, a, b, **kw):
+    p, q = G.nodes[a], G.nodes[b]
+    G.add_edge(a, b, length=float(np.hypot(p["x"] - q["x"], p["y"] - q["y"])), **kw)
+
+
+def test_directed_points_on_one_way_edges_follow_the_direction():
+    # X is on the boundary; the one-way edge N -> M can only be entered at N (via X -> R -> N)
+    G = nx.DiGraph()
+    for n, (x, y) in {"X": (0, 0), "M": (0, -100), "N": (0, -200), "R": (300, -100), "T": (0, 100),
+                      "L": (-100, 0), "Rb": (100, 0)}.items():
+        G.add_node(n, x=x, y=y)
+    for a, b in [("X", "M"), ("N", "M"), ("X", "R"), ("R", "N"), ("X", "T"), ("L", "X"), ("X", "Rb")]:
+        _add_edge(G, a, b)
+    net = rd2dnet.NetworkGraph(G, direction="out")
+    bnd = rd2dnet.Boundary([(-100, 0), (100, 0)], treated_side="left")
+    c = rd2dnet.network_coordinates(net, bnd, np.array([[0, -110.0], [0, -150.0]]), eval_points=np.array([100.0]))
+    want = 2 * np.hypot(300, 100) + np.array([90.0, 50.0])
+    np.testing.assert_allclose(c.s, -want, rtol=1e-12)
+    np.testing.assert_allclose(c.at(0)[0], want, rtol=1e-12)
+
+
+def test_transition_penalty_applies_to_the_points_own_edge():
+    # points on the primary edge P-Q: the all-primary route via Z beats residential X -> Q (+1000)
+    G = nx.Graph()
+    for n, (x, y) in {"P": (0, -200), "Q": (0, -100), "X": (0, 0), "Y": (0, 100), "S": (300, -100),
+                      "Z": (300, 0), "W": (300, 100)}.items():
+        G.add_node(n, x=x, y=y)
+    _add_edge(G, "P", "Q", highway="primary")
+    _add_edge(G, "Q", "X", highway="residential")
+    _add_edge(G, "X", "Y", highway="residential")
+    for a, b in [("Q", "S"), ("S", "Z"), ("Z", "W"), ("X", "Z")]:
+        _add_edge(G, a, b, highway="primary")
+    pen = {("primary", "residential"): 1000.0, ("residential", "primary"): 1000.0}
+    net = rd2dnet.NetworkGraph(G, TransitionCost("length", class_attr="highway", penalty=pen))
+    bnd = rd2dnet.Boundary([(-50, 0), (350, 0)], treated_side="left")
+    c = rd2dnet.network_coordinates(net, bnd, np.array([[0, -150.0], [0, -199.9], [0, -200.0]]),
+                                    eval_points=np.array([50.0]))
+    np.testing.assert_allclose(c.s, [-450.0, -499.9, -500.0], rtol=1e-12)
+
+
+def test_node_contrast_is_preserved_when_an_edge_is_split_at_the_boundary():
+    G = nx.Graph()
+    G.add_node("a", x=0.0, y=-100.0, far=1.0)
+    G.add_node("b", x=0.0, y=100.0, far=5.0)
+    G.add_node("c", x=200.0, y=-100.0, far=1.0)
+    G.add_node("d", x=200.0, y=100.0, far=5.0)
+    for a, b in [("a", "b"), ("c", "d"), ("a", "c"), ("b", "d")]:
+        _add_edge(G, a, b)
+    net = rd2dnet.NetworkGraph(G, node_contrast("far", 10.0))
+    bnd = rd2dnet.Boundary([(-50, 0), (250, 0)], treated_side="right")
+    split = net.with_boundary_crossings(bnd)
+    # 200 m plus a contrast of 10 * |5 - 1| = 40 from a to b, through the crossing node
+    assert split.node_distance("a", "b") == pytest.approx(240.0)
+
+
+def test_reusing_a_split_network_gives_the_same_coordinates():
+    # coords.network carries inserted nodes; splitting it again must not reuse their labels
+    G = nx.DiGraph()
+    for i in range(6):
+        for j in range(6):
+            G.add_node((i, j), x=100.0 * i, y=100.0 * j)
+    for i in range(6):
+        for j in range(6):
+            for di, dj in ((1, 0), (0, 1)):
+                if i + di < 6 and j + dj < 6:
+                    G.add_edge((i, j), (i + di, j + dj), length=100.0)
+                    if (i + j) % 3:
+                        G.add_edge((i + di, j + dj), (i, j), length=100.0)
+    net = rd2dnet.NetworkGraph(G, direction="out")
+    bnd = rd2dnet.Boundary([(-50, 250), (550, 250)], treated_side="right")
+    rng = np.random.default_rng(0)
+    pts = rng.uniform(0, 500, (300, 2))
+    c = rd2dnet.network_coordinates(net, bnd, pts, n_eval=5)
+    c2 = rd2dnet.network_coordinates(c.network, bnd, pts, n_eval=5)
+    np.testing.assert_allclose(c2.s, c.s, rtol=1e-12, equal_nan=True)
+
+
+def test_precomputed_from_od_table():
+    od = pd.DataFrame({"origin": ["a", "a", "b", "a"], "destination": ["b", "c", "c", "b"],
+                       "cost": [5.0, 9.0, 3.0, 4.0]})
+    m = Precomputed.from_od(od, symmetric=True)
+    assert m.nodes == ["a", "b", "c"]
+    np.testing.assert_allclose(m.matrix, [[0, 4, 9], [4, 0, 3], [9, 3, 0]])
+    m2 = Precomputed.from_od(od)
+    assert np.isinf(m2.matrix[1, 0])
+    with pytest.raises(ValueError, match="non-negative"):
+        Precomputed.from_od(od.assign(cost=-1.0))

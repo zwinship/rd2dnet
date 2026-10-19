@@ -28,6 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
+from .bandwidth import _check_weights
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -213,7 +214,11 @@ def density(
         ``"network"`` (default: observations per metre of street) or ``"none"``
         (density of observations in ``s``, as in rddensity). The unnormalised
         test also reacts to differences in street supply across the boundary
-        (e.g. a park frontage), not only to sorting.
+        (e.g. a park frontage), not only to sorting. The street-length
+        normalisation assumes observations lie on the streets: for off-street
+        locations next to a curved or round boundary (a zone outline) it
+        over-rejects badly without any sorting (see the README), and
+        ``"none"`` is safer there.
     weights
         Optional non-negative observation weights (e.g. floor area).
     bwselect
@@ -244,7 +249,7 @@ def density(
     kfun = get_kernel(kernel)
     T = coords.treated
     s = np.abs(coords.s)
-    om = np.ones(coords.n_obs) if weights is None else np.asarray(weights, dtype=float)
+    om = np.ones(coords.n_obs) if weights is None else _check_weights(weights, coords.n_obs)
     # Masked stretches (parks, rivers) are void by construction: leave them out.
     sel = np.isfinite(s) & (om > 0) & ~coords.boundary.is_masked(np.nan_to_num(coords.crossing_arc, nan=-1.0))
     first = np.zeros(coords.n_obs, dtype=bool)

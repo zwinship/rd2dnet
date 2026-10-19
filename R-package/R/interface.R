@@ -116,7 +116,16 @@ boundary_from_points <- function(b, X = NULL, t = NULL, treated_side = NULL, ...
 .infer_side <- function(L, X, t) {
   t <- .as_treatment(t, nrow(X))
   if (all(t) || !any(t)) stop("t must contain both treated and control observations", call. = FALSE)
-  left <- boundary_is_treated(boundary(L, treated_side = "left"), X)
+  bl <- boundary(L, treated_side = "left")
+  left <- boundary_is_treated(bl, X)
+  # observations beyond the ends of the line have no clear side: use those whose
+  # nearest point on the line is inside it, when there are enough of both groups
+  arc <- boundary_project(bl, X)
+  inner <- arc > 1e-9 * bl$length & arc < bl$length * (1 - 1e-9)
+  if (sum(t[inner]) >= 5 && sum(!t[inner]) >= 5) {
+    left <- left[inner]
+    t <- t[inner]
+  }
   agree <- mean(left == t)
   side <- if (agree >= 0.5) "left" else "right"
   share <- max(agree, 1 - agree)

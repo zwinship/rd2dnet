@@ -31,6 +31,7 @@ all evaluation points. Fuzzy designs use the linearised outcome
 from __future__ import annotations
 
 import math
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -62,8 +63,15 @@ def _n_terms(p: int, dim: int = 2) -> int:
 
 
 def _inv_gram(A: np.ndarray) -> np.ndarray:
-    """Inverse of a local Gram matrix; raises when the local design is degenerate."""
-    if not np.all(np.isfinite(A)) or np.linalg.cond(A) > 1e12:
+    """Inverse of a local Gram matrix; raises when the local design is degenerate.
+
+    The bases are scaled by the bandwidth, so well-posed designs have condition
+    numbers far below the 1e8 cut-off. Between about 1e8 and 1e12 the
+    inverse is accurate to a few digits only, and the plug-in constants built
+    from it (variances, biases) can change sign with rounding, which made the
+    selected basis and bandwidth depend on the platform.
+    """
+    if not np.all(np.isfinite(A)) or np.linalg.cond(A) > 1e8:
         raise np.linalg.LinAlgError("local design matrix is singular")
     L = np.linalg.cholesky(A)
     Li = np.linalg.inv(L)
@@ -125,7 +133,7 @@ class _Side:
             return resd * np.sqrt(n / (n - k))
         if vce in ("hc2", "hc3"):
             hii = w * np.einsum("ij,jk,ik->i", R, invG, R)
-            return resd / (np.sqrt(np.maximum(1 - hii, 1e-12)) if vce == "hc2" else np.maximum(1 - hii, 1e-12))
+            return resd / (np.sqrt(np.maximum(1 - hii, 1e-8)) if vce == "hc2" else np.maximum(1 - hii, 1e-8))
         return resd
 
     def lm(self, h: float, order: int, vce: str = "hc1", varr: bool = False, y=None):
@@ -164,6 +172,9 @@ class _Side:
         beta1, cov1 = self.lm(bn1, p + 1, vce, varr=True, y=y)
         B = float(vec_q @ beta1)
         reg1 = float(vec_q @ cov1 @ vec_q / bn1 ** (2 + 2 * (p + 1)))
+        # a quadratic form in a covariance matrix: negative values are rounding
+        # (a degenerate bias direction), and their sign must not decide the fit
+        reg1 = 0.0 if reg1 < 0 else reg1
         reg2 = np.nan
         if bn2 is not None:
             vec_t = np.r_[np.zeros(kp1), vec @ invG @ (WR.T @ Tm)]
@@ -194,11 +205,33 @@ def _covariate_gamma(sides, Zs, dns, p, outcomes) -> np.ndarray:
     return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
+def _check_index(v, name: str) -> None:
+    """Values are matched to observations by position: say so when a pandas index suggests otherwise."""
+    idx = getattr(v, "index", None)
+    if isinstance(idx, pd.Index) and not idx.equals(pd.RangeIndex(len(idx))):
+        warnings.warn(f"{name} has a pandas index that is not 0..n-1; its values are matched to the "
+                      "observations by position, not by index (use .reset_index(drop=True) after aligning)",
+                      stacklevel=3)
+
+
 def _check_obs(v, n: int, name: str) -> np.ndarray:
-    v = np.asarray(v, dtype=float).ravel()
+    _check_index(v, name)
+    v = np.asarray(v, dtype=float)
+    if v.ndim > 1 and not (v.ndim == 2 and 1 in v.shape):
+        raise ValueError(f"{name} must be one-dimensional, got shape {v.shape}")
+    v = v.ravel()
     if v.shape != (n,):
         raise ValueError(f"{name} must have one value per observation ({n}), got {v.size}")
     return v
+
+
+def _check_covs(covs, n: int) -> np.ndarray:
+    _check_index(covs, "covs")
+    Z = np.asarray(covs, dtype=float)
+    Z = Z[:, None] if Z.ndim == 1 else Z
+    if Z.ndim != 2 or Z.shape[0] != n:
+        raise ValueError(f"covs must have one row per observation ({n}), got shape {Z.shape}")
+    return Z
 
 
 def _check_weights(weights, n: int) -> np.ndarray:
@@ -209,12 +242,19 @@ def _check_weights(weights, n: int) -> np.ndarray:
 
 
 def _check_cluster(cluster, n: int) -> np.ndarray:
+    _check_index(cluster, "cluster")
     cl = np.asarray(cluster).ravel()
     if cl.shape != (n,):
         raise ValueError(f"cluster must have one value per observation ({n}), got {cl.size}")
     if pd.isna(cl).any():
         raise ValueError("cluster has missing values")
     return cl
+
+
+def _per_location(d: np.ndarray, loc: np.ndarray) -> np.ndarray:
+    """One distance per distinct location."""
+    _, first = np.unique(loc, return_index=True)
+    return d[first]
 
 
 def _kth(d: np.ndarray, k: int) -> float:
@@ -277,7 +317,11 @@ def rdbwnet(
         One row per evaluation point with the control/treated bandwidths
         ``h0``/``h1`` (and ``h`` when they are equal), the pilots ``dn``,
         ``bn0``, ``bn1``, the MSE constants (``V``, ``B``, ``Reg1``, ``Reg2`` per
-        side), the bounds ``hmin``/``hmax``, local sample sizes and a ``status``.
+        side, suffix 0/1), the bounds ``hmin0``/``hmin1`` (distance to the
+        ``bwcheck``-th nearest location) and ``hmax0``/``hmax1``, the numbers of
+        usable observations on each side ``n0``/``n1`` (all of them, not only
+        those inside the bandwidth), the ``basis`` of the fit (``"s,o"`` or
+        ``"s"``) and a ``status``.
     """
     bwselect = bwselect.lower()
     if bwselect not in BWSELECT:
@@ -294,8 +338,7 @@ def rdbwnet(
     cl = None if cluster is None else _check_cluster(cluster, coords.n_obs)
     Z = None
     if covs is not None:
-        Z = np.asarray(covs, dtype=float)
-        Z = Z[:, None] if Z.ndim == 1 else Z
+        Z = _check_covs(covs, coords.n_obs)
     bwcheck = default_min_obs(p + 1) if bwcheck is None else int(bwcheck)
     T, s = coords.treated, coords.s
     # Effective sample sizes count distinct locations (mass points count once), as in rd2d.
@@ -336,12 +379,15 @@ def rdbwnet(
         if Z is not None:
             ok &= np.all(np.isfinite(Z), axis=1)
         masks = [ok & ~T, ok & T]
-        if min(m.sum() for m in masks) < bwcheck:
+        # bwcheck counts distinct locations (repeated measurements count once), as
+        # rdrobust and rd2d count unique observations
+        dloc = [_per_location(d[m], coords.loc[m]) for m in masks]
+        if min(len(x) for x in dloc) < bwcheck:
             rec["status"] = "insufficient"
             return rec
         sides = [_Side(s[m], o[m], d[m], y[m], om[m], kfun, None if cl is None else cl[m], dim) for m in masks]
         dn = _rot(s[ok], o[ok], kname, n_eff, dim)
-        bounds = [(_kth(sd.d, bwcheck), float(sd.d.max())) for sd in sides]
+        bounds = [(_kth(dl, bwcheck), float(sd.d.max())) for dl, sd in zip(dloc, sides)]
         dns = [min(max(dn, lo), hi) for lo, hi in bounds]
         thr = [float(np.median(sd.d)) for sd in sides]
         try:

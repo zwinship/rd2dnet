@@ -31,7 +31,8 @@
 #' * `node_contrast()`: `base + weight * |attr(u) - attr(v)|`, for land-use or
 #'   other node-level dissimilarity.
 #'
-#' @param cost Edge column name or a vectorised function (see Details).
+#' @param cost Edge column name or a vectorised function (see Details). For
+#'   `precomputed_from_od()`: the column with the origin-destination cost.
 #' @param snap_scale Cost per unit of off-network snapping distance. Defaults
 #'   to 1 when the cost is `"length"` and 0 otherwise.
 #' @param name Label used when printing.
@@ -115,6 +116,37 @@ precomputed <- function(matrix, nodes = NULL) {
     supports_edge_splitting = FALSE,
     supports_edge_snapping = FALSE
   ), "rd2dnet_precomputed")
+}
+
+#' @rdname metrics
+#' @param table For `precomputed_from_od()`: a long origin-destination table,
+#'   one row per pair. Pairs not listed are unreachable (`Inf`), the diagonal
+#'   is 0 and repeated pairs keep their smallest cost.
+#' @param origin,destination Columns with the origin and destination node ids.
+#' @param symmetric Whether a listed pair `a -> b` also gives `b -> a` when
+#'   that pair is not listed.
+#' @export
+precomputed_from_od <- function(table, origin = "origin", destination = "destination", cost = "cost",
+                                nodes = NULL, symmetric = FALSE) {
+  table <- as.data.frame(table)
+  o <- table[[origin]]
+  d <- table[[destination]]
+  c <- as.numeric(table[[cost]])
+  if (anyNA(c) || any(c < 0)) stop("OD costs must be non-negative and not missing", call. = FALSE)
+  ids <- unique(c(o, d))
+  if (is.null(nodes)) nodes <- sort(ids)
+  if (!all(ids %in% nodes)) stop("the OD table has ids that are not in nodes", call. = FALSE)
+  k <- length(nodes)
+  M <- matrix(Inf, k, k)
+  i <- match(o, nodes)
+  j <- match(d, nodes)
+  for (r in seq_along(c)) M[i[r], j[r]] <- min(M[i[r], j[r]], c[r])
+  if (symmetric) {
+    fill <- !is.finite(t(M)) & is.finite(M)
+    M[t(fill)] <- t(M)[t(fill)]
+  }
+  diag(M) <- 0
+  precomputed(M, nodes)
 }
 
 #' @rdname metrics

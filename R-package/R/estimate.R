@@ -228,6 +228,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     v
   }
 
+  g_min <- integer() # clusters per side at each point (fewest side)
   for (j in seq_len(J)) {
     if (coords$eval_masked[j]) {
       tab$status[j] <- "masked"
@@ -243,13 +244,16 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     o <- at$o
     base <- is.finite(d) & is.finite(o) & finite & intensity > 0
     hside <- ifelse(T, H[j, 2], H[j, 1])
-    w <- kfun(d / hside) * intensity
+    # each side's kernel weights scaled by 1 / h_side^2, as in rd2d: this matters
+    # for the coefficients shared across sides (covariates, pooled slopes)
+    w <- kfun(d / hside) / hside^2 * intensity
     use <- w > 0 & base
     i1 <- which(use & T)
     i0 <- which(use & !T)
     tab$n1[j] <- length(i1)
     tab$n0[j] <- length(i0)
-    if (min(length(i1), length(i0)) < min_obs) {
+    # count distinct locations: repeated measurements at one site add no design points
+    if (min(length(unique(coords$loc[i1])), length(unique(coords$loc[i0]))) < min_obs) {
       tab$status[j] <- "insufficient"
       next
     }
@@ -264,6 +268,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 
     if (vce == "cluster") {
       g_side <- min(length(unique(cluster[i1])), length(unique(cluster[i0])))
+      g_min <- c(g_min, g_side)
       if (g_side < 2) {
         tab$status[j] <- "few clusters"
         next
@@ -274,7 +279,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       aux <- NULL
       if (conley) {
         hs <- hside * conley_resid_scale
-        wk <- kfun(d / hs) * intensity
+        wk <- kfun(d / hs) / hs^2 * intensity
         m <- which(wk > 0 & base)
         Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
                       if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim)
@@ -389,6 +394,13 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   } else if (length(psi_store)) {
     cov <- .joint_covariance(psi_store, coords, vce, cluster, J)
   }
+  g_ok <- g_min[g_min >= 2]
+  if (length(g_ok) && min(g_ok) < 10) {
+    warning(sprintf(paste0("cluster-robust standard errors rest on few clusters: as few as %d per side within ",
+                           "the bandwidth at some evaluation points; with fewer than about 10 per side they are ",
+                           "too small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff."),
+                    min(g_ok)), call. = FALSE)
+  }
   tab$h <- ifelse(.isclose(tab$h0, tab$h1), tab$h0, NA_real_)
   if (!is.null(cov)) {
     ok <- is.finite(diag(cov))
@@ -488,6 +500,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 
 # Critical value for a uniform band: quantile of max |Z| with Z ~ N(0, corr).
 .uniform_critical_value <- function(Sigma, level, repp, seed) {
+  # one point: the normal quantile itself, no simulation
+  if (nrow(Sigma) == 1) return(stats::qnorm(0.5 + level / 200))
   sd <- sqrt(pmax(diag(Sigma), 1e-300))
   corr <- Sigma / outer(sd, sd)
   ev <- eigen(corr, symmetric = TRUE)
@@ -570,7 +584,8 @@ lbate <- function(x) {
 #' @param level Confidence level for `confint()` as a proportion.
 #' @param type For `coef()`: `"tau_bc"` (bias-corrected, default) or `"tau"`.
 #' @param band Draw the uniform band.
-#' @param true_tau Optional true effects at the evaluation points, drawn dashed.
+#' @param true_tau Optional true effects at the evaluation points, drawn dashed: one
+#'   value per point, a single value, or a function of the arc position.
 #' @param ... Further arguments (passed to `plot()` for the plot method).
 #' @return `summary()` returns an object of class `summary.rdnet`; `coef()` the
 #'   estimates by evaluation point; `vcov()` the joint covariance `x$cov`;
@@ -650,6 +665,8 @@ as.data.frame.rdnet <- function(x, row.names = NULL, optional = FALSE, ...) x$ta
 #' @export
 plot.rdnet <- function(x, band = TRUE, true_tau = NULL, ...) {
   t <- x$table
+  if (is.function(true_tau)) true_tau <- true_tau(t$arc)
+  if (!is.null(true_tau)) true_tau <- rep_len(as.numeric(true_tau), nrow(t))
   rng <- range(c(t$ci_lo, t$ci_hi, if (band && "cb_lo" %in% names(t)) c(t$cb_lo, t$cb_hi), t$tau,
                  true_tau, 0), na.rm = TRUE, finite = TRUE)
   args <- utils::modifyList(list(x = t$arc, y = t$tau, type = "n", ylim = rng,

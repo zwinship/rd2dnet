@@ -359,3 +359,89 @@ def test_lbate(coords, city):
     np.testing.assert_allclose(nb[["ci_lo", "ci_hi"]], lb[["ci_lo", "ci_hi"]])
     text = res.summary(wbate=res.table["status"].eq("ok").astype(float), lbate=True)
     assert "WBATE" in text and "LBATE" in text
+
+
+def test_covariate_adjustment_with_side_bandwidths_scales_weights_by_h2(big_coords):
+    # rd2d divides each side's kernel weights by h_side^2; with h0 != h1 this sets the
+    # relative weight of the two sides in the common covariate coefficient
+    from rd2dnet.kernels import triangular
+
+    city, c = big_coords
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=c.n_obs) + 0.002 * c.s
+    y = 0.0005 * c.s + 2.0 * c.treated + 3.0 * X + rng.normal(0, 1, c.n_obs)
+    h0, h1 = 400.0, 700.0
+    adj = rd2dnet.rdnet(y, c, h=(h0, h1), covs=X, cbands=False).table
+    d, o = c.at(0)
+    sides = []
+    for t, h in ((True, h1), (False, h0)):
+        w = triangular(d / h) / h**2
+        i = np.flatnonzero((w > 0) & np.isfinite(d) & (c.treated == t))
+        sides.append((i, w, h))
+    A = B = 0.0
+    for i, w, h in sides:
+        R = poly_basis(c.s[i] / h, o[i] / h, 1)
+        G = np.linalg.inv((R.T * w[i]) @ R)
+        uz = (R.T * w[i]) @ X[i]
+        A += (X[i] * w[i]) @ X[i] - uz @ G @ uz
+        B += (X[i] * w[i]) @ y[i] - uz @ G @ ((R.T * w[i]) @ y[i])
+    ya = y - (B / A) * X
+    t1, t0 = (wls(poly_basis(c.s[i] / h, o[i] / h, 1), ya[i], w[i]).beta[0] for i, w, h in sides)
+    assert adj["tau"][0] == pytest.approx(t1 - t0, rel=1e-8)
+
+
+def test_bandwidth_floor_counts_locations_not_repeated_measurements(city):
+    # a panel: every location observed three times; the bwcheck-th nearest location is
+    # the same as without repeats, so the floor (hmin) must not shrink
+    net = city.network("length")
+    xy = city.obs[["x", "y"]].to_numpy()
+    c1 = rd2dnet.network_coordinates(net, city.boundary, xy, n_eval=9)
+    c3 = rd2dnet.network_coordinates(net, city.boundary, np.repeat(xy, 3, axis=0), n_eval=9)
+    y = city.obs["outcome"].to_numpy()
+    b1 = rd2dnet.rdbwnet(y, c1)
+    b3 = rd2dnet.rdbwnet(np.repeat(y, 3), c3)
+    ok = (b1["status"] == "ok").to_numpy()
+    np.testing.assert_allclose(b3["hmin0"][ok], b1["hmin0"][ok], rtol=1e-12)
+    np.testing.assert_allclose(b3["hmin1"][ok], b1["hmin1"][ok], rtol=1e-12)
+
+
+def test_one_point_band_uses_the_normal_quantile(coords, city):
+    res = rd2dnet.rdnet(city.obs["outcome"], rd2dnet.network_coordinates(
+        city.network("length"), city.boundary, city.obs[["x", "y"]], eval_points=[520.0]), h=600.0)
+    assert res.crit == pytest.approx(1.959963984540054, rel=1e-12)
+
+
+def test_min_obs_counts_locations_not_repeated_measurements(city):
+    net = city.network("length")
+    xy = city.obs[["x", "y"]].to_numpy()
+    y = city.obs["outcome"].to_numpy()
+    c1 = rd2dnet.network_coordinates(net, city.boundary, xy, n_eval=9)
+    c3 = rd2dnet.network_coordinates(net, city.boundary, np.repeat(xy, 3, axis=0), n_eval=9)
+    s1 = rd2dnet.rdnet(y, c1, h=180.0, cbands=False).table["status"]
+    s3 = rd2dnet.rdnet(np.repeat(y, 3), c3, h=180.0, cbands=False).table["status"]
+    assert (s1 == "insufficient").any()
+    assert list(s3) == list(s1)
+
+
+def test_plot_accepts_a_scalar_or_callable_truth(coords, city):
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg")
+    res = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cbands=False)
+    res.plot(true_tau=2.0)
+    res.plot(true_tau=lambda arc: 1.5 + 0 * arc)
+
+
+def test_few_clusters_within_the_bandwidth_warn(coords, city):
+    blocks = (city.obs["x"] // 700).to_numpy()  # a handful of wide blocks
+    with pytest.warns(UserWarning, match="few clusters"):
+        rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cluster=blocks, seed=0)
+
+
+def test_selector_treats_badly_conditioned_local_designs_as_singular():
+    # plug-in constants from a Gram matrix with condition number ~1e10 can flip sign with rounding
+    from rd2dnet.bandwidth import _inv_gram
+
+    A = np.diag([1.0, 1e-10])
+    with pytest.raises(np.linalg.LinAlgError):
+        _inv_gram(A)
+    np.testing.assert_allclose(_inv_gram(np.diag([1.0, 1e-6])), np.diag([1.0, 1e6]))
