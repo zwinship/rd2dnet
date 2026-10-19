@@ -219,3 +219,24 @@ def test_near_miss_tolerance_warns():
     bd = rd2dnet.Boundary([(-500, 0.01), (500, 0.01)], treated_side="left")
     with pytest.warns(UserWarning, match="increase tol"):
         rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bd, [[0, 50], [0, -50]], n_eval=3)
+
+
+def test_inputs_that_used_to_pass_silently(coords, city):
+    y = city.obs["outcome"]
+    with pytest.warns(UserWarning, match="matched to the observations by position"):
+        rd2dnet.rdnet(y.sample(frac=1, random_state=0), coords, h=600.0, cbands=False)
+    with pytest.raises(ValueError, match="one-dimensional"):
+        rd2dnet.rdnet(np.c_[y, y][: coords.n_obs // 2], coords, h=600.0)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        rd2dnet.density(coords, weights=-np.ones(coords.n_obs))
+    with pytest.raises(ValueError, match="zero length"):
+        rd2dnet.Boundary([(500, 1000), (500, 1000)], treated_side="left")
+    with pytest.raises(ValueError, match="two"):
+        rd2dnet.Boundary([(500, 1000)], treated_side="left")
+    net = city.network("length")
+    with pytest.raises(ValueError, match="finite"):
+        rd2dnet.network_coordinates(net, city.boundary, city.obs[["x", "y"]], eval_points=[np.nan, 500.0])
+    with pytest.raises(ValueError, match="positive integer"):
+        rd2dnet.network_coordinates(net, city.boundary, city.obs[["x", "y"]], n_eval=0)
+    with pytest.raises(ValueError, match="snap_scale"):
+        rd2dnet.NetworkGraph(net.graph, "length", snap_scale=-5)

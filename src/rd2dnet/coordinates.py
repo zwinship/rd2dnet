@@ -446,6 +446,8 @@ def network_coordinates(
     ``direction="in"`` for distances from each location to the boundary, or
     ``"both"`` to ignore direction.
     """
+    if eval_points is None and (int(n_eval) != n_eval or n_eval < 1):
+        raise ValueError(f"n_eval must be a positive integer, got {n_eval!r}")
     xy = _points_array(points, network.crs)
     if lonlat:
         if network.crs is None:
@@ -502,6 +504,8 @@ def network_coordinates(
         eval_arc = boundary.project(ep) if ep.ndim == 2 else ep.ravel()
         if eval_arc.size == 0:
             raise ValueError("eval_points is empty")
+        if not np.all(np.isfinite(eval_arc)):
+            raise ValueError("eval_points must be finite")
         outside = (eval_arc < bnode_arc.min() - 1e-9) | (eval_arc > bnode_arc.max() + 1e-9)
         if outside.any() and not boundary.closed:
             warnings.warn(f"{int(outside.sum())} evaluation points lie beyond the first or last place the network "

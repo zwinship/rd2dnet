@@ -73,6 +73,11 @@ Fixes from cross-language and invariance testing:
   observations, so with 30 readings per site it fell to the second-nearest site and fits
   turned singular. It now counts distinct locations, as rdrobust and rd2d count unique
   observations (Python, R, Stata).
+- Inputs that used to give wrong results silently are now checked: pandas inputs whose
+  index is not 0..n-1 warn that values are matched by position; two-dimensional `y`,
+  `fuzzy` or `weights` are errors; `density()` rejects negative or missing weights (as
+  `rdnet` does); boundaries with coinciding vertices, non-finite `eval_points`,
+  `n_eval < 1` and negative or missing `snap_scale` are errors.
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
   those residuals into visible standard-error noise (about 1e-3).

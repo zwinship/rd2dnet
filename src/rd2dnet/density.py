@@ -28,6 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
+from .bandwidth import _check_weights
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -244,7 +245,7 @@ def density(
     kfun = get_kernel(kernel)
     T = coords.treated
     s = np.abs(coords.s)
-    om = np.ones(coords.n_obs) if weights is None else np.asarray(weights, dtype=float)
+    om = np.ones(coords.n_obs) if weights is None else _check_weights(weights, coords.n_obs)
     # Masked stretches (parks, rivers) are void by construction: leave them out.
     sel = np.isfinite(s) & (om > 0) & ~coords.boundary.is_masked(np.nan_to_num(coords.crossing_arc, nan=-1.0))
     first = np.zeros(coords.n_obs, dtype=bool)

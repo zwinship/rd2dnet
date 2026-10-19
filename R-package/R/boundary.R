@@ -46,6 +46,10 @@ boundary <- function(line, treated_region = NULL, treated_side = NULL, mask = NU
   } else {
     L <- .as_line(line)
   }
+  seglen <- sqrt(rowSums(diff(L)^2))
+  if (!all(is.finite(L)) || !(sum(seglen) > 0)) {
+    stop("the boundary line has zero length (its vertices coincide) or non-finite vertices", call. = FALSE)
+  }
   if (is.null(treated_region) == is.null(treated_side)) {
     stop("give exactly one of treated_region or treated_side", call. = FALSE)
   }

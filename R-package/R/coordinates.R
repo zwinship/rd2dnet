@@ -69,6 +69,9 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
                                 extensive = c("length", "travel_time")) {
   .check_network(network)
   .check_boundary(boundary)
+  if (is.null(eval_points) && (length(n_eval) != 1 || !is.finite(n_eval) || n_eval < 1 || n_eval != round(n_eval))) {
+    stop(sprintf("n_eval must be a positive integer, got %s", format(n_eval)), call. = FALSE)
+  }
   xy <- .as_points(points, network$crs)
   if (lonlat) {
     if (is.null(network$crs)) stop("network has no crs to project lon/lat into", call. = FALSE)
@@ -133,6 +136,7 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
       eval_arc <- as.numeric(eval_points)
     }
     if (!length(eval_arc)) stop("eval_points is empty", call. = FALSE)
+    if (!all(is.finite(eval_arc))) stop("eval_points must be finite", call. = FALSE)
     outside <- eval_arc < min(bnode_arc) - 1e-9 | eval_arc > max(bnode_arc) + 1e-9
     if (any(outside) && !closed) {
       warning(sprintf(paste0("%d evaluation points lie beyond the first or last place the network meets ",

@@ -80,6 +80,9 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
     warning("the network is in longitude/latitude, so distances are in degrees; project it to a ",
             "metric CRS first (network_graph_from_lines() does this for sf layers)", call. = FALSE)
   }
+  if (!is.null(snap_scale) && (length(snap_scale) != 1 || !is.finite(snap_scale) || snap_scale < 0)) {
+    stop("snap_scale must be finite and non-negative", call. = FALSE)
+  }
   metric <- as_metric(metric)
   for (cost in .cost_attributes(metric)) {
     if (nrow(edges) && !cost %in% names(edges)) {

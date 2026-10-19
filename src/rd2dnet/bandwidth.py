@@ -31,6 +31,7 @@ all evaluation points. Fuzzy designs use the linearised outcome
 from __future__ import annotations
 
 import math
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -194,11 +195,33 @@ def _covariate_gamma(sides, Zs, dns, p, outcomes) -> np.ndarray:
     return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
+def _check_index(v, name: str) -> None:
+    """Values are matched to observations by position: say so when a pandas index suggests otherwise."""
+    idx = getattr(v, "index", None)
+    if isinstance(idx, pd.Index) and not idx.equals(pd.RangeIndex(len(idx))):
+        warnings.warn(f"{name} has a pandas index that is not 0..n-1; its values are matched to the "
+                      "observations by position, not by index (use .reset_index(drop=True) after aligning)",
+                      stacklevel=3)
+
+
 def _check_obs(v, n: int, name: str) -> np.ndarray:
-    v = np.asarray(v, dtype=float).ravel()
+    _check_index(v, name)
+    v = np.asarray(v, dtype=float)
+    if v.ndim > 1 and not (v.ndim == 2 and 1 in v.shape):
+        raise ValueError(f"{name} must be one-dimensional, got shape {v.shape}")
+    v = v.ravel()
     if v.shape != (n,):
         raise ValueError(f"{name} must have one value per observation ({n}), got {v.size}")
     return v
+
+
+def _check_covs(covs, n: int) -> np.ndarray:
+    _check_index(covs, "covs")
+    Z = np.asarray(covs, dtype=float)
+    Z = Z[:, None] if Z.ndim == 1 else Z
+    if Z.ndim != 2 or Z.shape[0] != n:
+        raise ValueError(f"covs must have one row per observation ({n}), got shape {Z.shape}")
+    return Z
 
 
 def _check_weights(weights, n: int) -> np.ndarray:
@@ -209,6 +232,7 @@ def _check_weights(weights, n: int) -> np.ndarray:
 
 
 def _check_cluster(cluster, n: int) -> np.ndarray:
+    _check_index(cluster, "cluster")
     cl = np.asarray(cluster).ravel()
     if cl.shape != (n,):
         raise ValueError(f"cluster must have one value per observation ({n}), got {cl.size}")
@@ -300,8 +324,7 @@ def rdbwnet(
     cl = None if cluster is None else _check_cluster(cluster, coords.n_obs)
     Z = None
     if covs is not None:
-        Z = np.asarray(covs, dtype=float)
-        Z = Z[:, None] if Z.ndim == 1 else Z
+        Z = _check_covs(covs, coords.n_obs)
     bwcheck = default_min_obs(p + 1) if bwcheck is None else int(bwcheck)
     T, s = coords.treated, coords.s
     # Effective sample sizes count distinct locations (mass points count once), as in rd2d.

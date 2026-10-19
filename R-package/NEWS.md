@@ -50,6 +50,9 @@
   placebo boundary) no longer reuses the labels of nodes inserted the first time.
 * Panels and other repeated measurements: the bandwidth floor (`bwcheck`) now counts distinct
   locations instead of observations.
+* Input checks: matrices with several columns for `y`, `fuzzy` or `weights`, boundaries with
+  coinciding vertices, non-finite `eval_points`, `n_eval < 1` and negative `snap_scale` are
+  errors.
 * HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
   with leverage 1 no longer add rounding noise to the standard errors.
 * Nodes inserted where edges cross the boundary now get interpolated numeric node

@@ -96,6 +96,8 @@ class NetworkGraph:
                 raise KeyError(f"{missing} edges have no {cost!r} attribute for the metric; edge attributes "
                                f"available: {have}")
         self.snap_scale = self.metric.default_snap_scale if snap_scale is None else float(snap_scale)
+        if not (np.isfinite(self.snap_scale) and self.snap_scale >= 0):
+            raise ValueError(f"snap_scale must be finite and non-negative, got {snap_scale!r}")
         self._engine = None
         self._edges: pd.DataFrame | None = None
         self._split: tuple | None = None  # (boundary, split network) cache

@@ -19,7 +19,7 @@ import pandas as pd
 from scipy import stats
 
 from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
-from .bandwidth import _check_cluster, _check_obs, _check_weights, default_min_obs, rdbwnet
+from .bandwidth import _check_cluster, _check_covs, _check_obs, _check_weights, default_min_obs, rdbwnet
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -347,11 +347,7 @@ def rdnet(
     D = None if fuzzy is None else _check_obs(fuzzy, coords.n_obs, "fuzzy")
     Z = None
     if covs is not None:
-        Z = np.asarray(covs, dtype=float)
-        if Z.ndim == 1:
-            Z = Z[:, None]
-        if Z.shape[0] != len(y):
-            raise ValueError("covs must have one row per observation")
+        Z = _check_covs(covs, coords.n_obs)
     if cluster is not None:
         vce = "cluster"
         cluster = _check_cluster(cluster, coords.n_obs)

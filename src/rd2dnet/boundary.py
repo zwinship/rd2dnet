@@ -60,7 +60,17 @@ class Boundary:
                 raise ValueError("the boundary has several disconnected pieces; pass one connected line")
         if isinstance(line, BaseGeometry) and line.geom_type == "LinearRing":
             line = LineString(line.coords)
-        self.line = line if isinstance(line, LineString) else LineString(line)
+        if not isinstance(line, LineString):
+            try:
+                pts = np.asarray(line, dtype=float)
+            except (TypeError, ValueError):  # e.g. a list of shapely Points
+                pts = None
+            if pts is not None and (pts.ndim != 2 or pts.shape[0] < 2 or pts.shape[1] != 2):
+                raise ValueError("the boundary line needs at least two (x, y) vertices")
+            line = LineString(line if pts is None else pts)
+        self.line = line
+        if not np.isfinite(self.line.length) or self.line.length <= 0:
+            raise ValueError("the boundary line has zero length (its vertices coincide) or non-finite vertices")
         if (treated_region is None) == (treated_side is None):
             raise ValueError("give exactly one of treated_region or treated_side")
         if treated_side not in (None, "left", "right"):
