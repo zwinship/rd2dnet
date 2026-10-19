@@ -228,6 +228,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     v
   }
 
+  g_min <- integer() # clusters per side at each point (fewest side)
   for (j in seq_len(J)) {
     if (coords$eval_masked[j]) {
       tab$status[j] <- "masked"
@@ -267,6 +268,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 
     if (vce == "cluster") {
       g_side <- min(length(unique(cluster[i1])), length(unique(cluster[i0])))
+      g_min <- c(g_min, g_side)
       if (g_side < 2) {
         tab$status[j] <- "few clusters"
         next
@@ -391,6 +393,13 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     cov[qj, qj] <- V[qc, qc]
   } else if (length(psi_store)) {
     cov <- .joint_covariance(psi_store, coords, vce, cluster, J)
+  }
+  g_ok <- g_min[g_min >= 2]
+  if (length(g_ok) && min(g_ok) < 10) {
+    warning(sprintf(paste0("cluster-robust standard errors rest on few clusters: as few as %d per side within ",
+                           "the bandwidth at some evaluation points; with fewer than about 10 per side they are ",
+                           "too small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff."),
+                    min(g_ok)), call. = FALSE)
   }
   tab$h <- ifelse(.isclose(tab$h0, tab$h1), tab$h0, NA_real_)
   if (!is.null(cov)) {

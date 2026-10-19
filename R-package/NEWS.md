@@ -62,6 +62,7 @@
   boundary an observation lies on.
 * `network_coordinates()` warns when the points lie far from the network (lon/lat points
   without `lonlat = TRUE`, or a CRS mismatch).
+* Cluster-robust standard errors warn when some point has fewer than 10 clusters on a side.
 * `plot(true_tau = )` accepts a single value or a function of arc position.
 * HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
   with leverage 1 no longer add rounding noise to the standard errors.

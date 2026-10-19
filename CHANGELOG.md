@@ -98,6 +98,8 @@ Fixes from cross-language and invariance testing:
   CRS mismatch.
 - `Boundary.from_region` accepts a GeoSeries/GeoDataFrame and gives a clear error for
   other inputs.
+- Cluster-robust standard errors warn when some evaluation point has fewer than 10
+  clusters on a side within the bandwidth (Monte Carlo coverage near 0.7 with 5-6).
 - `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in

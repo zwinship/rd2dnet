@@ -408,6 +408,7 @@ def rdnet(
         if vce == "cluster":  # variance() applies g / (g - 1); rd2d's CR1 also has (n - 1) / (n - k)
             v *= _cluster_dof(len(idx), k, cluster[idx])
         return v
+    g_min: list[int] = []  # clusters per side at each point (fewest side)
     for j in range(J):
         rec = dict(eval=j, arc=coords.eval_arc[j], node_arc=coords.eval_node_arc[j], h0=H[j, 0], h1=H[j, 1],
                    n0=0, n1=0, tau=np.nan, se=np.nan, tau_bc=np.nan, se_rb=np.nan,
@@ -444,6 +445,7 @@ def rdnet(
         Zi = None if zcols is None else Z[idx][:, zcols]
         if vce == "cluster":
             g_side = min(len(np.unique(cluster[i1])), len(np.unique(cluster[i0])))
+            g_min.append(g_side)
             if g_side < 2:
                 rec["status"] = "few clusters"
                 continue
@@ -555,6 +557,12 @@ def rdnet(
         if cbands:
             table["cb_lo"] = table["tau_bc"] - crit * table["se_rb"]
             table["cb_hi"] = table["tau_bc"] + crit * table["se_rb"]
+    g_ok = [g for g in g_min if g >= 2]
+    if g_ok and min(g_ok) < 10:
+        warnings.warn(f"cluster-robust standard errors rest on few clusters: as few as {min(g_ok)} per side within "
+                      "the bandwidth at some evaluation points; with fewer than about 10 per side they are too "
+                      "small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff=...",
+                      stacklevel=2)
     return RDNetResult(table, p, q, kname, vce, level, repr(coords.network.metric), fuzzy=D is not None,
                        crit=crit, cov=cov, bandwidths=bw, coords=coords)
 

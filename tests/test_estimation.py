@@ -429,3 +429,9 @@ def test_plot_accepts_a_scalar_or_callable_truth(coords, city):
     res = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cbands=False)
     res.plot(true_tau=2.0)
     res.plot(true_tau=lambda arc: 1.5 + 0 * arc)
+
+
+def test_few_clusters_within_the_bandwidth_warn(coords, city):
+    blocks = (city.obs["x"] // 700).to_numpy()  # a handful of wide blocks
+    with pytest.warns(UserWarning, match="few clusters"):
+        rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cluster=blocks, seed=0)

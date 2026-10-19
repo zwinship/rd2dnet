@@ -445,3 +445,9 @@ test_that("plot accepts a scalar or function truth", {
   expect_silent(plot(res, true_tau = 2))
   expect_silent(plot(res, true_tau = function(arc) 1.5 + 0 * arc))
 })
+
+test_that("few clusters within the bandwidth warn", {
+  city <- mock_city()
+  expect_warning(rdnet(city$obs$outcome, mock_coords(), h = 600, cluster = city$obs$x %/% 700, seed = 0),
+                 "few clusters")
+})

@@ -2187,7 +2187,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     real colvector cvec, vtgt, psi, betaa, raux, uni, pos, se_all, ok, keys, f, qc, qj, clu
     real rowvector tj
     real scalar nJ, z, j, conley, hasD, hasZ, hascl, nord, oi, ordr, k, vord, ti, tau, itt, fs
-    real scalar basevce_is, status, kk, nc, cc, gg, fail, auxorder, haveband, dimi
+    real scalar basevce_is, status, kk, nc, cc, gg, fail, auxorder, haveband, dimi, gside, gmin
     real colvector dimlist, bwbasis
     string scalar basevce
     struct rdn_fit scalar F, Fa
@@ -2232,6 +2232,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     hj = J(0, 1, .)
     hname = J(0, 1, .)
     orders = (p == q ? p : (p \ q))
+    gmin = .  // clusters per side at the estimated points (fewest side)
     for (j = 1; j <= nJ; j++) {
         if (C.emasked[j]) {
             R[j, 15] = 1
@@ -2269,7 +2270,9 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             if (rows(zc)) Zi = Z[idx, zc']
         }
         if (hascl) {
-            if (min((rdn_nunique(cl[i1]), rdn_nunique(cl[i0]))) < 2) {
+            gside = min((rdn_nunique(cl[i1]), rdn_nunique(cl[i0])))
+            if (gside >= 2) gmin = min((gmin, gside))
+            if (gside < 2) {
                 R[j, 15] = 6
                 continue
             }
@@ -2464,6 +2467,10 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         ok = selectindex(diagonal(cov) :< .)
         if (rows(ok)) {
             crit = rdn_uniform_crit(cov[ok, ok], level, repp, seed)
+            if (hascl & gmin < 10) {
+                printf("{txt}note: cluster-robust standard errors rest on few clusters (as few as %g per side within\n", gmin)
+                printf("{txt}      the bandwidth); with fewer than about 10 per side they are too small. Consider vce(conley #).\n")
+            }
             if (cbands) {
                 R[., 17] = R[., 10] :- crit :* R[., 11]
                 R[., 18] = R[., 10] :+ crit :* R[., 11]
