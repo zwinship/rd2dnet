@@ -172,10 +172,16 @@ density test.
 {phang2}{cmd:. matrix B = (100, 1600 \ 1000, 1600 \ 2000, 1600 \ 2900, 1600)}{p_end}
 {phang2}{cmd:. rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) evalpoints(B) treated(treated)}{p_end}
 
-{pstd}A road layer of segments with end coordinates (no node table):{p_end}
-{phang2}{cmd:. frame create roads}{p_end}
-{phang2}{cmd:. frame roads: import delimited roads.csv}{p_end}
-{phang2}{cmd:. rdnetset x y, edges(roads) ecoords(x1 y1 x2 y2) jointol(0.5) boundary(line) treatedside(left)}{p_end}
+{pstd}A road layer of segments with end coordinates (no node table). With your own
+GIS export, {cmd:frame create roads} and {cmd:frame roads: import delimited roads.csv}
+give such a frame; here it is built from the mock city's streets:{p_end}
+{phang2}{cmd:. frame copy rdn_edges roads, replace}{p_end}
+{phang2}{cmd:. frame roads: frlink m:1 from, frame(rdn_nodes id)}{p_end}
+{phang2}{cmd:. frame roads: frget x1 = x y1 = y, from(rdn_nodes)}{p_end}
+{phang2}{cmd:. frame roads: drop rdn_nodes}{p_end}
+{phang2}{cmd:. frame roads: frlink m:1 to, frame(rdn_nodes id)}{p_end}
+{phang2}{cmd:. frame roads: frget x2 = x y2 = y, from(rdn_nodes)}{p_end}
+{phang2}{cmd:. rdnetset x y, edges(roads) ecoords(x1 y1 x2 y2) jointol(0.5) boundary(rdn_line) treatedside(right)}{p_end}
 
 {pstd}Travel time instead of length:{p_end}
 {phang2}{cmd:. rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) cost(travel_time) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)}{p_end}
