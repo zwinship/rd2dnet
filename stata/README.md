@@ -6,10 +6,12 @@ of [rd2d](https://rdpackages.github.io/rd2d/) (Cattaneo, Titiunik and Yu) over t
 network coordinates and user-defined network distances. Please cite the rd2d papers
 when you use it (see `help rd2dnet`).
 
-> **Status: pre-release, under testing.** The Stata version mirrors the R port
-> function by function (the R port matches the Python package to about 1e-12).
-> `test/rd2dnet_tests.do` checks every feature against reference numbers from Python
-> and R; it must print `ALL TESTS PASSED` before the first release.
+> **Status:** tested in Stata 19 (SE). `test/rd2dnet_tests.do` checks every feature
+> against reference numbers from Python and R and passes (`ALL TESTS PASSED`), and
+> `test/install_check.do` installs the package with `net install` and runs every
+> help-file example. The code uses only Stata 16 features, but has not been run in
+> Stata 16-18. The Stata version mirrors the R port function by function (the R port
+> matches the Python package to about 1e-12).
 
 ## Installation
 
@@ -86,7 +88,12 @@ live in memory, so rerun `rdnetset` after reloading the data.
 
 ## Development notes
 
-* **Running the tests:** `cd stata/test`, then `do rd2dnet_tests.do`. It adds the
+* **Running the tests:** `cd stata/test`, then `do rd2dnet_tests.do`. Without a
+  local clone, `do https://raw.githubusercontent.com/zwinship/rd2dnet/<sha>/stata/test/fetch.do <sha>`
+  downloads the files at a commit into `~/rd2dnet_test`. To check an installation,
+  `do https://raw.githubusercontent.com/zwinship/rd2dnet/<sha>/stata/test/install_check.do <sha>`.
+  Use commit SHAs: raw.githubusercontent.com caches branch URLs for several minutes.
+* **Test suite details:** the suite adds the
   parent directory to the adopath, drops any previously compiled `rdn_*()` Mata
   functions, runs every block even when one fails, and prints a summary. Fix
   compile errors in `lrd2dnet.mata` first (the first command that runs compiles

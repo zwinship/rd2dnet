@@ -51,6 +51,15 @@ Fixes:
 - `travel_time(default_kph=...)` also fills missing (NaN) speeds.
 - `from_igraph` uses `length` when there is no `weight` attribute.
 
+Stata (first run in Stata 19; the test suite passes):
+
+- `rdnetdensity` now returns its results in `r()` (they were cleared when the command ended).
+- `net install` now installs the mock-city datasets, so `rdnetmock` works after installation
+  (ancillary files are listed with `F` in `rd2dnet.pkg`).
+- `stata/test/install_check.do` installs the package at a given commit and runs every
+  help-file example from an empty directory; `stata/test/fetch.do` downloads the files
+  for the test suite.
+
 ## 0.1.1
 
 - `NetworkGraph.from_place` now uses Nominatim's top match for the query. osmnx skips
