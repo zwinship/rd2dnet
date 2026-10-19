@@ -1592,11 +1592,9 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
         TL = Tin[firstl]
         off = (TL :!= rdn_btreated(C.B, xyl)) :& (rdn_bdistance(C.B, xyl) :> C.B.tol)
         if (sum(off)) {
-            printf("{txt}note: %g observations have a treated() value that does not match their side of the boundary;
-",
+            printf("{txt}note: %g observations have a treated() value that does not match their side of the boundary;\n",
                 sum(off[loc]))
-            printf("{txt}      they are attached to the network on the side treated() gives
-")
+            printf("{txt}      they are attached to the network on the side treated() gives\n")
         }
     }
     else TL = rdn_btreated(C.B, xyl)
