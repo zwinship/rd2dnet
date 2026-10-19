@@ -33,27 +33,33 @@ harness plus all fixes below). Decisions waiting for you are in `DECISIONS-overn
    - Both now count distinct locations, as rd2d and rdrobust do.
 6. **`node_contrast()` on edges split at the boundary** (Python, R) measured the contrast
    against 0: the new nodes had no attributes. They are now interpolated.
-7. **HC2/HC3 with leverage 1**: 1 - h_ii was clipped at 1e-12, which turned rounding into SE
+7. **Bandwidth selector: rounding decided the basis on ill-conditioned pilots** (all three). At
+   Gram condition numbers around 1e10 (below the old 1e12 cut-off) plug-in variances came out
+   as ±7000 depending on rounding, so Linux and Windows Python disagreed (0.3% on an `imserd`
+   bandwidth) and a 1e-12 perturbation of `y` switched the basis. Cut-off now 1e8 for the
+   selector's h-scaled bases; no well-posed fit on the mock city exceeds 1e7, so reference
+   results are unchanged. Found by the parity harness.
+8. **HC2/HC3 with leverage 1**: 1 - h_ii was clipped at 1e-12, which turned rounding into SE
    noise of about 1e-3 (different in R and Python). It is now clipped at 1e-8, as in rd2d
    (all three).
-8. **Silent misuse is now caught** (Python, R):
+9. **Silent misuse is now caught** (Python, R):
    - Pandas inputs with a non-default index now warn. A shuffled Series gave tau_bc -0.08
      instead of 0.93.
    - 2-D `y`/`weights` are now errors.
    - `density()` rejects negative or NaN weights (it used to drop them silently).
    - Zero-length boundaries, NaN `eval_points`, `n_eval < 1` and negative or NaN
      `snap_scale` are now errors.
-9. **J = 1 uniform critical value**: it was simulated (1.88-2.04 depending on the seed);
+10. **J = 1 uniform critical value**: it was simulated (1.88-2.04 depending on the seed);
    it is now the normal quantile (all three).
-10. **lon/lat input**:
+11. **lon/lat input**:
     - `network_coordinates(lonlat=True)` now projects `eval_points` given as coordinates.
     - `from_lines(table, crs=4326)` now projects to UTM instead of keeping degrees.
-11. **Inferring the treated side** (all three): observations beyond the ends of the line
+12. **Inferring the treated side** (all three): observations beyond the ends of the line
     through `b` decided the side and triggered spurious warnings. They are now ignored.
-12. **Treatment labels that contradict geography** now trigger a warning (all three).
-13. **Stata: `net install` did not install the mock-city datasets.** PR #4.
-14. **Stata: `rdnetdensity` returned nothing in `r()`.** PR #4.
-15. **Smaller fixes**:
+13. **Treatment labels that contradict geography** now trigger a warning (all three).
+14. **Stata: `net install` did not install the mock-city datasets.** PR #4.
+15. **Stata: `rdnetdensity` returned nothing in `r()`.** PR #4.
+16. **Smaller fixes**:
     - `Boundary.grid()` on a closed ring repeated the start point.
     - `plot(true_tau=<scalar>)` crashed.
     - README examples used undefined names.
