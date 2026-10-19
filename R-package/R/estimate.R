@@ -156,6 +156,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     Z <- as.matrix(covs)
     storage.mode(Z) <- "double"
     if (nrow(Z) != length(y)) stop("covs must have one row per observation", call. = FALSE)
+    .check_collinear(Z)
   }
   if (!is.null(cluster)) {
     vce <- "cluster"

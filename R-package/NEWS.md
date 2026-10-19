@@ -64,6 +64,7 @@
   without `lonlat = TRUE`, or a CRS mismatch).
 * Cluster-robust standard errors warn when some point has fewer than 10 clusters on a side.
 * `precomputed_from_od()` builds a precomputed metric from a long origin-destination table.
+* Collinear covariates give a warning naming the cause instead of silently "singular" points.
 * `plot(true_tau = )` accepts a single value or a function of arc position.
 * Bandwidth selector: local designs with a Gram condition number above 1e8 (was 1e12) count
   as singular, so rounding no longer decides between bases (results differed across

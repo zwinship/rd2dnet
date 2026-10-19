@@ -204,3 +204,9 @@ test_that("inputs that used to pass silently are rejected", {
   nodes <- data.frame(name = 1:2, x = c(0, 100), y = 0)
   expect_error(network_graph(data.frame(from = 1, to = 2, length = 100), nodes, snap_scale = -5), "snap_scale")
 })
+
+test_that("collinear covariates warn", {
+  z <- mock_city()$obs$far
+  expect_warning(rdnet(mock_city()$obs$outcome, mock_coords(), h = 600, covs = cbind(z, 2 * z + 1), cbands = FALSE),
+                 "collinear")
+})

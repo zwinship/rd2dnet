@@ -267,6 +267,7 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   if (!is.null(covs)) {
     Z <- as.matrix(covs)
     storage.mode(Z) <- "double"
+    .check_collinear(Z)
   }
   bwcheck <- if (is.null(bwcheck)) .default_min_obs(p + 1) else as.integer(bwcheck)
   T <- coords$treated
