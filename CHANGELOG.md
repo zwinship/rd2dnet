@@ -102,6 +102,8 @@ Fixes from cross-language and invariance testing:
   clusters on a side within the bandwidth (Monte Carlo coverage near 0.7 with 5-6).
 - `Precomputed.from_od(table, origin, destination, cost)` builds a precomputed metric
   from a long origin-destination table (for example a router's travel-time output).
+- Collinear covariates (after removing means) give a warning naming the cause; before,
+  every point was reported "singular" with no hint (Python, R, Stata).
 - `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
 - Bandwidth selector: local designs whose Gram matrix has a condition number above 1e8
   (was 1e12) count as singular. Between the two, plug-in variances could change sign

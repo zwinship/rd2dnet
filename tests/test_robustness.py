@@ -240,3 +240,9 @@ def test_inputs_that_used_to_pass_silently(coords, city):
         rd2dnet.network_coordinates(net, city.boundary, city.obs[["x", "y"]], n_eval=0)
     with pytest.raises(ValueError, match="snap_scale"):
         rd2dnet.NetworkGraph(net.graph, "length", snap_scale=-5)
+
+
+def test_collinear_covariates_warn(coords, city):
+    z = city.obs["far"].to_numpy()
+    with pytest.warns(UserWarning, match="collinear"):
+        rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, covs=np.c_[z, 2 * z + 1], cbands=False)

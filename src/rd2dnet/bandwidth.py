@@ -231,6 +231,13 @@ def _check_covs(covs, n: int) -> np.ndarray:
     Z = Z[:, None] if Z.ndim == 1 else Z
     if Z.ndim != 2 or Z.shape[0] != n:
         raise ValueError(f"covs must have one row per observation ({n}), got shape {Z.shape}")
+    full = np.all(np.isfinite(Z), axis=1)
+    if Z.shape[1] > 1 and full.sum() > Z.shape[1]:
+        Zc = Z[full] - Z[full].mean(axis=0)
+        r = np.linalg.matrix_rank(Zc)
+        if r < Z.shape[1]:
+            warnings.warn(f"covs are collinear (rank {r} of {Z.shape[1]} columns, after removing means): every local "
+                          "fit that uses them is singular; drop the redundant columns", stacklevel=3)
     return Z
 
 

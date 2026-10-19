@@ -3320,7 +3320,7 @@ void rdn_read_common(struct rdn_coords scalar C, string scalar touse, real colve
     real colvector D, real matrix Z, real colvector om, real colvector cl, real rowvector deriv,
     real matrix tang)
 {
-    real matrix Zs
+    real matrix Zs, Zc
     real colvector tv
     real scalar n
     n = C.nobs
@@ -3329,6 +3329,16 @@ void rdn_read_common(struct rdn_coords scalar C, string scalar touse, real colve
     else D = J(0, 1, .)
     if (st_local("covs") != "") {
         Zs = st_data(., tokens(st_local("covs")), touse)
+        if (cols(Zs) > 1) {
+            Zc = select(Zs, rowmissing(Zs) :== 0)
+            if (rows(Zc) > cols(Zc)) {
+                Zc = Zc :- mean(Zc)
+                if (rank(cross(Zc, Zc)) < cols(Zc)) {
+                    printf("{txt}warning: the covariates are collinear (after removing means); every local fit that\n")
+                    printf("{txt}         uses them is singular; drop the redundant variables\n")
+                }
+            }
+        }
         Z = J(n, cols(Zs), .)
         Z[ids, .] = Zs
     }

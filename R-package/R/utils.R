@@ -109,6 +109,19 @@
   w
 }
 
+# Covariates that are collinear (after removing means) make every local fit singular.
+.check_collinear <- function(Z) {
+  full <- stats::complete.cases(Z)
+  if (ncol(Z) > 1 && sum(full) > ncol(Z)) {
+    r <- qr(scale(Z[full, , drop = FALSE], scale = FALSE))$rank
+    if (r < ncol(Z)) {
+      warning(sprintf(paste0("covs are collinear (rank %d of %d columns, after removing means): every local fit ",
+                             "that uses them is singular; drop the redundant columns"), r, ncol(Z)), call. = FALSE)
+    }
+  }
+  invisible(Z)
+}
+
 .check_cluster <- function(cluster, n) {
   cl <- as.vector(cluster)
   if (is.factor(cluster)) cl <- as.character(cluster)
