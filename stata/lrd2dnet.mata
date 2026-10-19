@@ -1313,6 +1313,105 @@ void rdn_split(struct rdn_net scalar N, struct rdn_bnd scalar B)
     N.ncross = sum(drop)
 }
 
+// Whether locations on edges must become nodes for exact distances. A location
+// partway along an edge is normally reached through the edge's end nodes plus
+// part of the edge's cost; that ignores one-way edges and the penalty for
+// switching onto the location's edge class, so directed networks and
+// transition costs place each location on a node instead.
+real scalar rdn_needs_point_nodes(struct rdn_net scalar N)
+{
+    return((N.directed & N.direction != "both") | N.metric == 2)
+}
+
+// Insert a node at each location frac of the way from node u to node v,
+// splitting every stored edge between u and v (both directions, parallel
+// edges) with cost and length divided in proportion. Returns the node of each
+// location (an end node when frac is 0 or 1).
+real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real colvector v, real colvector frac0)
+{
+    real colvector frac, node, atu, atv, mid, lo, hi, t, slo, shi, st, sp, ts, ids, o, cut, chain
+    real colvector drop, keep, nf, nt, nco, nle
+    string colvector ncl
+    transmorphic spots, pairs
+    string scalar key, pkey
+    real scalar n, i, k, m, ns, a, b, share, fwd, r
+    n = rows(u)
+    frac = rowmin((rowmax((frac0, J(n, 1, 0))), J(n, 1, 1)))
+    atu = (u :== v) :| (frac :<= 1e-12)
+    atv = (!atu) :& (frac :>= 1 - 1e-12)
+    node = rdn_where(atu, u, rdn_where(atv, v, J(n, 1, .)))
+    mid = selectindex((!atu) :& (!atv))
+    if (rows(mid) == 0) return(node)
+    // positions measured from the smaller node index
+    lo = rowmin((u[mid], v[mid]))
+    hi = rowmax((u[mid], v[mid]))
+    t = rdn_where(u[mid] :== lo, frac[mid], 1 :- frac[mid])
+    spots = asarray_create()
+    pairs = asarray_create()
+    slo = J(0, 1, .)
+    shi = J(0, 1, .)
+    st = J(0, 1, .)
+    for (i = 1; i <= rows(mid); i++) {
+        key = strofreal(lo[i]) + " " + strofreal(hi[i]) + " " + strofreal(t[i], "%21.12f")
+        if (!asarray_contains(spots, key)) {
+            slo = slo \ lo[i]
+            shi = shi \ hi[i]
+            st = st \ strtoreal(strofreal(t[i], "%21.12f"))
+            asarray(spots, key, rows(st))
+            pkey = strofreal(lo[i]) + " " + strofreal(hi[i])
+            if (asarray_contains(pairs, pkey)) asarray(pairs, pkey, asarray(pairs, pkey) \ rows(st))
+            else asarray(pairs, pkey, rows(st))
+        }
+        node[mid[i]] = N.n + asarray(spots, key)
+    }
+    ns = rows(st)
+    m = rows(N.efrom)
+    drop = J(m, 1, 0)
+    nf = J(0, 1, .)
+    nt = J(0, 1, .)
+    nco = J(0, 1, .)
+    nle = J(0, 1, .)
+    ncl = J(0, 1, "")
+    for (k = 1; k <= m; k++) {
+        a = min((N.efrom[k], N.eto[k]))
+        b = max((N.efrom[k], N.eto[k]))
+        if (a == b) continue
+        pkey = strofreal(a) + " " + strofreal(b)
+        if (!asarray_contains(pairs, pkey)) continue
+        sp = asarray(pairs, pkey)
+        o = order(st[sp], 1)
+        ts = st[sp[o]]
+        ids = N.n :+ sp[o]
+        fwd = (N.efrom[k] == a)
+        if (!fwd) {
+            ts = 1 :- ts[rows(ts)::1]
+            ids = ids[rows(ids)::1]
+        }
+        chain = N.efrom[k] \ ids \ N.eto[k]
+        cut = 0 \ ts \ 1
+        for (r = 1; r < rows(chain); r++) {
+            share = cut[r + 1] - cut[r]
+            nf = nf \ chain[r]
+            nt = nt \ chain[r + 1]
+            nco = nco \ N.ecost[k] * share
+            nle = nle \ N.elen[k] * share
+            ncl = ncl \ N.eclass[k]
+        }
+        drop[k] = 1
+    }
+    keep = selectindex(!drop)
+    N.efrom = N.efrom[keep] \ nf
+    N.eto = N.eto[keep] \ nt
+    N.ecost = N.ecost[keep] \ nco
+    N.elen = N.elen[keep] \ nle
+    N.eclass = N.eclass[keep] \ ncl
+    N.xy = N.xy \ (N.xy[slo, .] + (N.xy[shi, .] - N.xy[slo, .]) :* st)
+    N.ids = N.ids \ ("rdnet_point_" :+ strofreal((0::(ns - 1))))
+    N.iscross = N.iscross \ J(ns, 1, 0)
+    N.n = rows(N.xy)
+    return(node)
+}
+
 // ---------------------------------------------------------------------------
 // Snapping points to the network
 // ---------------------------------------------------------------------------
@@ -1450,6 +1549,8 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     struct rdn_snap scalar S
     real colvector bnodes, loc, firstl, TL, u, v, cu, cv, dep, m, allowed, depc
     real colvector viau, viav, dist, xnode, onedge, unreach, safe, bnarc, tot, frac, idx
+    real colvector pu, pv, pc, onends, pnode
+    struct rdn_net scalar NP
     real matrix xyl, D
     real scalar n, side, j, Jn, useT
     C.nodeon = (rdn_bdistance(C.B, C.N.xy) :<= C.B.tol)
@@ -1489,6 +1590,44 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
         dep[m] = S.depth
     }
     depc = dep :* C.N.snapscale
+
+    bnarc = rdn_bproject(C.B, C.N.xy[bnodes, .])
+    if (rows(evalarc)) C.evalarc = evalarc
+    else if (neval == 1) C.evalarc = min(bnarc)
+    else if (rdn_bclosed(C.B)) {
+        // around the ring, without repeating the start
+        C.evalarc = mod(min(bnarc) :+ (0::(neval - 1)) :* (C.B.blen / neval), C.B.blen)
+    }
+    else C.evalarc = min(bnarc) :+ (max(bnarc) - min(bnarc)) :* ((0::(neval - 1)) :/ (neval - 1))
+    rdn_snap_eval(C, bnodes, bnarc)
+
+    if (rdn_needs_point_nodes(C.N)) {
+        // one-way edges and class-change penalties: put every location and
+        // evaluation point on a node, so that paths respect both
+        pu = u \ C.eu
+        pv = v \ C.ev
+        pc = cu \ C.ecu
+        tot = pc + (cv \ C.ecv)
+        frac = rdn_where(tot :> 0, pc :/ tot, J(rows(tot), 1, 0))
+        onends = C.nodeon[pu] :& C.nodeon[pv]
+        NP = C.N
+        pnode = rdn_point_nodes(NP, pu, pv, frac)
+        rdn_edge_frame(NP)
+        rdn_compile(NP)
+        C.N = NP
+        C.nodeon = (rdn_bdistance(C.B, C.N.xy) :<= C.B.tol)
+        if (sum(onends)) C.nodeon[pnode[selectindex(onends)]] = J(sum(onends), 1, 1)
+        C.nodeT = rdn_btreated(C.B, C.N.xy) :& (!C.nodeon)
+        bnodes = selectindex(C.nodeon)
+        u = pnode[(1::n)]
+        v = u
+        cu = J(n, 1, 0)
+        cv = J(n, 1, 0)
+        C.eu = pnode[((n + 1)::rows(pnode))]
+        C.ev = C.eu
+        C.ecu = J(rows(C.eu), 1, 0)
+        C.ecv = C.ecu
+    }
     ndist = .
     nsrc = .
     rdn_nearest_source(C.N.E, bnodes, ndist, nsrc)
@@ -1519,15 +1658,6 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     C.Carc = rdn_where(unreach, ., C.Carc)
     C.Cnode = xnode
 
-    bnarc = rdn_bproject(C.B, C.N.xy[bnodes, .])
-    if (rows(evalarc)) C.evalarc = evalarc
-    else if (neval == 1) C.evalarc = min(bnarc)
-    else if (rdn_bclosed(C.B)) {
-        // around the ring, without repeating the start
-        C.evalarc = mod(min(bnarc) :+ (0::(neval - 1)) :* (C.B.blen / neval), C.B.blen)
-    }
-    else C.evalarc = min(bnarc) :+ (max(bnarc) - min(bnarc)) :* ((0::(neval - 1)) :/ (neval - 1))
-    rdn_snap_eval(C, bnodes, bnarc)
     C.emasked = rdn_bmasked(C.B, C.evalarc)
     tot = C.ecu + C.ecv
     frac = rdn_where(tot :> 0, C.ecu :/ tot, 0)
