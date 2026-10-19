@@ -69,6 +69,10 @@ Fixes from cross-language and invariance testing:
 - Splitting a network that was split before (for example `coords.network`, reused for a
   placebo boundary) reused the labels of the nodes inserted the first time and silently
   moved those nodes. New nodes now get labels that are not in use.
+- Panels and other repeated measurements: the bandwidth floor (`bwcheck`) counted
+  observations, so with 30 readings per site it fell to the second-nearest site and fits
+  turned singular. It now counts distinct locations, as rdrobust and rd2d count unique
+  observations (Python, R, Stata).
 - HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12. Observations
   with leverage 1 have zero residuals, and the tighter clip turned rounding error in
   those residuals into visible standard-error noise (about 1e-3).

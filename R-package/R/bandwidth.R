@@ -309,7 +309,10 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
     if (!is.null(D)) ok <- ok & is.finite(D)
     if (!is.null(Z)) ok <- ok & rowSums(!is.finite(Z)) == 0
     masks <- list(ok & !T, ok & T)
-    if (min(vapply(masks, sum, numeric(1))) < bwcheck) {
+    # bwcheck counts distinct locations (repeated measurements count once), as
+    # rdrobust and rd2d count unique observations
+    dloc <- lapply(masks, function(m) d[m][!duplicated(coords$loc[m])])
+    if (min(lengths(dloc)) < bwcheck) {
       rec$status <- "insufficient"
       return(rec)
     }
@@ -318,7 +321,7 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
     })
     dn <- .rot(s[ok], o[ok], kname, n_eff, dim)
     # nudged up so the bwcheck-th observation gets positive kernel weight
-    bounds <- lapply(sides, function(sd) c(.kth(sd$d, bwcheck) * (1 + 1e-9), max(sd$d)))
+    bounds <- lapply(1:2, function(t) c(.kth(dloc[[t]], bwcheck) * (1 + 1e-9), max(sides[[t]]$d)))
     dns <- vapply(bounds, function(b) min(max(dn, b[1]), b[2]), numeric(1))
     thr <- vapply(sides, function(sd) stats::median(sd$d), numeric(1))
     res <- tryCatch({

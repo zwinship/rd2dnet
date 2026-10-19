@@ -217,6 +217,12 @@ def _check_cluster(cluster, n: int) -> np.ndarray:
     return cl
 
 
+def _per_location(d: np.ndarray, loc: np.ndarray) -> np.ndarray:
+    """One distance per distinct location."""
+    _, first = np.unique(loc, return_index=True)
+    return d[first]
+
+
 def _kth(d: np.ndarray, k: int) -> float:
     """Distance to the k-th nearest observation, nudged up so that observation gets positive kernel weight."""
     k = int(min(max(k, 1), d.size))
@@ -336,12 +342,15 @@ def rdbwnet(
         if Z is not None:
             ok &= np.all(np.isfinite(Z), axis=1)
         masks = [ok & ~T, ok & T]
-        if min(m.sum() for m in masks) < bwcheck:
+        # bwcheck counts distinct locations (repeated measurements count once), as
+        # rdrobust and rd2d count unique observations
+        dloc = [_per_location(d[m], coords.loc[m]) for m in masks]
+        if min(len(x) for x in dloc) < bwcheck:
             rec["status"] = "insufficient"
             return rec
         sides = [_Side(s[m], o[m], d[m], y[m], om[m], kfun, None if cl is None else cl[m], dim) for m in masks]
         dn = _rot(s[ok], o[ok], kname, n_eff, dim)
-        bounds = [(_kth(sd.d, bwcheck), float(sd.d.max())) for sd in sides]
+        bounds = [(_kth(dl, bwcheck), float(sd.d.max())) for dl, sd in zip(dloc, sides)]
         dns = [min(max(dn, lo), hi) for lo, hi in bounds]
         thr = [float(np.median(sd.d)) for sd in sides]
         try:

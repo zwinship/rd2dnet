@@ -403,3 +403,17 @@ test_that("covariates with side bandwidths weight each side by 1 / h^2, as rd2d 
   fit <- lm(y ~ 0 + T + T:s + T:o + C + C:s + C:o + X, data = df, weights = w)
   expect_equal(res$table$tau[j], unname(coef(fit)["T"] - coef(fit)["C"]), tolerance = 1e-8)
 })
+
+test_that("the bandwidth floor counts locations, not repeated measurements", {
+  city <- mock_city()
+  net <- city$network("length")
+  xy <- as.matrix(city$obs[, c("x", "y")])
+  c1 <- network_coordinates(net, city$boundary, xy, n_eval = 9)
+  c3 <- network_coordinates(net, city$boundary, xy[rep(seq_len(nrow(xy)), each = 3), ], n_eval = 9)
+  y <- city$obs$outcome
+  b1 <- rdbwnet(y, c1)
+  b3 <- rdbwnet(rep(y, each = 3), c3)
+  ok <- b1$status == "ok"
+  expect_equal(b3$hmin0[ok], b1$hmin0[ok], tolerance = 1e-12)
+  expect_equal(b3$hmin1[ok], b1$hmin1[ok], tolerance = 1e-12)
+})

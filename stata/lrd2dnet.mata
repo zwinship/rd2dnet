@@ -106,6 +106,19 @@ real scalar rdn_kth(real colvector d, real scalar k)
     return(s[kk])
 }
 
+// Positions of the first entry for each distinct value of x.
+real colvector rdn_first_per_value(real colvector x)
+{
+    real colvector o, keep
+    real scalar i
+    if (rows(x) == 0) return(J(0, 1, .))
+    o = order((x, (1::rows(x))), (1, 2))
+    keep = J(rows(x), 1, 0)
+    keep[1] = 1
+    for (i = 2; i <= rows(x); i++) keep[i] = (x[o[i]] != x[o[i - 1]])
+    return(sort(o[selectindex(keep)], 1))
+}
+
 // Quantile with linear interpolation (numpy default, R type 7).
 real scalar rdn_quantile(real colvector x, real scalar p)
 {
@@ -2657,7 +2670,7 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
     struct rdn_side scalar s0, s1, sd
     real matrix Out, Zs0, Zs1, g
     real colvector T, s, fin, d, o, ok, m0, m1, edv, vtgt, zc, gy, gd, D0, D1, ybw0, ybw1, vq, Bc0, Bc1
-    real colvector num, den, h, good, rg, r2, okc
+    real colvector num, den, h, good, rg, r2, okc, f0, f1
     real rowvector bnd0, bnd1, dns, thr, bc, hc0, hc1
     real colvector bnv
     real scalar nJ, j, neff, neff0, neff1, vord, nt, i10, i01, expo_b, dn, itt, fs, t, sgn, bt, expo
@@ -2712,7 +2725,11 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
         if (hasZ) ok = ok :& (rowmissing(Z) :== 0)
         m0 = selectindex(ok :& (!T))
         m1 = selectindex(ok :& T)
-        if (min((rows(m0), rows(m1))) < bwcheck) {
+        // bwcheck counts distinct locations (repeated measurements count once), as
+        // rdrobust and rd2d count unique observations
+        f0 = rdn_first_per_value(C.loc[m0])
+        f1 = rdn_first_per_value(C.loc[m1])
+        if (min((rows(f0), rows(f1))) < bwcheck) {
             Out[j, 3] = 2
             continue
         }
@@ -2727,8 +2744,8 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
         okc = selectindex(ok)
         dn = rdn_rot(s[okc], o[okc], kcode, neff)
         // nudged up so the bwcheck-th observation gets positive kernel weight
-        bnd0 = (rdn_kth(s0.d, bwcheck) * (1 + 1e-9), max(s0.d))
-        bnd1 = (rdn_kth(s1.d, bwcheck) * (1 + 1e-9), max(s1.d))
+        bnd0 = (rdn_kth(s0.d[f0], bwcheck) * (1 + 1e-9), max(s0.d))
+        bnd1 = (rdn_kth(s1.d[f1], bwcheck) * (1 + 1e-9), max(s1.d))
         dns = (min((max((dn, bnd0[1])), bnd0[2])), min((max((dn, bnd1[1])), bnd1[2])))
         thr = (rdn_median(s0.d), rdn_median(s1.d))
         if (hasD) {

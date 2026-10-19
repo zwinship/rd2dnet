@@ -48,6 +48,8 @@
   unchanged.
 * Splitting a network that was split before (such as `coords$network`, reused for a
   placebo boundary) no longer reuses the labels of nodes inserted the first time.
+* Panels and other repeated measurements: the bandwidth floor (`bwcheck`) now counts distinct
+  locations instead of observations.
 * HC2/HC3: `1 - h_ii` is clipped at 1e-8 (rd2d's value) instead of 1e-12, so observations
   with leverage 1 no longer add rounding noise to the standard errors.
 * Nodes inserted where edges cross the boundary now get interpolated numeric node

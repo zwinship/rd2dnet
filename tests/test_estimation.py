@@ -388,3 +388,18 @@ def test_covariate_adjustment_with_side_bandwidths_scales_weights_by_h2(big_coor
     ya = y - (B / A) * X
     t1, t0 = (wls(poly_basis(c.s[i] / h, o[i] / h, 1), ya[i], w[i]).beta[0] for i, w, h in sides)
     assert adj["tau"][0] == pytest.approx(t1 - t0, rel=1e-8)
+
+
+def test_bandwidth_floor_counts_locations_not_repeated_measurements(city):
+    # a panel: every location observed three times; the bwcheck-th nearest location is
+    # the same as without repeats, so the floor (hmin) must not shrink
+    net = city.network("length")
+    xy = city.obs[["x", "y"]].to_numpy()
+    c1 = rd2dnet.network_coordinates(net, city.boundary, xy, n_eval=9)
+    c3 = rd2dnet.network_coordinates(net, city.boundary, np.repeat(xy, 3, axis=0), n_eval=9)
+    y = city.obs["outcome"].to_numpy()
+    b1 = rd2dnet.rdbwnet(y, c1)
+    b3 = rd2dnet.rdbwnet(np.repeat(y, 3), c3)
+    ok = (b1["status"] == "ok").to_numpy()
+    np.testing.assert_allclose(b3["hmin0"][ok], b1["hmin0"][ok], rtol=1e-12)
+    np.testing.assert_allclose(b3["hmin1"][ok], b1["hmin1"][ok], rtol=1e-12)
