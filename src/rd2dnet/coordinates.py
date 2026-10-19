@@ -524,8 +524,12 @@ def network_coordinates(
             raise ValueError("eval_points must be finite")
         outside = (eval_arc < bnode_arc.min() - 1e-9) | (eval_arc > bnode_arc.max() + 1e-9)
         if outside.any() and not boundary.closed:
+            hint = ""
+            if ep.ndim == 1 and np.any(ep > boundary.length):
+                hint = ("; 1-D eval_points are arc positions along the boundary (pass [[x, y]] for one point "
+                        "given by its coordinates)")
             warnings.warn(f"{int(outside.sum())} evaluation points lie beyond the first or last place the network "
-                          "meets the boundary; they are moved to the nearest boundary node", stacklevel=2)
+                          f"meets the boundary; they are moved to the nearest boundary node{hint}", stacklevel=2)
     eval_snap = _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc)
 
     if network.needs_point_nodes:
