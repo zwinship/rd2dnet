@@ -214,7 +214,11 @@ def density(
         ``"network"`` (default: observations per metre of street) or ``"none"``
         (density of observations in ``s``, as in rddensity). The unnormalised
         test also reacts to differences in street supply across the boundary
-        (e.g. a park frontage), not only to sorting.
+        (e.g. a park frontage), not only to sorting. The street-length
+        normalisation assumes observations lie on the streets: for off-street
+        locations next to a curved or round boundary (a zone outline) it
+        over-rejects badly without any sorting (see the README), and
+        ``"none"`` is safer there.
     weights
         Optional non-negative observation weights (e.g. floor area).
     bwselect

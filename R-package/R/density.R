@@ -157,7 +157,10 @@
 #'   and of the bias-corrected fit used for inference (default `p + 1`).
 #' @param normalize `"network"` (observations per metre of street) or
 #'   `"none"` (density of observations in `s`, as in rddensity), which also
-#'   reacts to differences in street supply across the boundary.
+#'   reacts to differences in street supply across the boundary. The
+#'   street-length normalisation assumes observations lie on the streets: for
+#'   off-street locations next to a curved or round boundary (a zone outline)
+#'   it over-rejects badly without any sorting, and `"none"` is safer there.
 #' @param kernel Kernel name or function (see [get_kernel()]).
 #' @param weights Optional non-negative observation weights.
 #' @param bwselect `"common"` (one bandwidth, the smaller of the two side-wise

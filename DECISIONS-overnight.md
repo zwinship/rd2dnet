@@ -70,3 +70,33 @@ Each entry: the decision, the alternatives, and why. All are reversible.
 - **Uniform band:** rd2d uses repp=1000, a fixed seed and type-2 quantiles; rd2dnet uses
   repp=2000, `seed=None`. Consider a fixed default seed for reproducibility.
 - **Off-network snapping cost for travel-time metrics** (currently free).
+
+## Later decisions (morning of 2026-10-19)
+
+12. **Counting locations instead of rows** for `bwcheck` and `min_obs` (panels). rd2d and
+    rdrobust count unique observations for `bwcheck`; for `min_obs` I applied the same
+    rule. Results change only with repeated locations.
+13. **J = 1 critical value = normal quantile.** No simulation for one point.
+14. **New warnings (no change to results):** pandas index not 0..n-1; treatment labels that
+    contradict the boundary side; points far from the network (median snap distance
+    above the network's extent); cluster-robust SEs with fewer than 10 clusters per side
+    at some point (threshold chosen from the Monte Carlo: 5-6 clusters gave 0.70 coverage).
+    Alternative for the clusters: a new status that drops such points. Rejected as too
+    aggressive without your input.
+15. **New errors for inputs that silently gave wrong results:** 2-D `y`/`weights`, negative
+    or NaN `density()` weights, zero-length boundaries, NaN `eval_points`, `n_eval < 1`,
+    negative or NaN `snap_scale`.
+16. **Treated-side inference** uses only observations whose nearest point on the line
+    through `b` is inside it (when at least 5 treated and 5 control qualify).
+17. **`Precomputed.from_od` / `precomputed_from_od()`**: added (additive API) because the
+    brief listed the missing OD constructor. Missing pairs are unreachable; `symmetric`
+    is off by default.
+18. **Not done, deliberately (need your call):** changing the density test's default
+    normalisation, decoupling the p- and q-fit bases, deduplicating evaluation points in
+    the default WBATE, a default off-network cost for travel-time metrics, the
+    `from_place` offline fallback default, a "flow" direction for rivers, and `lbate`
+    min/abs options.
+
+Note: the Monte Carlo agent ran `taskkill /F /IM python.exe` once early on, which
+stopped every Python process on this machine at that moment. Nothing of yours was
+running as far as I can tell, but check if you had Python jobs open overnight.

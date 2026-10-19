@@ -36,7 +36,10 @@ and of the bias-corrected fit used for inference (default \code{p + 1}).}
 
 \item{normalize}{\code{"network"} (observations per metre of street) or
 \code{"none"} (density of observations in \code{s}, as in rddensity), which also
-reacts to differences in street supply across the boundary.}
+reacts to differences in street supply across the boundary. The
+street-length normalisation assumes observations lie on the streets: for
+off-street locations next to a curved or round boundary (a zone outline)
+it over-rejects badly without any sorting, and \code{"none"} is safer there.}
 
 \item{kernel}{Kernel name or function (see \code{\link[=get_kernel]{get_kernel()}}).}
 

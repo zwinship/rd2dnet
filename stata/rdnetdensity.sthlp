@@ -44,6 +44,15 @@ itself, as {cmd:rddensity} would. Masked stretches of the boundary are always
 excluded.
 
 {pstd}
+The street-length normalisation assumes that observations lie on the streets.
+For off-street locations (parcels, households) next to a curved or round
+boundary, such as a zone outline, street supply within a given distance differs
+by side even without sorting, and {cmd:normalize(network)} over-rejects badly
+(98-100% rejection at the 5% level in a Monte Carlo on a round zone).
+{cmd:normalize(none)} is safer there, but still oversized; interpret density tests
+on curved boundaries with caution.
+
+{pstd}
 With repeated measurements, every row counts as an observation and repeated
 rows at one place look like a density spike; option {opt unique} tests the
 density of locations instead.
