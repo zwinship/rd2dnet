@@ -33,3 +33,40 @@ Each entry: the decision, the alternatives, and why. All are reversible.
 
 6. **Parity harness on its own branch (`parity-harness`)**; generated cases are not
    committed (`parity/.gitignore`); CI regenerates them.
+
+7. **Exact distances on directed networks and with transition costs: split edges at the
+   locations.** Alternatives: (a) state-level "arc entry" distances in the engine (no graph
+   growth, but a rewrite of every distance routine in three languages, including the Conley
+   kernel); (b) split only for these metrics (chosen). Undirected plain-cost networks, the
+   common case, are untouched. Cost: the network grows by one node per distinct location for
+   directed/transition metrics. `coords.network` therefore carries `rdnet_point_*` nodes.
+
+8. **Covariate side weights 1/h_side² (rd2d's choice)** applied in all languages, also in the
+   Conley auxiliary fit and for `pooled`. Changes estimates only when h0 != h1.
+
+9. **Leverage clip 1e-8 (rd2d) instead of 1e-12.**
+
+10. **Parity tolerance 1e-7** instead of 1e-8: automatic bandwidths differ by up to 3.5e-8
+    between Python and R from rounding in near-ill-conditioned fits.
+
+11. **AppStream sign-in.** The Stata session expired around 06:30 and the link now asks for an
+    AWS sign-in; per the rules I did not sign in. Stata changes after commit 253b969 are
+    untested in Stata. PR #5 is merged only if CI is green, on the basis that main is
+    unpublished and the Stata port has never been released; please run the Stata suite
+    before any release.
+
+## Waiting for your decision (from the audits)
+
+- **Near-singular q-fits:** (a) flag points whose order-q fit has leverage 1 or a condition
+  number above a threshold (new status "unstable"); (b) when only the q-fit is singular in
+  (s, o), keep the p-fit in (s, o) and compute the bias correction in s alone, instead of
+  refitting everything in s alone. I recommend both; not done because it changes results.
+- **Density bandwidth selector** is not rddensity's (normal-reference pilots, `comb` default).
+  rd2dnet uses rd2d-style constants and `common = min(hl, hr)`. Together with the
+  over-rejection on round zones, consider porting rddensity's selector.
+- **min_obs/bwcheck default:** rd2d's `rd2d()` uses 50 + p + 1; rd2dnet uses 20 + #terms(q).
+- **Cluster SEs:** rdnet uses rd2d's `vce="hc0"` + CR1; rd2d's default (`hc1` + cluster) is
+  about 1.7% larger. Also clustering under-covers in several Monte Carlo runs; Conley does well.
+- **Uniform band:** rd2d uses repp=1000, a fixed seed and type-2 quantiles; rd2dnet uses
+  repp=2000, `seed=None`. Consider a fixed default seed for reproducibility.
+- **Off-network snapping cost for travel-time metrics** (currently free).
