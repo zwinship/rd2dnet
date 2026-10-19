@@ -51,6 +51,21 @@ Fixes:
 - `travel_time(default_kph=...)` also fills missing (NaN) speeds.
 - `from_igraph` uses `length` when there is no `weight` attribute.
 
+Fixes from cross-language and invariance testing:
+
+- Directed networks: a location partway along a one-way edge was reached through
+  either end node, as if the edge ran both ways, so `s` and kernel distances were too
+  short. Transition costs: the penalty for switching onto the class of the edge a
+  location sits on was never charged. With `direction="out"`/`"in"` on a directed
+  network, or with `TransitionCost`, every location and evaluation point is now placed
+  on a node of the network (its edge is split there), so paths respect edge direction
+  and class changes. Fixed in Python, R and Stata.
+- Nodes inserted where edges cross the boundary had no node attributes, so
+  `node_contrast()` costs on split edges counted the contrast twice (against 0). Numeric
+  node attributes are now interpolated along the edge.
+- `parity/`: random designs run in Python and R (CI job `parity`) and Stata
+  (`parity/run_stata.do`), compared to 1e-8.
+
 Stata (first run in Stata 19; the test suite passes):
 
 - `rdnetdensity` now returns its results in `r()` (they were cleared when the command ended).

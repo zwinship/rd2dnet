@@ -407,7 +407,8 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
     if (!key %in% names(crossing_ids)) {
       cid <- sprintf("rdnet_crossing_%d", length(crossing_ids))
       crossing_ids[key] <- cid
-      new_nodes[[length(new_nodes) + 1]] <- data.frame(name = cid, x = pt[1], y = pt[2])
+      new_nodes[[length(new_nodes) + 1]] <- data.frame(name = cid, x = pt[1], y = pt[2], from = iu[k], to = iv[k],
+                                                       t = t)
     }
     cid <- crossing_ids[[key]]
     first <- E[k, , drop = FALSE]
@@ -438,8 +439,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   if (!is.character(ids)) ids <- as.character(ids)
   all_nodes <- nodes
   all_nodes$name <- ids
-  extra <- as.data.frame(matrix(NA, nrow(added), ncol(nodes) - 3, dimnames = list(NULL, names(nodes)[-(1:3)])))
-  added <- cbind(added, extra)
+  added <- cbind(added[c("name", "x", "y")], .between(nodes, added$from, added$to, added$t))
   all_nodes <- rbind(all_nodes, added[names(all_nodes)])
   all_nodes$rdnet_crossing <- c(rep(FALSE, nrow(nodes)), rep(TRUE, nrow(added)))
   NE <- do.call(rbind, new_edges)
@@ -456,6 +456,98 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   net$cache$split_boundary <- b
   net$cache$split_net <- out
   out
+}
+
+# Node attributes for new nodes a fraction t of the way from node a to node b:
+# numeric attributes are interpolated (so costs built from node attributes, such
+# as node_contrast(), add up along a split edge); others are NA.
+.between <- function(nodes, a, b, t) {
+  cols <- setdiff(names(nodes), c("name", "x", "y"))
+  out <- as.data.frame(matrix(NA, length(a), length(cols), dimnames = list(NULL, cols)))
+  for (cl in cols) {
+    v <- nodes[[cl]]
+    if (is.numeric(v) && !is.logical(v)) out[[cl]] <- v[a] + (v[b] - v[a]) * t
+  }
+  out
+}
+
+# Whether locations on edges must become nodes for exact distances. A location
+# partway along an edge is normally reached through the edge's end nodes plus
+# part of the edge's cost; that ignores one-way edges and the penalty for
+# switching onto the location's edge class, so directed networks and transition
+# costs place each location on a node instead.
+.needs_point_nodes <- function(net) {
+  if (!isTRUE(net$metric$supports_edge_splitting)) return(FALSE)
+  (isTRUE(net$directed) && net$direction != "both") || inherits(net$metric, "rd2dnet_transition_cost")
+}
+
+# Inserts a node at each location `frac` of the way from node u to node v
+# (indices), splitting every stored edge between u and v (both directions,
+# parallel edges) with extensive columns and the metric's cost column divided in
+# proportion. Returns the new network and the node index of each location.
+.with_point_nodes <- function(net, u, v, frac, extensive = c("length", "travel_time")) {
+  frac <- pmin(pmax(frac, 0), 1)
+  node <- integer(length(u))
+  at_u <- (u == v) | (frac <= 1e-12)
+  at_v <- !at_u & (frac >= 1 - 1e-12)
+  node[at_u] <- u[at_u]
+  node[at_v] <- v[at_v]
+  mid <- which(!at_u & !at_v)
+  if (!length(mid)) return(list(net = net, node = node))
+  extensive <- union(extensive, .cost_attributes(net$metric))
+  # positions measured from the smaller node index
+  lo <- pmin(u[mid], v[mid])
+  hi <- pmax(u[mid], v[mid])
+  t <- round(ifelse(u[mid] == lo, frac[mid], 1 - frac[mid]), 12)
+  spot <- paste(lo, hi, sprintf("%.12f", t))
+  first <- !duplicated(spot)
+  sid <- match(spot, spot[first])
+  n0 <- net$n_nodes
+  node[mid] <- n0 + sid
+  S <- data.frame(lo = lo[first], hi = hi[first], t = t[first])
+  xy <- net$coords[S$lo, , drop = FALSE] + (net$coords[S$hi, , drop = FALSE] - net$coords[S$lo, , drop = FALSE]) * S$t
+  nodes <- net$nodes
+  nodes$name <- as.character(nodes$name)
+  added <- data.frame(name = sprintf("rdnet_point_%d", seq_len(nrow(S)) - 1L), x = xy[, 1], y = xy[, 2],
+                      stringsAsFactors = FALSE)
+  added <- cbind(added, .between(nodes, S$lo, S$hi, S$t))
+  all_nodes <- rbind(nodes, added[names(nodes)])
+  E <- net$edges
+  has_geom <- "geometry" %in% names(E)
+  pair_lo <- pmin(E$from, E$to)
+  pair_hi <- pmax(E$from, E$to)
+  ekey <- paste(pair_lo, pair_hi)
+  skey <- paste(S$lo, S$hi)
+  drop <- integer()
+  new_edges <- list()
+  for (k in which(ekey %in% skey & E$from != E$to)) {
+    rows <- which(skey == ekey[k])
+    ts <- sort(S$t[rows])
+    ids <- n0 + rows[order(S$t[rows])]
+    forward <- E$from[k] == pair_lo[k]
+    pos <- if (forward) ts else 1 - rev(ts)
+    if (!forward) ids <- rev(ids)
+    chain <- c(E$from[k], ids, E$to[k])
+    cut <- c(0, pos, 1)
+    geom <- if (has_geom) E$geometry[[k]] else NULL
+    for (i in seq_len(length(chain) - 1)) {
+      piece <- E[k, , drop = FALSE]
+      share <- cut[i + 1] - cut[i]
+      for (a in intersect(extensive, names(E))) piece[[a]] <- .first_value(E[[a]][k]) * share
+      if (!is.null(geom)) piece$geometry <- list(.line_substring(geom, cut[i], cut[i + 1]))
+      piece$from <- chain[i]
+      piece$to <- chain[i + 1]
+      new_edges[[length(new_edges) + 1]] <- piece
+    }
+    drop <- c(drop, k)
+  }
+  E2 <- rbind(E[-drop, , drop = FALSE], do.call(rbind, new_edges))
+  E2$from <- all_nodes$name[E2$from]
+  E2$to <- all_nodes$name[E2$to]
+  rownames(E2) <- NULL
+  out <- network_graph(E2, all_nodes, metric = net$metric, directed = net$directed,
+                       direction = net$direction, crs = net$crs, snap_scale = net$snap_scale)
+  list(net = out, node = node)
 }
 
 #' Build a network from an adjacency matrix

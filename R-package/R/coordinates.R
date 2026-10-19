@@ -118,6 +118,54 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
   snapped <- .snap(u, v, cu, cv, depth)
   depth_cost <- depth * network$snap_scale
 
+  bnode_arc <- boundary_project(boundary, network$coords[bnodes, , drop = FALSE])
+  closed <- isTRUE(boundary$closed)
+  if (is.null(eval_points)) {
+    if (closed) { # around the ring, without repeating the start
+      eval_arc <- (min(bnode_arc) + (seq_len(n_eval) - 1) * boundary$length / n_eval) %% boundary$length
+    } else {
+      eval_arc <- seq(min(bnode_arc), max(bnode_arc), length.out = n_eval)
+    }
+  } else {
+    if (is.matrix(eval_points) || is.data.frame(eval_points) || .is_sf(eval_points)) {
+      eval_arc <- boundary_project(boundary, eval_points)
+    } else {
+      eval_arc <- as.numeric(eval_points)
+    }
+    if (!length(eval_arc)) stop("eval_points is empty", call. = FALSE)
+    outside <- eval_arc < min(bnode_arc) - 1e-9 | eval_arc > max(bnode_arc) + 1e-9
+    if (any(outside) && !closed) {
+      warning(sprintf(paste0("%d evaluation points lie beyond the first or last place the network meets ",
+                             "the boundary; they are moved to the nearest boundary node"), sum(outside)),
+              call. = FALSE)
+    }
+  }
+  eval_snap <- .snap_eval_points(network, boundary, eval_arc, node_on, bnodes, bnode_arc)
+
+  if (.needs_point_nodes(network)) {
+    # One-way edges and class-change penalties: put every location and
+    # evaluation point on a node, so that paths respect both.
+    k_obs <- length(u)
+    pu <- c(u, eval_snap$u)
+    pv <- c(v, eval_snap$v)
+    pc <- c(cu, eval_snap$cost_u)
+    tot <- pc + c(cv, eval_snap$cost_v)
+    frac <- ifelse(tot > 0, pc / tot, 0)
+    on_edge_ends <- node_on[pu] & node_on[pv]
+    sp <- .with_point_nodes(network, pu, pv, frac, extensive)
+    network <- sp$net
+    pnode <- sp$node
+    node_on <- boundary_distance(boundary, network$coords) <= boundary$tol
+    node_on[pnode[on_edge_ends]] <- TRUE
+    node_T <- boundary_is_treated(boundary, network$coords) & !node_on
+    bnodes <- which(node_on)
+    u <- v <- pnode[seq_len(k_obs)]
+    cu <- cv <- numeric(k_obs)
+    snapped <- .snap(u, v, cu, cv, depth)
+    e <- pnode[-seq_len(k_obs)]
+    eval_snap <- .snap(e, e, numeric(length(e)), numeric(length(e)), numeric(length(e)))
+  }
+
   ns <- nearest_source(network, bnodes)
   node_dist <- ns$dist
   node_src <- ns$src
@@ -144,29 +192,6 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
                       boundary_project(boundary, network$coords[safe, , drop = FALSE]))
   cross_arc[unreachable] <- NA_real_
 
-  bnode_arc <- boundary_project(boundary, network$coords[bnodes, , drop = FALSE])
-  closed <- isTRUE(boundary$closed)
-  if (is.null(eval_points)) {
-    if (closed) { # around the ring, without repeating the start
-      eval_arc <- (min(bnode_arc) + (seq_len(n_eval) - 1) * boundary$length / n_eval) %% boundary$length
-    } else {
-      eval_arc <- seq(min(bnode_arc), max(bnode_arc), length.out = n_eval)
-    }
-  } else {
-    if (is.matrix(eval_points) || is.data.frame(eval_points) || .is_sf(eval_points)) {
-      eval_arc <- boundary_project(boundary, eval_points)
-    } else {
-      eval_arc <- as.numeric(eval_points)
-    }
-    if (!length(eval_arc)) stop("eval_points is empty", call. = FALSE)
-    outside <- eval_arc < min(bnode_arc) - 1e-9 | eval_arc > max(bnode_arc) + 1e-9
-    if (any(outside) && !closed) {
-      warning(sprintf(paste0("%d evaluation points lie beyond the first or last place the network meets ",
-                             "the boundary; they are moved to the nearest boundary node"), sum(outside)),
-              call. = FALSE)
-    }
-  }
-  eval_snap <- .snap_eval_points(network, boundary, eval_arc, node_on, bnodes, bnode_arc)
   masked <- boundary_is_masked(boundary, eval_arc)
   spot <- paste(pmin(eval_snap$u, eval_snap$v), pmax(eval_snap$u, eval_snap$v),
                 round(ifelse(eval_snap$u <= eval_snap$v, eval_snap$cost_u, eval_snap$cost_v), 6))

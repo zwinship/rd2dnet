@@ -141,3 +141,58 @@ def test_pairs_within_matches_full_dijkstra(city, kind):
     got[i, node] = True
     np.testing.assert_array_equal(got, full < 400.0)
     np.testing.assert_allclose(d, full[i, node])
+
+
+def _add_edge(G, a, b, **kw):
+    p, q = G.nodes[a], G.nodes[b]
+    G.add_edge(a, b, length=float(np.hypot(p["x"] - q["x"], p["y"] - q["y"])), **kw)
+
+
+def test_directed_points_on_one_way_edges_follow_the_direction():
+    # X is on the boundary; the one-way edge N -> M can only be entered at N (via X -> R -> N)
+    G = nx.DiGraph()
+    for n, (x, y) in {"X": (0, 0), "M": (0, -100), "N": (0, -200), "R": (300, -100), "T": (0, 100),
+                      "L": (-100, 0), "Rb": (100, 0)}.items():
+        G.add_node(n, x=x, y=y)
+    for a, b in [("X", "M"), ("N", "M"), ("X", "R"), ("R", "N"), ("X", "T"), ("L", "X"), ("X", "Rb")]:
+        _add_edge(G, a, b)
+    net = rd2dnet.NetworkGraph(G, direction="out")
+    bnd = rd2dnet.Boundary([(-100, 0), (100, 0)], treated_side="left")
+    c = rd2dnet.network_coordinates(net, bnd, np.array([[0, -110.0], [0, -150.0]]), eval_points=np.array([100.0]))
+    want = 2 * np.hypot(300, 100) + np.array([90.0, 50.0])
+    np.testing.assert_allclose(c.s, -want, rtol=1e-12)
+    np.testing.assert_allclose(c.at(0)[0], want, rtol=1e-12)
+
+
+def test_transition_penalty_applies_to_the_points_own_edge():
+    # points on the primary edge P-Q: the all-primary route via Z beats residential X -> Q (+1000)
+    G = nx.Graph()
+    for n, (x, y) in {"P": (0, -200), "Q": (0, -100), "X": (0, 0), "Y": (0, 100), "S": (300, -100),
+                      "Z": (300, 0), "W": (300, 100)}.items():
+        G.add_node(n, x=x, y=y)
+    _add_edge(G, "P", "Q", highway="primary")
+    _add_edge(G, "Q", "X", highway="residential")
+    _add_edge(G, "X", "Y", highway="residential")
+    for a, b in [("Q", "S"), ("S", "Z"), ("Z", "W"), ("X", "Z")]:
+        _add_edge(G, a, b, highway="primary")
+    pen = {("primary", "residential"): 1000.0, ("residential", "primary"): 1000.0}
+    net = rd2dnet.NetworkGraph(G, TransitionCost("length", class_attr="highway", penalty=pen))
+    bnd = rd2dnet.Boundary([(-50, 0), (350, 0)], treated_side="left")
+    c = rd2dnet.network_coordinates(net, bnd, np.array([[0, -150.0], [0, -199.9], [0, -200.0]]),
+                                    eval_points=np.array([50.0]))
+    np.testing.assert_allclose(c.s, [-450.0, -499.9, -500.0], rtol=1e-12)
+
+
+def test_node_contrast_is_preserved_when_an_edge_is_split_at_the_boundary():
+    G = nx.Graph()
+    G.add_node("a", x=0.0, y=-100.0, far=1.0)
+    G.add_node("b", x=0.0, y=100.0, far=5.0)
+    G.add_node("c", x=200.0, y=-100.0, far=1.0)
+    G.add_node("d", x=200.0, y=100.0, far=5.0)
+    for a, b in [("a", "b"), ("c", "d"), ("a", "c"), ("b", "d")]:
+        _add_edge(G, a, b)
+    net = rd2dnet.NetworkGraph(G, node_contrast("far", 10.0))
+    bnd = rd2dnet.Boundary([(-50, 0), (250, 0)], treated_side="right")
+    split = net.with_boundary_crossings(bnd)
+    # 200 m plus a contrast of 10 * |5 - 1| = 40 from a to b, through the crossing node
+    assert split.node_distance("a", "b") == pytest.approx(240.0)

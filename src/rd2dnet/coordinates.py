@@ -491,6 +491,45 @@ def network_coordinates(
     snapped = Snap(u, v, cu, cv, depth)
     depth_cost = depth * network.snap_scale
 
+    bnode_arc = boundary.project(network.coords[boundary_nodes])
+    if eval_points is None:
+        if boundary.closed:  # around the ring, without repeating the start
+            eval_arc = (bnode_arc.min() + np.arange(n_eval) * boundary.length / n_eval) % boundary.length
+        else:
+            eval_arc = np.linspace(bnode_arc.min(), bnode_arc.max(), n_eval)
+    else:
+        ep = np.asarray(eval_points, dtype=float)
+        eval_arc = boundary.project(ep) if ep.ndim == 2 else ep.ravel()
+        if eval_arc.size == 0:
+            raise ValueError("eval_points is empty")
+        outside = (eval_arc < bnode_arc.min() - 1e-9) | (eval_arc > bnode_arc.max() + 1e-9)
+        if outside.any() and not boundary.closed:
+            warnings.warn(f"{int(outside.sum())} evaluation points lie beyond the first or last place the network "
+                          "meets the boundary; they are moved to the nearest boundary node", stacklevel=2)
+    eval_snap = _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc)
+
+    if network.needs_point_nodes:
+        # One-way edges and class-change penalties: put every location and
+        # evaluation point on a node, so that paths respect both.
+        k_obs = len(u)
+        pu = np.r_[u, eval_snap.u]
+        pv = np.r_[v, eval_snap.v]
+        pc = np.r_[cu, eval_snap.cost_u]
+        tot = pc + np.r_[cv, eval_snap.cost_v]
+        frac = np.divide(pc, tot, out=np.zeros_like(pc), where=tot > 0)
+        on_edge_ends = node_on[pu] & node_on[pv]
+        network, pnode = network._with_point_nodes(pu, pv, frac, extensive)
+        on_new = boundary.distance(network.coords) <= boundary.tol
+        on_new[pnode[on_edge_ends]] = True
+        node_on = on_new
+        node_T = boundary.is_treated(network.coords) & ~node_on
+        boundary_nodes = np.flatnonzero(node_on)
+        zero = np.zeros(len(pnode))
+        u, v, cu, cv = pnode[:k_obs], pnode[:k_obs].copy(), zero[:k_obs], zero[:k_obs].copy()
+        snapped = Snap(u, v, cu, cv, depth)
+        e = pnode[k_obs:]
+        eval_snap = Snap(e, e.copy(), zero[k_obs:], zero[k_obs:].copy(), np.zeros(len(e)))
+
     node_dist, node_src = network.nearest_source(boundary_nodes)
     via_u = cu + node_dist[u]
     via_v = cv + node_dist[v]
@@ -518,22 +557,6 @@ def network_coordinates(
     cross_arc = np.where(on_edge, boundary.project(xy), boundary.project(network.coords[safe]))
     cross_arc = np.where(unreachable, np.nan, cross_arc)
 
-    bnode_arc = boundary.project(network.coords[boundary_nodes])
-    if eval_points is None:
-        if boundary.closed:  # around the ring, without repeating the start
-            eval_arc = (bnode_arc.min() + np.arange(n_eval) * boundary.length / n_eval) % boundary.length
-        else:
-            eval_arc = np.linspace(bnode_arc.min(), bnode_arc.max(), n_eval)
-    else:
-        ep = np.asarray(eval_points, dtype=float)
-        eval_arc = boundary.project(ep) if ep.ndim == 2 else ep.ravel()
-        if eval_arc.size == 0:
-            raise ValueError("eval_points is empty")
-        outside = (eval_arc < bnode_arc.min() - 1e-9) | (eval_arc > bnode_arc.max() + 1e-9)
-        if outside.any() and not boundary.closed:
-            warnings.warn(f"{int(outside.sum())} evaluation points lie beyond the first or last place the network "
-                          "meets the boundary; they are moved to the nearest boundary node", stacklevel=2)
-    eval_snap = _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc)
     masked = boundary.is_masked(eval_arc)
     spot = np.column_stack([np.minimum(eval_snap.u, eval_snap.v), np.maximum(eval_snap.u, eval_snap.v),
                             np.round(np.where(eval_snap.u <= eval_snap.v, eval_snap.cost_u, eval_snap.cost_v), 6)])

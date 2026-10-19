@@ -36,6 +36,16 @@
   `length` and `travel_time` (`network_coordinates(extensive = )` adds others).
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
+## Fixes from cross-language testing
+
+* Directed networks: locations partway along one-way edges were reached through either
+  end node, as if the edge were two-way. Transition costs: the penalty for switching onto
+  the class of a location's own edge was not charged. For directed networks (with
+  `direction` other than `"both"`) and `transition_cost()`, locations and evaluation
+  points are now placed on nodes (their edges are split there).
+* Nodes inserted where edges cross the boundary now get interpolated numeric node
+  attributes, so `node_contrast()` costs on split edges are right.
+
 ## Checks and messages
 
 * Errors for `level` given as a proportion, non-finite weights, cluster labels of the wrong
