@@ -11,6 +11,14 @@ clear all
 set more off
 capture mata: mata drop rdn_*()
 capture program drop _all
+* drop development copies from the ado-path (rd2dnet_tests.do adds one)
+tokenize `"`c(adopath)'"', parse(";")
+local i 1
+while `"``i''"' != "" {
+    if strpos(`"``i''"', "rd2dnet") capture adopath - `"``i''"'
+    local ++i
+}
+adopath
 capture ado uninstall rd2dnet
 net install rd2dnet, from("https://raw.githubusercontent.com/zwinship/rd2dnet/`sha'/stata") replace
 
