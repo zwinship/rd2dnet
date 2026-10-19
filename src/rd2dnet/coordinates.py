@@ -501,6 +501,11 @@ def network_coordinates(
             depth[side_mask] = sn.depth
     snapped = Snap(u, v, cu, cv, depth)
     depth_cost = depth * network.snap_scale
+    extent = float(np.hypot(*np.ptp(network.coords, axis=0)))
+    if len(depth) and extent > 0 and np.median(depth) > extent:
+        warnings.warn(f"the points lie far from the network (median distance {np.median(depth):.4g}, network extent "
+                      f"{extent:.4g}); check that they are in the network's CRS (lon/lat points need lonlat=True)",
+                      stacklevel=2)
 
     bnode_arc = boundary.project(network.coords[boundary_nodes])
     if eval_points is None:

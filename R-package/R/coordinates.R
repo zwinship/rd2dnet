@@ -130,6 +130,12 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
   }
   snapped <- .snap(u, v, cu, cv, depth)
   depth_cost <- depth * network$snap_scale
+  extent <- sqrt(sum(apply(network$coords, 2, function(z) diff(range(z)))^2))
+  if (length(depth) && extent > 0 && stats::median(depth) > extent) {
+    warning(sprintf(paste0("the points lie far from the network (median distance %.4g, network extent %.4g); ",
+                           "check that they are in the network's CRS (lon/lat points need lonlat = TRUE)"),
+                    stats::median(depth), extent), call. = FALSE)
+  }
 
   bnode_arc <- boundary_project(boundary, network$coords[bnodes, , drop = FALSE])
   closed <- isTRUE(boundary$closed)

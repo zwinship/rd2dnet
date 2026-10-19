@@ -120,6 +120,13 @@ class Boundary:
         """
         from shapely.ops import linemerge
 
+        if hasattr(region, "geometry") and not isinstance(region, BaseGeometry):  # GeoSeries / GeoDataFrame
+            geoms = region.geometry
+            if len(geoms) == 0:
+                raise ValueError("region is empty")
+            region = geoms.iloc[0] if len(geoms) == 1 else shapely.union_all(np.asarray(geoms))
+        if not isinstance(region, BaseGeometry) or region.geom_type not in ("Polygon", "MultiPolygon"):
+            raise TypeError("region must be a Polygon or MultiPolygon (or a GeoSeries of them, in the network's CRS)")
         if region.geom_type == "MultiPolygon":
             region_line = shapely.boundary(region)
         else:

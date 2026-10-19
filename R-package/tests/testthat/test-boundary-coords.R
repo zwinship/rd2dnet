@@ -200,3 +200,10 @@ test_that("a treatment that contradicts geography warns", {
   expect_warning(network_coordinates(city$network("length"), city$boundary, city$obs, treated = t, n_eval = 5),
                  "30 observations")
 })
+
+test_that("points far from the network warn", {
+  city <- mock_city()
+  ll <- cbind(rnorm(50, 5.8e5, 50), rnorm(50, 4.51e6, 50))
+  expect_warning(try(network_coordinates(city$network("length"), city$boundary, ll, n_eval = 3), silent = TRUE),
+                 "far from the network")
+})

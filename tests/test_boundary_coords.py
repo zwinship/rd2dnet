@@ -230,3 +230,18 @@ def test_treatment_that_contradicts_geography_warns(city):
     t[:30] = ~t[:30]
     with pytest.warns(UserWarning, match="30 observations"):
         rd2dnet.network_coordinates(city.network("length"), city.boundary, city.obs[["x", "y"]], treated=t, n_eval=5)
+
+
+def test_points_far_from_the_network_warn(city):
+    lonlat = np.column_stack([np.full(50, 5.8e5), np.full(50, 4.51e6)]) + np.random.default_rng(0).normal(0, 50, (50, 2))
+    with pytest.warns(UserWarning, match="far from the network"):
+        try:
+            rd2dnet.network_coordinates(city.network("length"), city.boundary, lonlat, n_eval=3)
+        except ValueError:
+            pass
+
+
+def test_from_region_accepts_a_geoseries():
+    gpd = pytest.importorskip("geopandas")
+    b = rd2dnet.Boundary.from_region(gpd.GeoSeries([box(0, 0, 100, 100)]))
+    assert b.closed and b.length == pytest.approx(400)
