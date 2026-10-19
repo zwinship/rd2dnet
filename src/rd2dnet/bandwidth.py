@@ -307,7 +307,11 @@ def rdbwnet(
         One row per evaluation point with the control/treated bandwidths
         ``h0``/``h1`` (and ``h`` when they are equal), the pilots ``dn``,
         ``bn0``, ``bn1``, the MSE constants (``V``, ``B``, ``Reg1``, ``Reg2`` per
-        side), the bounds ``hmin``/``hmax``, local sample sizes and a ``status``.
+        side, suffix 0/1), the bounds ``hmin0``/``hmin1`` (distance to the
+        ``bwcheck``-th nearest location) and ``hmax0``/``hmax1``, the numbers of
+        usable observations on each side ``n0``/``n1`` (all of them, not only
+        those inside the bandwidth), the ``basis`` of the fit (``"s,o"`` or
+        ``"s"``) and a ``status``.
     """
     bwselect = bwselect.lower()
     if bwselect not in BWSELECT:
