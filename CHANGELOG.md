@@ -104,6 +104,9 @@ Fixes from cross-language and invariance testing:
   from a long origin-destination table (for example a router's travel-time output).
 - Collinear covariates (after removing means) give a warning naming the cause; before,
   every point was reported "singular" with no hint (Python, R, Stata).
+- Clear errors instead of raw numpy/GEOS errors for non-finite node coordinates, malformed
+  masks, `from_adjacency` with the wrong number of coordinates or labels, and graph nodes
+  missing from a `Precomputed` matrix's labels (whose lookup is now linear, not quadratic).
 - `RDNetResult.plot(true_tau=...)` accepts a single value or a function of arc position.
 - Bandwidth selector: local designs whose Gram matrix has a condition number above 1e8
   (was 1e12) count as singular. Between the two, plug-in variances could change sign

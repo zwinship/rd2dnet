@@ -84,7 +84,10 @@ class Boundary:
             if isinstance(m, BaseGeometry):
                 self.mask_geoms.append(m)
             else:
-                a, b = m
+                try:
+                    a, b = (float(v) for v in m)
+                except (TypeError, ValueError):
+                    raise ValueError(f"each mask must be a polygon or an (arc_start, arc_end) pair, got {m!r}") from None
                 self.mask_arcs.append((min(a, b), max(a, b)))
         shapely.prepare(self.line)
 

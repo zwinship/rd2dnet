@@ -246,3 +246,24 @@ def test_collinear_covariates_warn(coords, city):
     z = city.obs["far"].to_numpy()
     with pytest.warns(UserWarning, match="collinear"):
         rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, covs=np.c_[z, 2 * z + 1], cbands=False)
+
+
+def test_clear_errors_for_malformed_inputs():
+    from rd2dnet import Precomputed
+
+    G = nx.Graph()
+    G.add_node(0, x=0.0, y=np.nan)
+    G.add_node(1, x=1.0, y=0.0)
+    G.add_edge(0, 1, length=1.0)
+    with pytest.raises(ValueError, match="finite"):
+        rd2dnet.NetworkGraph(G)
+    with pytest.raises(ValueError, match="arc_start, arc_end"):
+        rd2dnet.Boundary([(0, 0), (1, 0)], treated_side="left", mask=[5])
+    with pytest.raises(ValueError, match="one row per node"):
+        rd2dnet.NetworkGraph.from_adjacency(np.ones((3, 3)) - np.eye(3), np.zeros((2, 2)))
+    G2 = nx.Graph()
+    G2.add_node("a", x=0.0, y=0.0)
+    G2.add_node("b", x=1.0, y=0.0)
+    G2.add_edge("a", "b", length=1.0)
+    with pytest.raises(ValueError, match="not in the precomputed"):
+        rd2dnet.NetworkGraph(G2, Precomputed(np.zeros((2, 2)), ["a", "c"])).engine

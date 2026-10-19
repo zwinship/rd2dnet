@@ -468,7 +468,11 @@ class Precomputed(NetworkMetric):
             )
         if self.nodes is None:
             return DenseEngine(self.matrix)
-        perm = np.array([self.nodes.index(node) for node in node_index])
+        pos = {node: i for i, node in enumerate(self.nodes)}
+        missing = [node for node in node_index if node not in pos]
+        if missing:
+            raise ValueError(f"the graph has nodes that are not in the precomputed matrix's nodes, e.g. {missing[:3]!r}")
+        perm = np.array([pos[node] for node in node_index])
         return DenseEngine(self.matrix[np.ix_(perm, perm)])
 
 
