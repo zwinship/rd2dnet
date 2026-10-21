@@ -7,13 +7,15 @@
 \usage{
 wbate(x, weights = NULL)
 
-lbate(x)
+lbate(x, kind = c("max", "min", "absmax"))
 }
 \arguments{
 \item{x}{An \code{\link[=rdnet]{rdnet()}} result.}
 
 \item{weights}{One weight per evaluation point (default: equal weights on
-the estimated points).}
+the distinct places of the estimated points).}
+
+\item{kind}{For \code{lbate()}: \code{"max"} (default), \code{"min"} or \code{"absmax"}.}
 }
 \value{
 A named numeric vector: \code{tau}, \code{tau_bc}, \code{se_rb}, \code{ci_lo},
@@ -23,16 +25,20 @@ p-value; \code{se_rb} and \code{pvalue} are \code{NA} for LBATE).
 \description{
 \code{wbate()} is the weighted boundary average treatment effect \verb{w' tau}
 (rd2d's WBATE): \code{weights} has one entry per evaluation point and is
-normalised to sum to one; by default every estimated point gets equal
-weight. Points that were not estimated must get weight 0. Its standard error \verb{sqrt(w' Sigma w)} uses the joint covariance
-\code{x$cov}, so it accounts for the correlation between nearby points.
+normalised to sum to one. By default every distinct place where an estimated
+point lies gets equal weight: evaluation points that snapped to the same place
+(\code{node_arc}) repeat one estimate and share its weight. Points that were not
+estimated must get weight 0. Its standard error \verb{sqrt(w' Sigma w)} uses the
+joint covariance \code{x$cov}, so it accounts for the correlation between nearby points.
 }
 \details{
 \code{lbate()} is the largest boundary average treatment effect
 \verb{max_j tau(b_j)} (rd2d's LBATE), with interval
 \verb{[max_j (tau_bc - crit se_rb), max_j (tau_bc + crit se_rb)]} over the
 estimated points, \code{crit} the uniform critical value, so it inherits the
-uniform band's joint coverage.
+uniform band's joint coverage. \code{kind = "min"} gives the smallest effect
+(\verb{[min_j lo_j, min_j hi_j]}) and \code{kind = "absmax"} the largest absolute effect
+(\verb{[max_j dist(0, [lo_j, hi_j]), max_j max(|lo_j|, |hi_j|)]}).
 }
 \examples{
 city <- load_mock_midtown()

@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 import rd2dnet
+from shapely.geometry import box
 from rd2dnet._wls import poly_basis, poly_exponents, wls
 from rd2dnet.datasets import load_mock_midtown, make_mock_midtown
 from rd2dnet.kernels import get_kernel
@@ -471,3 +472,36 @@ def test_singular_bias_correction_fit_does_not_change_the_main_estimate(city):
     ok = t["status"] == "ok"
     np.testing.assert_allclose(t.loc[ok, "tau"], 2.5, atol=1e-8)
     np.testing.assert_allclose(t.loc[ok, "tau_bc"], 2.5, atol=1e-6)
+
+
+def test_lbate_kinds_and_place_weighted_wbate(coords, city):
+    r = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, vce="hc1")
+    t = r.table[r.table["status"] == "ok"]
+    lo, hi = t["tau_bc"] - r.crit * t["se_rb"], t["tau_bc"] + r.crit * t["se_rb"]
+    mn, ab = r.lbate("min"), r.lbate("absmax")
+    assert mn["tau_bc"] == pytest.approx(t["tau_bc"].min()) and mn["ci_hi"] == pytest.approx(hi.min())
+    assert ab["ci_lo"] == pytest.approx(np.maximum.reduce([0 * lo, lo, -hi]).max())
+    assert ab["ci_hi"] == pytest.approx(np.maximum(lo.abs(), hi.abs()).max())
+    with pytest.raises(ValueError, match="kind"):
+        r.lbate("median")
+    # with a wide bandwidth the two evaluation points on the isolated highway node are
+    # estimated; they repeat one estimate and share one place's weight
+    r2 = rd2dnet.rdnet(city.obs["outcome"], coords, h=2000.0, vce="hc1")
+    ok = (r2.table["status"] == "ok").to_numpy()
+    w = ok.astype(float)
+    w[1] = 0.0  # the second copy of the highway place
+    assert r2.wbate()["tau_bc"] == pytest.approx(r2.wbate(w)["tau_bc"])
+
+
+def test_default_seed_makes_the_band_reproducible(coords, city):
+    a = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0)
+    b = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0)
+    assert a.crit == b.crit
+
+
+def test_points_on_the_line_are_treated_with_either_side_rule():
+    line = [(0.0, 0.0), (100.0, 0.0)]
+    on = np.array([[50.0, 0.0]])
+    for side in ("left", "right"):
+        assert rd2dnet.Boundary(line, treated_side=side).is_treated(on)[0]
+    assert rd2dnet.Boundary(line, treated_region=box(-10, 0, 110, 50)).is_treated(on)[0]
