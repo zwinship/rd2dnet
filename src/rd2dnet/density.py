@@ -241,17 +241,28 @@ def density(
         jackknife standard error, z statistic and p-value, the side-wise
         densities, bandwidths and sample sizes.
     """
-    if normalize not in ("none", "network"):
-        raise ValueError("normalize must be 'none' or 'network'")
+    if normalize not in ("none", "network", "euclidean"):
+        raise ValueError("normalize must be 'network', 'none' or 'euclidean'")
     q = p + 1 if q is None else int(q)
     if p < 1 or q < p:
         raise ValueError("need 1 <= p <= q")
     kfun = get_kernel(kernel)
     T = coords.treated
-    s = np.abs(coords.s)
     om = np.ones(coords.n_obs) if weights is None else _check_weights(weights, coords.n_obs)
+    b = coords.boundary
+    if normalize == "euclidean":
+        # straight-line distance to the boundary line, where it is reached in the plane
+        s = b.distance(coords.xy)
+        arc = b.project(coords.xy)
+        reach = ~b.is_masked(arc)
+        if not b.closed:  # beyond the ends of an open boundary the side is not defined
+            reach &= (arc > 1e-9 * b.length) & (arc < b.length * (1 - 1e-9))
+    else:
+        s = np.abs(coords.s)
+        arc = coords.crossing_arc
+        reach = ~b.is_masked(np.nan_to_num(arc, nan=-1.0))
     # Masked stretches (parks, rivers) are void by construction: leave them out.
-    sel = np.isfinite(s) & (om > 0) & ~coords.boundary.is_masked(np.nan_to_num(coords.crossing_arc, nan=-1.0))
+    sel = np.isfinite(s) & (om > 0) & reach
     first = np.zeros(coords.n_obs, dtype=bool)
     first[np.unique(coords.loc, return_index=True)[1]] = True
     if unique_locations:
@@ -264,7 +275,7 @@ def density(
         if window is None:
             raise ValueError("give a window (arc length) together with eval_index")
         center = coords.eval_node_arc[eval_index]
-        sel &= np.abs(coords.crossing_arc - center) <= window
+        sel &= np.abs(arc - center) <= window
     if normalize == "network":
         G_left, G_right = _street_length_transform(coords, center, window)
         s = np.where(T, G_right(s), G_left(s))
