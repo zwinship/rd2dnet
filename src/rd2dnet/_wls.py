@@ -83,7 +83,8 @@ def wls(X: np.ndarray, y: np.ndarray, w: np.ndarray) -> Fit:
     dg = np.sqrt(np.clip(np.diag(G), 1e-300, None))
     if not np.all(np.isfinite(G)) or np.linalg.cond(G / np.outer(dg, dg)) > 1e12:
         raise np.linalg.LinAlgError("local design matrix is singular")
-    Ginv = np.linalg.inv(G)
+    D = np.outer(dg, dg)
+    Ginv = np.linalg.inv(G / D) / D
     Ginv = (Ginv + Ginv.T) / 2
     beta = Ginv @ (XtW @ y)
     resid = y - X @ beta

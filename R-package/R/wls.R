@@ -38,7 +38,7 @@
   # units (income in dollars) must not make a well-posed fit look singular
   dg <- sqrt(pmax(diag(G), 1e-300))
   if (!all(is.finite(G)) || .cond(G / outer(dg, dg)) > 1e12) stop(.singular())
-  Ginv <- solve(G)
+  Ginv <- solve(G / outer(dg, dg)) / outer(dg, dg)
   Ginv <- (Ginv + t(Ginv)) / 2
   beta <- drop(Ginv %*% (XtW %*% y))
   list(beta = beta, Ginv = Ginv, resid = y - drop(X %*% beta), X = X, w = w)

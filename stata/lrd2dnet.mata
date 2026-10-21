@@ -195,7 +195,7 @@ real matrix rdn_inv_checked(real matrix G)
     // units (income in dollars) must not make a well-posed fit look singular
     dg = sqrt(rowmax((diagonal(G), J(rows(G), 1, 1e-300))))
     if (!(cond(G :/ (dg * dg')) <= 1e12)) return(J(rows(G), cols(G), .))
-    Gi = luinv(G)
+    Gi = luinv(G :/ (dg * dg')) :/ (dg * dg')
     return((Gi + Gi') / 2)
 }
 
