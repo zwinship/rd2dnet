@@ -514,7 +514,7 @@ program define t_round2
     rdnet outcome, h(600) fuzzy(d)
     mata: st_numscalar("r2_weak", sum(st_matrix("e(results)")[., 15] :== 5))
     mata: st_numscalar("r2_bad", sum((st_matrix("e(results)")[., 15] :== 0) :& (abs(st_matrix("e(results)")[., 20]) :< 2 :* st_matrix("e(results)")[., 21])))
-    rdn_expect (scalar(r2_weak) > 0) 1 0 "weak first stage flagged"
+    rdn_expect (scalar(r2_weak)>0) 1 0 "weak first stage flagged"
     rdn_expect scalar(r2_bad) 0 0 "no ok point with |fs| < 2 fs_se"
     rcof "noisily rdnet outcome, h(600) tangvec(0 0)" == 198
     rcof "noisily rdnetmanip, kmax(0)" == 198

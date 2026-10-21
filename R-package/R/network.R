@@ -117,6 +117,8 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
 .check_split_cost <- function(net, orig, pieces) {
   m <- if (inherits(net$metric, "rd2dnet_transition_cost")) net$metric$base else net$metric
   if (!inherits(m, "rd2dnet_edge_cost") || !is.function(m$cost)) return(invisible())
+  # costs that read node columns (node_contrast) depend on the new nodes: not checked here
+  if (length(formals(m$cost)) >= 2) return(invisible())
   pieces$from <- orig$from
   pieces$to <- orig$to
   keep <- intersect(names(orig), names(pieces))
@@ -434,11 +436,12 @@ snap_points <- function(net, xy, allowed = NULL, mode = "edge") {
 with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time")) {
   .check_network(net)
   .check_boundary(b)
-  if (!is.null(net$cache$split_boundary) && identical(net$cache$split_boundary, b)) {
-    return(net$cache$split_net)
-  }
   # the metric's own cost column is always split in proportion
   extensive <- union(extensive, .cost_attributes(net$metric))
+  if (!is.null(net$cache$split_boundary) && identical(net$cache$split_boundary, b) &&
+      identical(net$cache$split_extensive, sort(extensive))) {
+    return(net$cache$split_net)
+  }
   Tn <- boundary_is_treated(b, net$coords)
   on <- boundary_distance(b, net$coords) <= b$tol
   E <- net$edges
@@ -454,6 +457,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   if (!length(cand)) {
     attr(net, "n_crossings_inserted") <- 0L
     net$cache$split_boundary <- b
+    net$cache$split_extensive <- sort(extensive)
     net$cache$split_net <- net
     return(net)
   }
@@ -499,6 +503,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   if (!length(drop)) {
     attr(net, "n_crossings_inserted") <- 0L
     net$cache$split_boundary <- b
+    net$cache$split_extensive <- sort(extensive)
     net$cache$split_net <- net
     return(net)
   }
@@ -523,6 +528,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
                        direction = net$direction, crs = net$crs, snap_scale = net$snap_scale)
   attr(out, "n_crossings_inserted") <- length(drop)
   net$cache$split_boundary <- b
+  net$cache$split_extensive <- sort(extensive)
   net$cache$split_net <- out
   out
 }

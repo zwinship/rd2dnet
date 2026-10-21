@@ -13,7 +13,7 @@ program define rdnetmanip, rclass
     marksample touse, novarlist
     markout `touse' _rdn_id
     local qlist `q'
-    if `kmax' == 0 {
+    if `kmax' < 1 & `kmax' != -1 {
         di as err "kmax() must be at least 1"
         exit 198
     }

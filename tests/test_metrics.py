@@ -318,9 +318,22 @@ def test_callable_metric_that_does_not_add_up_over_split_edges_warns():
     G.add_edge("a", "b", length=200.0, minutes=2.0)
     bnd = rd2dnet.Boundary([(100, -50), (100, 50)], treated_side="right")
     X = np.array([[20.0, 0.0], [180.0, 0.0]])
+    net = rd2dnet.NetworkGraph(G, metric=lambda u, v, d: d["minutes"], snap_scale=0.01)
     with pytest.warns(UserWarning, match="does not add up"):
-        rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, metric=lambda u, v, d: d["minutes"], snap_scale=0.01),
-                                    bnd, X, eval_points=[50.0])
-    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, metric=lambda u, v, d: d["minutes"], snap_scale=0.01),
-                                    bnd, X, eval_points=[50.0], extensive=("length", "minutes"))
+        rd2dnet.network_coordinates(net, bnd, X, eval_points=[50.0])
+    # the same network object again: the split with other extensive attributes is not reused
+    c = rd2dnet.network_coordinates(net, bnd, X, eval_points=[50.0], extensive=("length", "minutes"))
     np.testing.assert_allclose(c.s, [-0.8, 0.8], rtol=1e-12)
+
+
+def test_node_contrast_split_does_not_warn():
+    import warnings as _w
+
+    G = nx.Graph()
+    G.add_node("a", x=0.0, y=-100.0, far=1.0)
+    G.add_node("b", x=0.0, y=100.0, far=5.0)
+    G.add_edge("a", "b", length=200.0)
+    bnd = rd2dnet.Boundary([(-50, 0), (50, 0)], treated_side="right")
+    with _w.catch_warnings():
+        _w.simplefilter("error")
+        rd2dnet.NetworkGraph(G, node_contrast("far", 10)).with_boundary_crossings(bnd)

@@ -4028,7 +4028,8 @@ void rdn_wbate_entry()
     okw = selectindex(ok)
     w = w :/ sum(w)
     tq = w[okw]' * R[okw, 10]
-    se = sqrt(max((w[okw]' * cov[okw, okw] * w[okw], 0)))
+    se = w[okw]' * cov[okw, okw] * w[okw]
+    se = (se < . ? sqrt(max((se, 0))) : .)
     z = invnormal(0.5 + lev / 200)
     st_numscalar("r(tau)", w[okw]' * R[okw, 8])
     st_numscalar("r(tau_bc)", tq)

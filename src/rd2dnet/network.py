@@ -113,7 +113,7 @@ class NetworkGraph:
             raise ValueError(f"snap_scale must be finite and non-negative, got {snap_scale!r}")
         self._engine = None
         self._edges: pd.DataFrame | None = None
-        self._split: tuple | None = None  # (boundary, split network) cache
+        self._split: tuple | None = None  # (boundary, extensive, split network) cache
 
     def __repr__(self) -> str:
         return (
@@ -302,10 +302,10 @@ class NetworkGraph:
         proportion to the split, as is the attribute the metric reads (for
         example ``"weight"``); all others are copied.
         """
-        if self._split is not None and self._split[0] is boundary:
-            return self._split[1]
         # the metric's own cost attribute is always split in proportion
         extensive = set(extensive) | _cost_attributes(self.metric)
+        if self._split is not None and self._split[0] is boundary and self._split[1] == extensive:
+            return self._split[2]
         T = boundary.is_treated(self.coords)
         on = boundary.distance(self.coords) <= boundary.tol
         multi = self.graph.is_multigraph()
@@ -321,7 +321,7 @@ class NetworkGraph:
             return self
         if cand.size == 0:  # nothing to split: reuse this network (and its compiled engine)
             self.n_crossings_inserted = 0
-            self._split = (boundary, self)
+            self._split = (boundary, extensive, self)
             return self
         G = self.graph.copy()
         crossing_ids: dict[tuple[float, float], Hashable] = {}
@@ -368,7 +368,7 @@ class NetworkGraph:
             n_split += 1
         out = self._replace_graph(G)
         out.n_crossings_inserted = n_split
-        self._split = (boundary, out)
+        self._split = (boundary, extensive, out)
         return out
 
     @property
@@ -792,7 +792,9 @@ def _check_split_cost(metric, u, v, data, pieces) -> None:
     String costs are split in proportion automatically; a callable may read
     any attribute, and those it reads must be listed in ``extensive``.
     """
-    if not any(callable(getattr(m, "cost", None)) for m in (metric, getattr(metric, "_base", None))):
+    fns = [m for m in (metric, getattr(metric, "_base", None)) if callable(getattr(m, "cost", None))]
+    # costs that read node attributes (node_contrast) depend on the new nodes: not checked here
+    if not fns or any(getattr(m, "_wants_graph", False) for m in fns):
         return
     try:
         c = np.asarray(metric.edge_costs([u] * (len(pieces) + 1), [v] * (len(pieces) + 1), [data, *pieces]),

@@ -128,7 +128,8 @@ Status codes in {cmd:e(results)}: 0 ok, 1 masked, 2 insufficient
 observations, 3 singular local design, 4 no bandwidth, 5 weak first stage,
 6 few clusters (fewer than two clusters on a side of the local sample). In fuzzy
 designs a point whose first stage is within two standard errors of zero
-(|fs| < 2 fs_se) has status 5: its estimates are reported, but the delta-method
+(|fs| < 2 fs_se) has status 5: its estimates are shown (marked w) and kept in
+{cmd:e(results)}, but not in {cmd:e(b)}; the delta-method
 interval for itt/fs is unreliable, and {cmd:weights(equal)} and {cmd:estat lbate}
 leave it out.
 
