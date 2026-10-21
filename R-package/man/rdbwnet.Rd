@@ -34,7 +34,10 @@ rdbwnet(
 \item{bwselect}{\code{"mserd"} (one MSE-optimal bandwidth for both sides),
 \code{"msetwo"} (one per side), \code{"imserd"}/\code{"imsetwo"} (one bandwidth for all
 evaluation points), or the coverage-error-optimal \code{"cerrd"}, \code{"certwo"},
-\code{"icerrd"}, \code{"icertwo"}.}
+\code{"icerrd"}, \code{"icertwo"}. Every bandwidth is kept between the \code{bwcheck}
+floor and the distance to the farthest observation at its own point, so a
+common bandwidth is raised (or lowered) at points where it would fall
+outside that range.}
 
 \item{vce}{\code{"hc0"}-\code{"hc3"} variance used inside the selector
 (\code{"cluster"} and \code{"conley"} select with \code{"hc0"} residuals, cluster-robust

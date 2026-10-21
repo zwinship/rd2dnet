@@ -215,7 +215,10 @@
 #' @param bwselect `"mserd"` (one MSE-optimal bandwidth for both sides),
 #'   `"msetwo"` (one per side), `"imserd"`/`"imsetwo"` (one bandwidth for all
 #'   evaluation points), or the coverage-error-optimal `"cerrd"`, `"certwo"`,
-#'   `"icerrd"`, `"icertwo"`.
+#'   `"icerrd"`, `"icertwo"`. Every bandwidth is kept between the `bwcheck`
+#'   floor and the distance to the farthest observation at its own point, so a
+#'   common bandwidth is raised (or lowered) at points where it would fall
+#'   outside that range.
 #' @param vce `"hc0"`-`"hc3"` variance used inside the selector
 #'   (`"cluster"` and `"conley"` select with `"hc0"` residuals, cluster-robust
 #'   when `cluster` is given, as [rdnet()] does with those standard errors).
