@@ -30,7 +30,7 @@ test_that("estimates and standard errors match the Python package", {
 })
 
 test_that("the density test matches the Python package", {
-  r <- density(mock_coords())
+  r <- density(mock_coords(), normalize = "network")
   expect_equal(c(r$diff_bc, r$se, r$h_left), c(3.370389666344076e-06, 3.200746336495476e-06, 12249.64743015767),
                tolerance = 1e-8)
   r <- density(mock_coords(), normalize = "none")

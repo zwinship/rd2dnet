@@ -11,7 +11,7 @@
   h = NULL,
   p = 2,
   q = NULL,
-  normalize = "network",
+  normalize = "euclidean",
   kernel = "triangular",
   weights = NULL,
   bwselect = "common",
@@ -34,12 +34,15 @@ plug-in rule per side when omitted.}
 \item{p, q}{Local polynomial order of the CDF fit (the density is its slope)
 and of the bias-corrected fit used for inference (default \code{p + 1}).}
 
-\item{normalize}{\code{"network"} (observations per metre of street) or
-\code{"none"} (density of observations in \code{s}, as in rddensity), which also
-reacts to differences in street supply across the boundary. The
-street-length normalisation assumes observations lie on the streets: for
-off-street locations next to a curved or round boundary (a zone outline)
-it over-rejects badly without any sorting, and \code{"none"} is safer there.}
+\item{normalize}{The running variable. \code{"euclidean"} (default): the signed
+straight-line distance from each location to the boundary line; sorting is
+about where units locate, and this is the test that held its size (0.03-0.06
+at 5\%) on straight, round, wavy and irregular boundaries in our Monte Carlo,
+with the most power against one-sided sorting. \code{"none"}: the signed network
+distance \code{s}; its density jumps at curved or irregular boundaries without any
+sorting. \code{"network"}: observations per metre of street; valid only when
+observations lie on the streets of a straight boundary. No density test holds
+its size everywhere when the observations lie on the network itself.}
 
 \item{kernel}{Kernel name or function (see \code{\link[=get_kernel]{get_kernel()}}).}
 
@@ -75,7 +78,7 @@ with the local polynomial density estimator of Cattaneo, Jansson and Ma
 inference, applied to the signed network distance \code{s}.
 }
 \details{
-With the default \code{normalize = "network"}, each observation's distance is
+With \code{normalize = "network"}, each observation's distance is
 re-expressed as cumulative street length: \code{G(a)} is the total length of
 street on that side lying within network distance \code{a} of the boundary, and
 the test runs on \verb{sign * G(|s|)}. The density in that coordinate is

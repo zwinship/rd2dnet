@@ -173,7 +173,12 @@ end
 
 capture program drop t_density
 program define t_density
+    * default: straight-line distance to the boundary (reference values from Python)
     rdnetdensity
+    rdn_expect r(diff_bc) -1.16812813223094e-05 1e-6 "density (euclidean) diff_bc"
+    rdn_expect r(se) 0.00010308279614672041 1e-6 "density (euclidean) se"
+    rdn_expect r(h_left) 392.21811115656584 1e-6 "density (euclidean) h"
+    rdnetdensity, normalize(network)
     rdn_expect r(diff_bc) 3.370389666344076e-06 1e-6 "density diff_bc"
     rdn_expect r(se) 3.200746336495476e-06 1e-6 "density se"
     rdn_expect r(h_left) 12249.64743015767 1e-6 "density h"
@@ -181,11 +186,19 @@ program define t_density
     rdn_expect r(diff_bc) -5.152889755147277e-05 1e-6 "density (none) diff_bc"
     rdn_expect r(se) 9.395949397424248e-05 1e-6 "density (none) se"
     rdn_expect r(h_left) 326.7653651609291 1e-6 "density (none) h"
-    rdnetdensity, bwselect(each)
+    rdnetdensity, normalize(network) bwselect(each)
     rdn_expect r(diff_bc) 3.24605351338202e-06 1e-6 "density (each) diff_bc"
     rdn_expect r(h_left) 12409.2089484406 1e-6 "density (each) h_left"
     rdn_expect r(h_right) 12249.6474300536 1e-6 "density (each) h_right"
+    rdnetdensity, normalize(network) evalindex(7) window(600) h(400)
     rdnetdensity, evalindex(7) window(600) h(400)
+    * manipulation test: same clusters and draws as Python (reference values from Python)
+    rdnetmanip, q(50 200) reps(2000)
+    matrix MP = r(path)
+    rdn_expect MP[1,2] 1.1666666666666667 1e-12 "manipulation S (q = 50)"
+    rdn_expect MP[1,3] 0.2375 1e-12 "manipulation p (q = 50)"
+    rdn_expect MP[2,3] 0.689 1e-12 "manipulation p (q = 200)"
+    rdn_expect MP[2,5] 100 0 "manipulation n_treated (q = 200)"
 end
 
 capture program drop t_metrics

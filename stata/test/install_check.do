@@ -99,12 +99,17 @@ rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treat
 rdn_try rdnetdensity
 rdn_try rdnetdensity, normalize(none)
 
+* help rdnetmanip
+rdn_try rdnetmock, clear
+rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
+rdn_try rdnetmanip, q(50 100 200) reps(2000)
+
 * help rdnetmock
 rdn_try rdnetmock, clear
 rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
 
 * the help files open
-foreach h in rd2dnet rdnetset rdnet rdbwnet rdnetdensity rdnetmock {
+foreach h in rd2dnet rdnetset rdnet rdbwnet rdnetdensity rdnetmanip rdnetmock {
     rdn_try findfile `h'.sthlp
 }
 

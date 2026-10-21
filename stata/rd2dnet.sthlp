@@ -34,6 +34,7 @@ Commands:
 {p2col:{helpb rdnet##estat:estat lbate}}largest boundary average treatment effect{p_end}
 {p2col:{helpb rdbwnet}}data-driven bandwidths{p_end}
 {p2col:{helpb rdnetdensity}}density (sorting) test at the boundary{p_end}
+{p2col:{helpb rdnetmanip}}manipulation test of Bugni, Crippa and Restrepo (sorting that offsets along the boundary){p_end}
 {p2col:{helpb rdnetmock}}load the bundled mock city{p_end}
 {p2colreset}{...}
 

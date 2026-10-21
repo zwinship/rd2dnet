@@ -27,6 +27,7 @@ from .coordinates import NetworkCoordinates, network_coordinates
 from .density import DensityResult, density
 from .estimate import RDNetResult, rdnet
 from .interface import as_network, rd2dnet
+from .manipulation import ManipulationTestResult, manipulation_test
 from .kernels import get_kernel
 from .metrics import EdgeCost, NetworkMetric, Precomputed, TransitionCost, node_contrast, travel_time
 from .network import NetworkGraph, project_lonlat
@@ -37,6 +38,7 @@ __all__ = [
     "Boundary",
     "DensityResult",
     "EdgeCost",
+    "ManipulationTestResult",
     "NetworkCoordinates",
     "NetworkGraph",
     "NetworkMetric",
@@ -46,6 +48,7 @@ __all__ = [
     "as_network",
     "density",
     "get_kernel",
+    "manipulation_test",
     "network_coordinates",
     "node_contrast",
     "project_lonlat",

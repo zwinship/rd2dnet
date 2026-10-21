@@ -100,7 +100,8 @@ print(res)          # pointwise BATEC table
 res.plot()
 
 res.bandwidths                                         # the bandwidths rdnet selected
-print(rd2dnet.density(coords))                         # sorting test per metre of street
+print(rd2dnet.density(coords))                         # sorting test (density of the distance to the boundary)
+print(rd2dnet.manipulation_test(coords))               # sorting test (balance near the boundary)
 take_up = city.obs["treated"]                          # stand-in: your 0/1 (or share) take-up
 rd2dnet.rdnet(city.obs["outcome"], coords, fuzzy=take_up)   # fuzzy design
 ```
@@ -221,21 +222,23 @@ default). It falls back to the bundled mock network with a warning when offline.
   estimates across evaluation points (NaN for points not estimated; its diagonal is
   `se_rb**2`), so aggregates account for the correlation between nearby points.
   Masked or unestimated points need weight 0.
-- **Density test** (`density`): the local polynomial density estimator of
-  Cattaneo, Jansson & Ma (as in `rddensity`), with jackknife standard errors and
-  bias-corrected inference. The default `normalize="network"` measures position in
-  *cumulative street length* from the boundary, so the test asks whether there are
-  more parcels per metre of street on one side. On a street grid the raw density
-  of `s` is jagged, and street supply differs across sides (for example a park
-  frontage), so the unnormalised test (`normalize="none"`) can flag geometry as
-  sorting. The default `bwselect="common"` uses one bandwidth for both sides.
-  **Curved boundaries:** the street-length normalisation is only valid when
-  observations lie on the streets. For off-street locations (parcels, households)
-  next to a curved or round boundary (a zone outline), street supply within a given
-  distance differs by side even without sorting, and the default test over-rejects
-  badly (98-100% rejection at 5% in a Monte Carlo on a round zone; 44% for a wavy
-  school zone). `normalize="none"` is much better there but still oversized (10-20%).
-  Treat density tests on curved boundaries with caution.
+- **Sorting tests.** Sorting is about where units locate, so both tests work in the plane,
+  not on the network.
+  - `density(coords)`: the local polynomial density estimator of Cattaneo, Jansson & Ma
+    (as in `rddensity`), with jackknife standard errors and bias-corrected inference, on
+    the signed straight-line distance from each location to the boundary
+    (`normalize="euclidean"`, the default). In Monte Carlo runs it held its size
+    (0.03-0.06 at 5%) on straight, round, wavy and irregular boundaries, and had the most
+    power against sorting in one direction. The alternatives `normalize="none"` (network
+    distance `s`) and `"network"` (observations per metre of street) are oversized at
+    curved boundaries (0.08-0.33 and 0.34-1.00 without any sorting).
+  - `manipulation_test(coords)`: the test of Bugni, Crippa & Restrepo (2026): among the
+    `q` locations nearest the boundary (default 200), the treated share should be 1/2
+    in every stretch of the boundary. It held its size on every design and is the only
+    test with power against sorting that offsets along the boundary; report a few `q`,
+    e.g. `q=[50, 100, 200]`. Python, R and Stata (`rdnetmanip`) give identical answers.
+  - Neither is valid when the observations lie on the network itself (points on
+    streets); a warning says so.
 
 ## Validation (Monte Carlo on the bundled mock city)
 
@@ -393,7 +396,10 @@ from this package's files.
 - Cattaneo, M. D., Titiunik, R. and Yu, R. R. (2026). Estimation and Inference in Boundary
   Discontinuity Designs: Pooling-Based Methods. Working paper.
 
-**Density test (rddensity)**
+**Sorting tests**
+
+- Bugni, F. A., Crippa, F. and Restrepo, D. (2026). Manipulation Testing in Boundary
+  Discontinuity Designs. arXiv:2609.00350.
 
 - Cattaneo, M. D., Jansson, M. and Ma, X. (2020). Simple Local Polynomial Density
   Estimators. *Journal of the American Statistical Association* 115(531): 1449–1455.

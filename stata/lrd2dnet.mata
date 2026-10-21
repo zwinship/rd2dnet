@@ -3136,19 +3136,29 @@ real rowvector rdn_density(struct rdn_coords scalar C, real colvector sample, re
     real scalar evalindex, real scalar window, real rowvector h, real scalar p, real scalar q,
     string scalar normalize, real scalar kcode, string scalar bwselect, real scalar scaleregul)
 {
-    real colvector T, s, om, arc, sel, gl, cl, gr, cr, x, bp, bq
+    real colvector T, s, om, arc, sel, gl, cl, gr, cr, x, bp, bq, reach
     real matrix Vp, Vq
     real scalar center, hl, hr, nmin, nl, nr, nl2, nr2, fl, fr, diff, diffbc, se, zs, pv, th
     T = C.treated
-    s = abs(C.s)
     om = (rows(om0) ? om0 : J(C.nobs, 1, 1))
-    arc = editmissing(C.crossarc, -1)
-    sel = (s :< .) :& (editmissing(om, 0) :> 0) :& (!rdn_bmasked(C.B, arc)) :& sample
+    if (normalize == "euclidean") {
+        // straight-line distance to the boundary line, where it is reached in the plane
+        s = rdn_bdistance(C.B, C.xy)
+        arc = rdn_bproject(C.B, C.xy)
+        reach = !rdn_bmasked(C.B, arc)
+        if (!rdn_bclosed(C.B)) reach = reach :& (arc :> 1e-9 * C.B.blen) :& (arc :< C.B.blen * (1 - 1e-9))
+    }
+    else {
+        s = abs(C.s)
+        arc = C.crossarc
+        reach = !rdn_bmasked(C.B, editmissing(arc, -1))
+    }
+    sel = (s :< .) :& (editmissing(om, 0) :> 0) :& reach :& sample
     center = .
     if (evalindex < .) {
         if (window >= .) _error(198, "give window() together with evalindex()")
         center = C.enodearc[evalindex]
-        sel = sel :& (C.crossarc :< .) :& (abs(C.crossarc :- center) :<= window)
+        sel = sel :& (arc :< .) :& (abs(arc :- center) :<= window)
     }
     if (normalize == "network") {
         gl = .
@@ -3529,8 +3539,11 @@ void rdn_density_entry()
     q = rdn_lnum("q", p + 1)
     if (p < 1 | q < p) _error(198, "need 1 <= p <= q")
     norm = st_local("normalize")
-    if (norm == "") norm = "network"
-    if (norm != "network" & norm != "none") _error(198, "normalize() must be network or none")
+    if (norm == "") norm = "euclidean"
+    if (norm != "euclidean" & norm != "network" & norm != "none") {
+        _error(198, "normalize() must be euclidean, network or none")
+    }
+    rdn_warn_on_network(rdn_C)
     bws = st_local("bwselect")
     if (bws == "") bws = "common"
     if (bws != "common" & bws != "each") _error(198, "bwselect() must be common or each")
@@ -3555,6 +3568,209 @@ void rdn_density_entry()
     st_numscalar("r(p)", out[15])
     st_numscalar("r(q)", out[16])
     st_global("r(normalize)", norm)
+}
+
+// ---------------------------------------------------------------------------
+// Manipulation (sorting) test of Bugni, Crippa and Restrepo (2026), as in the
+// Python and R packages: the same clusters (exact 1-D k-means of positions
+// along the boundary) and the same relabelling draws (Park-Miller stream).
+// ---------------------------------------------------------------------------
+
+// reps x q Bernoulli(1/2) labels: x <- 16807 x mod (2^31 - 1), treated when
+// x <= 2^30 - 1.
+real matrix rdn_lcg_labels(real scalar seed, real scalar reps, real scalar q)
+{
+    real matrix out
+    real scalar x, r, j
+    x = mod(seed, 2147483646) + 1
+    out = J(reps, q, 0)
+    for (r = 1; r <= reps; r++) {
+        for (j = 1; j <= q; j++) {
+            x = mod(x * 16807, 2147483647)
+            out[r, j] = (x <= 1073741823)
+        }
+    }
+    return(out)
+}
+
+// Optimal 1-D k-means partitions of sorted positions for k = 1..kmax: row k
+// holds the indices (into pos) of the first element of each of its k clusters.
+real matrix rdn_kmeans_parts(real colvector pos, real scalar kmax0)
+{
+    real colvector vals, start, w, s1, s2, sw, ii, cc
+    real matrix D, A, F
+    real scalar m, kmax, k, j, i, best, bi, kk, n, a, t
+    vals = J(0, 1, .)
+    start = J(0, 1, .)
+    w = J(0, 1, .)
+    for (i = 1; i <= rows(pos); i++) {
+        if (i == 1 | pos[i] != pos[i - 1]) {
+            vals = vals \ pos[i]
+            start = start \ i
+            w = w \ 1
+        }
+        else w[rows(w)] = w[rows(w)] + 1
+    }
+    m = rows(vals)
+    kmax = min((kmax0, m))
+    s1 = 0 \ runningsum(w :* vals)
+    s2 = 0 \ runningsum(w :* vals :* vals)
+    sw = 0 \ runningsum(w)
+    D = J(kmax, m, .)
+    A = J(kmax, m, 1)
+    for (j = 1; j <= m; j++) {
+        n = sw[j + 1] - sw[1]
+        a = s1[j + 1] - s1[1]
+        D[1, j] = max(((s2[j + 1] - s2[1]) - a * a / n, 0))
+    }
+    for (k = 2; k <= kmax; k++) {
+        for (j = k; j <= m; j++) {
+            ii = (k::j)
+            cc = J(rows(ii), 1, .)
+            for (t = 1; t <= rows(ii); t++) {
+                i = ii[t]
+                n = sw[j + 1] - sw[i]
+                a = s1[j + 1] - s1[i]
+                cc[t] = D[k - 1, i - 1] + max(((s2[j + 1] - s2[i]) - a * a / n, 0))
+            }
+            best = min(cc)
+            bi = ii[selectindex(cc :<= best + 1e-12 * max((1, abs(best))))[1]]
+            D[k, j] = cc[bi - k + 1]
+            A[k, j] = bi
+        }
+    }
+    F = J(kmax, kmax, .)
+    for (k = 1; k <= kmax; k++) {
+        j = m
+        kk = k
+        while (kk >= 1) {
+            i = (kk > 1 ? A[kk, j] : 1)
+            F[k, kk] = start[i]
+            j = i - 1
+            kk = kk - 1
+        }
+    }
+    return(F)
+}
+
+// The statistic S for each row of labels (draws x q, in position order).
+real colvector rdn_mt_stat(real matrix lab, real matrix F, real scalar q)
+{
+    real matrix P, t, dev
+    real rowvector f, ends, n
+    real colvector S
+    real scalar k, c
+    P = J(rows(lab), q + 1, 0)
+    for (c = 1; c <= q; c++) P[., c + 1] = P[., c] + lab[., c]
+    S = J(rows(lab), 1, 0)
+    for (k = 1; k <= rows(F); k++) {
+        f = F[k, (1..k)]
+        ends = (k > 1 ? (f[(2..k)], q + 1) : (q + 1))
+        n = ends - f
+        t = P[., ends] - P[., f]
+        dev = abs(t :/ n :- 0.5) :* sqrt(n)
+        S = rowmax((S, rowmax(dev)))
+    }
+    return(S)
+}
+
+void rdn_manip_entry()
+{
+    external struct rdn_coords scalar rdn_C
+    real colvector ids, sample, seen, firsts, T, dist, arc, ok, idx, o, sel, pos, srt, gaps, lab, null, S
+    real rowvector qs
+    real matrix F, path
+    real scalar reps, seed, level, kmax, nuse, qi, qq, L, g, cut, pv, crit, km, i
+    ids = rdn_sample_ids(rdn_C, st_local("touse"))
+    sample = rdn_spread(ids, J(rows(ids), 1, 1), rdn_C.nobs, 0)
+    rdn_warn_on_network(rdn_C)
+    // one observation per location within the sample
+    seen = J(rdn_C.nloc, 1, 0)
+    firsts = J(0, 1, .)
+    for (i = 1; i <= rdn_C.nobs; i++) {
+        if (sample[i] & !seen[rdn_C.loc[i]]) {
+            firsts = firsts \ i
+            seen[rdn_C.loc[i]] = 1
+        }
+    }
+    reps = rdn_lnum("reps", 10000)
+    seed = rdn_lnum("seed", 0)
+    level = rdn_lnum("level", 95)
+    kmax = rdn_lnum("kmax", .)
+    if (reps < 100) _error(198, "reps() must be at least 100")
+    T = rdn_C.treated[firsts]
+    dist = rdn_bdistance(rdn_C.B, rdn_C.xy[firsts, .])
+    arc = rdn_bproject(rdn_C.B, rdn_C.xy[firsts, .])
+    L = rdn_C.B.blen
+    ok = (dist :< .) :& (dist :> rdn_C.B.tol) :& (!rdn_bmasked(rdn_C.B, arc))
+    if (!rdn_bclosed(rdn_C.B)) ok = ok :& (arc :> 1e-9 * L) :& (arc :< L * (1 - 1e-9))
+    idx = selectindex(ok)
+    nuse = rows(idx)
+    if (st_local("qlist") != "") qs = strtoreal(tokens(st_local("qlist")))
+    else qs = (nuse >= 2000 ? 200 : max((floor(nuse / 10), 1)))
+    path = J(cols(qs), 7, .)
+    for (qi = 1; qi <= cols(qs); qi++) {
+        qq = qs[qi]
+        if (qq < 2 | qq > nuse) {
+            _error(198, sprintf("q() must be between 2 and the number of usable locations (%g)", nuse))
+        }
+        if (qq < 20) printf("{txt}note: q = %g locations give a test with little power\n", qq)
+        if (qq > 0.4 * nuse) {
+            printf("{txt}note: q = %g is a large share of the %g usable locations; the test assumes the\n", qq, nuse)
+            printf("{txt}      selected locations are close to the boundary\n")
+        }
+        o = order((dist[idx], idx), (1, 2))  // nearest first; ties by location order
+        sel = idx[o[(1::qq)]]
+        pos = arc[sel]
+        if (rdn_bclosed(rdn_C.B)) {  // cut the ring at the largest gap between neighbouring positions
+            srt = uniqrows(pos)
+            if (rows(srt) > 1) {
+                gaps = (srt[(2::rows(srt))] \ srt[1] + L) - srt
+                g = rdn_argmin(-gaps)
+                cut = srt[mod(g, rows(srt)) + 1]
+            }
+            else cut = srt[1]
+            pos = mod(pos :- cut, L)
+        }
+        o = order((pos, sel), (1, 2))  // position order; ties by location order
+        pos = pos[o]
+        lab = T[sel[o]]
+        km = (kmax < . ? min((kmax, qq)) : qq)
+        F = rdn_kmeans_parts(pos, km)
+        S = rdn_mt_stat(lab', F, qq)
+        null = rdn_mt_stat(rdn_lcg_labels(seed, reps, qq), F, qq)
+        pv = mean(null :>= S - 1e-12 * max((1, S)))
+        crit = sort(null, 1)[ceil(level / 100 * rows(null))]
+        path[qi, .] = (qq, S, pv, crit, sum(lab), max(dist[sel]), rows(F))
+    }
+    st_numscalar("r(q)", path[1, 1])
+    st_numscalar("r(statistic)", path[1, 2])
+    st_numscalar("r(pvalue)", path[1, 3])
+    st_numscalar("r(crit)", path[1, 4])
+    st_numscalar("r(n_treated)", path[1, 5])
+    st_numscalar("r(distance)", path[1, 6])
+    st_numscalar("r(k_max)", path[1, 7])
+    st_numscalar("r(reps)", reps)
+    st_numscalar("r(N_locations)", nuse)
+    st_matrix("r(path)", path)
+    st_matrixcolstripe("r(path)", (J(7, 1, ""), ("q" \ "statistic" \ "pvalue" \ "crit" \ "n_treated" \ "distance" \ "k_max")))
+}
+
+// Note when most locations lie on the network itself (sorting tests assume
+// units spread over the plane).
+void rdn_warn_on_network(struct rdn_coords scalar C)
+{
+    real colvector dep
+    real scalar ext
+    dep = C.depth[C.firstl]
+    ext = sqrt((max(C.N.xy[., 1]) - min(C.N.xy[., 1]))^2 + (max(C.N.xy[., 2]) - min(C.N.xy[., 2]))^2)
+    if (rows(dep)) {
+        if (mean(dep :<= 1e-6 * max((ext, 1))) > 0.5) {
+            printf("{txt}warning: most locations lie on the network itself (stations on a river, points on streets);\n")
+            printf("{txt}         sorting tests assume units spread over the plane, and in Monte Carlo runs none of\n")
+            printf("{txt}         them held its size for points on streets near a curved boundary\n")
+        }
+    }
 }
 
 // Aggregate effects from e() of rdnet: WBATE (weights from a Stata matrix)

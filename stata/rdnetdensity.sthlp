@@ -14,7 +14,7 @@
 {synoptset 28 tabbed}{...}
 {synopthdr}
 {synoptline}
-{synopt:{opt norm:alize(network|none)}}position in cumulative street length (default) or in network distance{p_end}
+{synopt:{opt norm:alize(euclidean|none|network)}}running variable: straight-line distance to the boundary (default), network distance, or cumulative street length{p_end}
 {synopt:{opt h(# [#])}}bandwidth, or (h_control h_treated); selected when omitted{p_end}
 {synopt:{opt bws:elect(common|each)}}one bandwidth for both sides (default) or one per side{p_end}
 {synopt:{opt p(#)}}order of the CDF fit (density = its slope); default 2{p_end}
@@ -32,25 +32,28 @@
 {cmd:rdnetdensity} tests for a discontinuity in the density of observations at
 the boundary with the local polynomial density estimator of Cattaneo, Jansson
 and Ma (as in {cmd:rddensity}), with jackknife standard errors and
-bias-corrected inference, applied to the signed network distance.
+bias-corrected inference.
 
 {pstd}
-With {cmd:normalize(network)} (the default) each observation's distance is
-re-expressed as cumulative street length from the boundary, so the test asks
-whether there are more observations per metre of street on one side. Jumps in
-street supply at the boundary (a park frontage, a highway) then do not pass
-for sorting. {cmd:normalize(none)} tests the density of the network distance
-itself, as {cmd:rddensity} would. Masked stretches of the boundary are always
-excluded.
+{cmd:normalize(euclidean)} (the default) uses the signed straight-line distance
+from each location to the boundary line: sorting is about where units locate,
+and this is the test that held its size (0.03-0.06 at the 5% level) on straight,
+round, wavy and irregular boundaries in our Monte Carlo, with the most power
+against sorting in one direction. Locations projecting onto an end of an open
+boundary are left out.
 
 {pstd}
-The street-length normalisation assumes that observations lie on the streets.
-For off-street locations (parcels, households) next to a curved or round
-boundary, such as a zone outline, street supply within a given distance differs
-by side even without sorting, and {cmd:normalize(network)} over-rejects badly
-(98-100% rejection at the 5% level in a Monte Carlo on a round zone).
-{cmd:normalize(none)} is safer there, but still oversized; interpret density tests
-on curved boundaries with caution.
+{cmd:normalize(none)} uses the signed network distance; its density jumps at
+curved or irregular boundaries without any sorting (rejection 0.08-0.33).
+{cmd:normalize(network)} re-expresses it as cumulative street length (observations
+per metre of street); it is valid only when observations lie on the streets of a
+straight boundary, and rejects 34-100% of the time at round or wavy zone
+outlines. Masked stretches of the boundary are always excluded.
+
+{pstd}
+No density test holds its size everywhere when the observations lie on the
+network itself (points on streets); a warning is shown then. For sorting that
+offsets along the boundary, see {helpb rdnetmanip}.
 
 {pstd}
 With repeated measurements, every row counts as an observation and repeated

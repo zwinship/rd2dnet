@@ -37,6 +37,9 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* `density()` uses the signed straight-line distance to the boundary by default
+  (`normalize = "euclidean"`); the old default (`"network"`) over-rejected badly at curved
+  boundaries. New `manipulation_test()` (Bugni, Crippa and Restrepo, 2026).
 * **Default `vce` is now `"hc3"`** in `rdnet()` and `rdbwnet()` (was `"hc1"`): HC3 kept Monte
   Carlo coverage near 0.95 where HC1 under-covered with high-leverage local samples.
 * Local fits keep their identifiable terms (in degree order, dropping columns that are
