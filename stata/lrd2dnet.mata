@@ -2276,10 +2276,18 @@ void rdn_cr2(struct rdn_fit scalar F, real colvector c, real colvector cl, real 
     for (g = 1; g <= rows(ucl); g++) {
         m = selectindex(cl :== ucl[g])
         U = (X[m, .], X[m, .] :* w[m])
-        qrd(U, Uq, Ur)
-        r = min((rows(m), 2 * k))
-        Uq = Uq[., (1::r)']
-        Ur = Ur[(1::r), .]
+        if (rows(m) <= 2 * k) {
+            // small cluster: U itself spans the space (any orthonormal basis gives the same R)
+            Uq = I(rows(m))
+            Ur = U
+            r = rows(m)
+        }
+        else {
+            qrd(U, Uq, Ur)
+            r = 2 * k
+            Uq = Uq[., (1::r)']
+            Ur = Ur[(1::r), .]
+        }
         V = .
         lam = .
         symeigensystem(Ur * M * Ur', V, lam)

@@ -169,6 +169,7 @@ program define rdnet, eclass
     if "`cutoff'" != "" ereturn scalar cutoff = `cutoff'
     ereturn local kernel `kname'
     ereturn local vce `vcetype'
+    if "`vcetype'" == "cluster" ereturn local clustvce = cond("`cr1'" != "", "cr1", "cr2")
     if "`clorig'" != "" ereturn local clustvar `clorig'
     if "`vcetype'" == "conley" ereturn local conley_distance = cond(`euclid', "euclidean", "network")
     ereturn local bwselect = cond("`h'`hmatrix'" == "", "`bwselect'", "manual")

@@ -595,7 +595,7 @@ program define t_round3
     rdnetset x y, nodes(r3_nodes) edges(r3_edges) boundary(RG) treatedregion(RG) evalpoints(PE) tol(0.5)
     matrix E = r(eval)
     forvalues j = 1/5 {
-        rdn_expect E[`j', 3] PE[1, `j'] 1e-9 "ring eval point `j' stays in place"
+        rdn_expect E[`j',3] PE[1,`j'] 1e-9 "ring eval point `j' stays in place"
     }
 end
 

@@ -126,7 +126,7 @@ joint covariance, {cmd:test} and {cmd:lincom} work directly, e.g.
 {synopt:{cmd:e(level)}, {cmd:e(p)}, {cmd:e(q)}, {cmd:e(min_obs)}, {cmd:e(cutoff)}}settings{p_end}
 {p2col 5 20 24 2: Macros}{p_end}
 {synopt:{cmd:e(cmd)}}{cmd:rdnet}{p_end}
-{synopt:{cmd:e(vce)}, {cmd:e(kernel)}, {cmd:e(bwselect)}, {cmd:e(cost)}, {cmd:e(fuzzy)}, {cmd:e(covs)}}settings{p_end}
+{synopt:{cmd:e(vce)}, {cmd:e(clustvce)} (cr2 or cr1), {cmd:e(kernel)}, {cmd:e(bwselect)}, {cmd:e(cost)}, {cmd:e(fuzzy)}, {cmd:e(covs)}}settings{p_end}
 {p2col 5 20 24 2: Matrices}{p_end}
 {synopt:{cmd:e(b)}, {cmd:e(V)}}tau_bc and its covariance at the estimated points{p_end}
 {synopt:{cmd:e(results)}}one row per evaluation point: eval arc node_arc h0 h1 n0 n1 tau se tau_bc se_rb ci_lo ci_hi pvalue status h cb_lo cb_hi itt fs fs_se basis df (CR2 degrees of freedom){p_end}
