@@ -16,7 +16,7 @@ from shapely.ops import substring
 from ._parallel import chunked
 from .metrics import NetworkMetric, as_metric
 
-_DIRECTIONS = ("both", "out", "in")
+_DIRECTIONS = ("both", "out", "in", "flow")
 
 
 @dataclass
@@ -53,7 +53,11 @@ class NetworkGraph:
         node-by-node matrix.
     direction
         ``"both"`` treats every edge as two-way (pedestrian access, the default);
-        ``"out"`` follows edge direction; ``"in"`` reverses it.
+        ``"out"`` follows edge direction; ``"in"`` reverses it; ``"flow"`` follows
+        edge direction in whichever order works (the shorter of the directed
+        paths a -> b and b -> a): on a river drawn downstream, locations upstream
+        of the boundary reach it downstream and locations downstream are reached
+        from it, so both sides are measured along the flow.
     snap_scale
         Metric cost per unit of off-network snapping distance. Defaults to the
         metric's own default (1 for length, 0 otherwise).
@@ -120,7 +124,13 @@ class NetworkGraph:
     def engine(self):
         """Shortest-path engine compiled from the metric (built on first use)."""
         if self._engine is None:
-            self._engine = self.metric.compile(self.graph, self.node_index, self.direction)
+            if self.direction == "flow" and self.graph.is_directed():
+                from .metrics import FlowEngine
+
+                self._engine = FlowEngine(self.metric.compile(self.graph, self.node_index, "out"),
+                                          self.metric.compile(self.graph, self.node_index, "in"))
+            else:
+                self._engine = self.metric.compile(self.graph, self.node_index, self.direction)
         return self._engine
 
     def _replace_graph(self, graph: nx.Graph) -> "NetworkGraph":

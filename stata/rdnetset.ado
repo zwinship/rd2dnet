@@ -23,8 +23,8 @@ program define rdnetset, rclass
     if "`length'" == "" local length length
     if "`direction'" == "" local direction both
     local direction = lower("`direction'")
-    if !inlist("`direction'", "both", "out", "in") {
-        di as err "direction() must be both, out or in"
+    if !inlist("`direction'", "both", "out", "in", "flow") {
+        di as err "direction() must be both, out, in or flow"
         exit 198
     }
     local treatedside = lower("`treatedside'")

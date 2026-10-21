@@ -38,7 +38,9 @@ a vectorised cost function, a metric from \link{metrics} such as
 
 \item{direction}{For directed networks: \code{"both"} treats every edge as
 two-way (pedestrian access, the default); \code{"out"} follows edge direction;
-\code{"in"} reverses it.}
+\code{"in"} reverses it; \code{"flow"} follows edge direction in whichever order works
+(the shorter of the directed paths a -> b and b -> a), so on a river drawn
+downstream both sides of the boundary are measured along the flow.}
 
 \item{x, y}{Names of the coordinate columns in \code{nodes}.}
 

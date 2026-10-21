@@ -171,6 +171,38 @@ class Engine:
 
 
 @dataclass
+class FlowEngine:
+    """Distances along directed paths in whichever order works: the shorter of
+    ``a -> b`` and ``b -> a`` (``direction="flow"``), from two engines over the
+    edges as drawn (``out``) and reversed (``in``)."""
+
+    out: Any
+    inn: Any
+
+    @property
+    def n_nodes(self) -> int:
+        return self.out.n_nodes
+
+    def distances(self, sources, limit: float = np.inf) -> np.ndarray:
+        return np.minimum(self.out.distances(sources, limit), self.inn.distances(sources, limit))
+
+    def nearest(self, sources):
+        d1, s1 = self.out.nearest(sources)
+        d2, s2 = self.inn.nearest(sources)
+        take2 = d2 < d1
+        return np.where(take2, d2, d1), np.where(take2, s2, s1)
+
+    def pairs_within(self, sources, limit: float):
+        i1, n1, d1 = self.out.pairs_within(sources, limit)
+        i2, n2, d2 = self.inn.pairs_within(sources, limit)
+        i, node, d = np.r_[i1, i2], np.r_[n1, n2], np.r_[d1, d2]
+        order = np.lexsort((d, node, i))
+        i, node, d = i[order], node[order], d[order]
+        first = np.r_[True, (i[1:] != i[:-1]) | (node[1:] != node[:-1])] if len(i) else np.zeros(0, bool)
+        return i[first], node[first], d[first]
+
+
+@dataclass
 class DenseEngine:
     """Engine backed by a full node-by-node distance matrix."""
 
