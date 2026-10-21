@@ -271,8 +271,9 @@ class NetworkGraph:
         # a point at an end node (snapped to a node, or projecting onto an edge's
         # end) uses the node's rate: which of its edges it "snapped to" is arbitrary
         cu, cv = np.asarray(snap.cost_u), np.asarray(snap.cost_v)
-        at_v = (u != v) & (cv == 0) & (cu > 0)
-        at_u = (u == v) | ((cu == 0) & ~at_v) | np.isnan(out)
+        tiny = 1e-9 * (cu + cv)  # projections onto an edge's end, up to rounding
+        at_v = (u != v) & (cv <= tiny) & (cu > tiny)
+        at_u = (u == v) | ((cu <= tiny) & ~at_v) | np.isnan(out)
         out[at_u] = node_rate[u[at_u]]
         out[at_v] = node_rate[v[at_v]]
         return out

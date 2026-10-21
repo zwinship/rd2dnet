@@ -245,8 +245,9 @@ node_distance <- function(net, a, b) {
   out <- rate[match(paste(pmin(snap$u, snap$v), pmax(snap$u, snap$v)), key)]
   # a point at an end node (snapped to a node, or projecting onto an edge's end)
   # uses the node's rate: which of its edges it "snapped to" is arbitrary
-  at_v <- snap$u != snap$v & snap$cost_v == 0 & snap$cost_u > 0
-  at_u <- snap$u == snap$v | (snap$cost_u == 0 & !at_v) | is.na(out)
+  tiny <- 1e-9 * (snap$cost_u + snap$cost_v) # projections onto an edge's end, up to rounding
+  at_v <- snap$u != snap$v & snap$cost_v <= tiny & snap$cost_u > tiny
+  at_u <- snap$u == snap$v | (snap$cost_u <= tiny & !at_v) | is.na(out)
   out[at_u] <- node_rate[snap$u[at_u]]
   out[at_v] <- node_rate[snap$v[at_v]]
   out
