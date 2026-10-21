@@ -33,6 +33,16 @@ from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
 
+def _warn_if_on_network(coords: NetworkCoordinates, stacklevel: int = 2) -> None:
+    """Warn when most locations lie on the network itself (no sorting test is valid then)."""
+    depth = np.asarray(coords.snap.depth, dtype=float)[coords._first]
+    extent = float(np.hypot(*np.ptp(coords.network.coords, axis=0)))
+    if len(depth) and np.mean(depth <= 1e-6 * max(extent, 1.0)) > 0.5:
+        warnings.warn("most locations lie on the network itself (stations on a river, points on streets); "
+                      "sorting tests assume units spread over the plane, and in Monte Carlo runs none of them "
+                      "held its size for points on streets near a curved boundary", stacklevel=stacklevel)
+
+
 @dataclass
 class DensityResult:
     """Output of :func:`density`.
@@ -187,7 +197,7 @@ def density(
     h=None,
     p: int = 2,
     q: int | None = None,
-    normalize: str = "network",
+    normalize: str = "euclidean",
     kernel="triangular",
     weights=None,
     bwselect: str = "common",
@@ -211,14 +221,19 @@ def density(
         Local polynomial order of the CDF fit (density is its slope) and of the
         bias-corrected fit used for inference (default ``p + 1``).
     normalize
-        ``"network"`` (default: observations per metre of street) or ``"none"``
-        (density of observations in ``s``, as in rddensity). The unnormalised
-        test also reacts to differences in street supply across the boundary
-        (e.g. a park frontage), not only to sorting. The street-length
-        normalisation assumes observations lie on the streets: for off-street
-        locations next to a curved or round boundary (a zone outline) it
-        over-rejects badly without any sorting (see the README), and
-        ``"none"`` is safer there.
+        The running variable. ``"euclidean"`` (default): the signed
+        straight-line distance from each location to the boundary line; sorting
+        is about where units locate, and this is the test that held its size
+        (0.03-0.06 at 5%) on straight, round, wavy and irregular boundaries in
+        our Monte Carlo, with the most power against one-sided sorting.
+        ``"none"``: the signed network distance ``s`` (as rddensity would on
+        ``s``); its density jumps at curved or irregular boundaries without any
+        sorting (rejection 0.08-0.33). ``"network"``: observations per metre of
+        street; valid only when observations lie on the streets of a straight
+        boundary, and it rejects 34-100% of the time at round or wavy zone
+        outlines. No density test holds its size everywhere when the
+        observations lie on the network itself (points on streets): see
+        :func:`manipulation_test` and the README.
     weights
         Optional non-negative observation weights (e.g. floor area).
     bwselect
@@ -242,7 +257,8 @@ def density(
         densities, bandwidths and sample sizes.
     """
     if normalize not in ("none", "network", "euclidean"):
-        raise ValueError("normalize must be 'network', 'none' or 'euclidean'")
+        raise ValueError("normalize must be 'euclidean', 'none' or 'network'")
+    _warn_if_on_network(coords, stacklevel=3)
     q = p + 1 if q is None else int(q)
     if p < 1 or q < p:
         raise ValueError("need 1 <= p <= q")

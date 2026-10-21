@@ -41,6 +41,8 @@ f rdbwnet.ado
 f rdbwnet.sthlp
 f rdnetdensity.ado
 f rdnetdensity.sthlp
+f rdnetmanip.ado
+f rdnetmanip.sthlp
 f rdnetmock.ado
 f rdnetmock.sthlp
 F rdnet_mock_obs.dta

@@ -1,7 +1,7 @@
 test_that("no sorting in the mock city", {
   r <- density(mock_coords())
   expect_s3_class(r, "rdnet_density")
-  expect_equal(r$normalize, "network")
+  expect_equal(r$normalize, "euclidean")
   expect_true(is.finite(r$diff_bc) && r$se > 0)
   expect_gt(r$pvalue, 0.01)
   expect_output(print(r), "density test")
@@ -44,7 +44,7 @@ test_that("the test detects bunching", {
 
 test_that("masked stretches are excluded", {
   cc <- mock_coords()
-  r <- density(cc)
+  r <- density(cc, normalize = "network")
   masked <- boundary_is_masked(cc$boundary, cc$crossing_arc)
   expect_true(any(masked))
   expect_equal(r$n_left + r$n_right, sum(!masked & is.finite(cc$s)))

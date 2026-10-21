@@ -137,7 +137,7 @@
 #' (as in \pkg{rddensity}), with jackknife standard errors and bias-corrected
 #' inference, applied to the signed network distance `s`.
 #'
-#' With the default `normalize = "network"`, each observation's distance is
+#' With `normalize = "network"`, each observation's distance is
 #' re-expressed as cumulative street length: `G(a)` is the total length of
 #' street on that side lying within network distance `a` of the boundary, and
 #' the test runs on `sign * G(|s|)`. The density in that coordinate is
@@ -155,12 +155,15 @@
 #'   plug-in rule per side when omitted.
 #' @param p,q Local polynomial order of the CDF fit (the density is its slope)
 #'   and of the bias-corrected fit used for inference (default `p + 1`).
-#' @param normalize `"network"` (observations per metre of street) or
-#'   `"none"` (density of observations in `s`, as in rddensity), which also
-#'   reacts to differences in street supply across the boundary. The
-#'   street-length normalisation assumes observations lie on the streets: for
-#'   off-street locations next to a curved or round boundary (a zone outline)
-#'   it over-rejects badly without any sorting, and `"none"` is safer there.
+#' @param normalize The running variable. `"euclidean"` (default): the signed
+#'   straight-line distance from each location to the boundary line; sorting is
+#'   about where units locate, and this is the test that held its size (0.03-0.06
+#'   at 5%) on straight, round, wavy and irregular boundaries in our Monte Carlo,
+#'   with the most power against one-sided sorting. `"none"`: the signed network
+#'   distance `s`; its density jumps at curved or irregular boundaries without any
+#'   sorting. `"network"`: observations per metre of street; valid only when
+#'   observations lie on the streets of a straight boundary. No density test holds
+#'   its size everywhere when the observations lie on the network itself.
 #' @param kernel Kernel name or function (see [get_kernel()]).
 #' @param weights Optional non-negative observation weights.
 #' @param bwselect `"common"` (one bandwidth, the smaller of the two side-wise
@@ -196,21 +199,35 @@
 #' @importFrom stats density
 #' @export
 density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL, p = 2, q = NULL,
-                                   normalize = "network", kernel = "triangular", weights = NULL,
+                                   normalize = "euclidean", kernel = "triangular", weights = NULL,
                                    bwselect = "common", scaleregul = 1, unique_locations = FALSE, ...) {
   coords <- x
-  if (!normalize %in% c("none", "network")) stop("normalize must be 'none' or 'network'", call. = FALSE)
+  if (!normalize %in% c("euclidean", "none", "network")) {
+    stop("normalize must be 'euclidean', 'none' or 'network'", call. = FALSE)
+  }
+  .warn_if_on_network(coords)
   q <- if (is.null(q)) p + 1 else as.integer(q)
   if (p < 1 || q < p) stop("need 1 <= p <= q", call. = FALSE)
   if (!bwselect %in% c("common", "each")) stop("bwselect must be 'common' or 'each'", call. = FALSE)
   kfun <- get_kernel(kernel)
   T <- coords$treated
-  s <- abs(coords$s)
   om <- if (is.null(weights)) rep(1, coords$n_obs) else .check_weights(weights, coords$n_obs)
-  arc <- coords$crossing_arc
-  arc[is.na(arc)] <- -1
+  b <- coords$boundary
+  if (normalize == "euclidean") {
+    # straight-line distance to the boundary line, where it is reached in the plane
+    s <- boundary_distance(b, coords$xy)
+    arc <- boundary_project(b, coords$xy)
+    reach <- !boundary_is_masked(b, arc)
+    if (!isTRUE(b$closed)) reach <- reach & arc > 1e-9 * b$length & arc < b$length * (1 - 1e-9)
+  } else {
+    s <- abs(coords$s)
+    arc <- coords$crossing_arc
+    a0 <- arc
+    a0[is.na(a0)] <- -1
+    reach <- !boundary_is_masked(b, a0)
+  }
   # Masked stretches (parks, rivers) are void by construction: leave them out.
-  sel <- is.finite(s) & om > 0 & !boundary_is_masked(coords$boundary, arc)
+  sel <- is.finite(s) & om > 0 & reach
   first <- !duplicated(coords$loc)
   if (isTRUE(unique_locations)) {
     sel <- sel & first
@@ -222,7 +239,7 @@ density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL
   if (!is.null(eval_index)) {
     if (is.null(window)) stop("give a window (arc length) together with eval_index", call. = FALSE)
     center <- coords$eval_node_arc[eval_index]
-    sel <- sel & !is.na(coords$crossing_arc) & abs(coords$crossing_arc - center) <= window
+    sel <- sel & !is.na(arc) & abs(arc - center) <= window
   }
   if (normalize == "network") {
     G <- .street_length_transform(coords, center, window)

@@ -52,6 +52,15 @@ Fixes:
 - `from_igraph` uses `length` when there is no `weight` attribute.
 
 Fixes from cross-language and invariance testing:
+- **Sorting tests.** `density()` now uses the signed straight-line distance to the boundary
+  by default (`normalize="euclidean"`, new). In a Monte Carlo the old default
+  (`"network"`, observations per metre of street) rejected 34-100% of the time at round
+  or wavy zone outlines without any sorting, and `"none"` 8-33%; `"euclidean"` held its
+  size (0.03-0.06) on every design with units in the plane. New `manipulation_test()`
+  (Stata: `rdnetmanip`), the test of Bugni, Crippa and Restrepo (2026): valid on every
+  design and the only one with power against sorting that offsets along the boundary.
+  Both warn when the observations lie on the network itself, where no test held its size
+  (Python, R, Stata).
 - **Default `vce` is now `"hc3"`** in `rdnet` and `rdbwnet` (was `"hc1"`, rd2d's default), in
   Python, R and Stata. Local samples on networks often contain high-leverage points (few
   distinct offsets along the boundary), where HC1 understates the variance. In Monte Carlo

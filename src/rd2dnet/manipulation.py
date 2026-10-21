@@ -176,8 +176,10 @@ def manipulation_test(
         treatment indicator (straight-line distances, not the network).
     q
         Number of locations nearest the boundary to use, or a list of values
-        (the result's ``path`` then has one row per value). Defaults to 100, or
-        a tenth of the usable locations when there are fewer than 1,000.
+        (the result's ``path`` then has one row per value). Defaults to 200
+        (more power than 50 or 100 in our Monte Carlo, with correct size), or a
+        tenth of the usable locations when there are fewer than 2,000. Report
+        the path over several values, e.g. ``q=[50, 100, 200]``.
     k_max
         Largest number of clusters along the boundary (default: ``q``).
     reps
@@ -193,11 +195,19 @@ def manipulation_test(
 
     Notes
     -----
-    Designed for units located in the plane (parcels, households, firms). For
-    observations that lie on the network itself (stations along a river,
-    points on streets), the share of locations on each side near the boundary
-    also depends on how many network branches meet it there.
+    Designed for units located in the plane (parcels, households, firms). It is
+    not valid for observations that lie on the network itself (stations along a
+    river, points on streets): where a line crosses the boundary at an angle,
+    position along the boundary sorts the nearest points by side, and in Monte
+    Carlo runs the test rejected up to 94% of the time without sorting. It has
+    power against sorting that offsets along the boundary (one side denser on
+    one stretch, the other on another), which a density test of the distance
+    to the boundary cannot detect; against sorting in one direction everywhere,
+    ``density()`` is more powerful.
     """
+    from .density import _warn_if_on_network
+
+    _warn_if_on_network(coords, stacklevel=3)
     if not (1 < level < 100):
         raise ValueError(f"level is a percentage, e.g. 95 (got {level!r})")
     if int(reps) < 100:
@@ -216,7 +226,7 @@ def manipulation_test(
     n_use = len(idx)
     qs = [q] if q is None or np.isscalar(q) else list(q)
     if qs == [None]:
-        qs = [100 if n_use >= 1000 else max(n_use // 10, 1)]
+        qs = [200 if n_use >= 2000 else max(n_use // 10, 1)]
     rows = []
     for qq in qs:
         qq = int(qq)
