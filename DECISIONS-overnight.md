@@ -100,3 +100,65 @@ Each entry: the decision, the alternatives, and why. All are reversible.
 Note: the Monte Carlo agent ran `taskkill /F /IM python.exe` once early on, which
 stopped every Python process on this machine at that moment. Nothing of yours was
 running as far as I can tell, but check if you had Python jobs open overnight.
+
+## Night 2 (2026-10-20/21): decisions on the open questions
+
+You asked me to decide these. Each was tested before it was adopted; details are in
+CHANGELOG.md and the PRs.
+
+19. **Sorting tests (density over-rejection on curved boundaries).**
+    - Research: Bugni, Crippa and Restrepo (2026, arXiv:2609.00350) give a manipulation
+      test for boundary designs and show why signed-distance density tests can fail.
+      Sorting is a statement about where units locate in the plane, so the network
+      should not enter the null.
+    - Monte Carlo (500 reps per cell, n = 6k and 24k), comparing three options:
+
+      | option | size with units in the plane | power |
+      |---|---|---|
+      | `density(normalize="euclidean")` (new) | 0.03-0.06 on straight, ring, wavy and irregular boundaries, river and panel | the most against one-sided sorting |
+      | `"network"` (old default) | 0.34-1.00 on curved boundaries | not meaningful |
+      | `"none"` | 0.08-0.33 | not meaningful |
+
+    - The BCR test held its size everywhere in the plane. It is the only test with power
+      against sorting that offsets along the boundary; q = 200 was best.
+    - Decision: `density()` defaults to `"euclidean"`; new `manipulation_test()` /
+      `rdnetmanip` with q = 200. Both warn when observations lie on the network itself,
+      where no test held its size.
+    - Not done: porting rddensity's bandwidth selector. Size is already correct with the
+      current selector.
+20. **Near-singular fits.**
+    - Decision: replace the all-or-nothing `s` fallback with an "identifiable basis".
+      Columns are kept in degree order; a column is dropped if it is aliased (relative
+      residual < 1e-4) or would give an observation leverage 1.
+    - Effects: a singular bias-correction fit no longer biases tau (2.83 → 2.5 exactly).
+      On a one-way grid with an o² term pinned by one observation, the sd of tau_bc fell
+      from 1.67 to 0.44.
+21. **Default vce = HC3** (was HC1, rd2d's choice).
+    - HC3 gave 0.945-0.951 pointwise coverage in every Monte Carlo design; HC1 gave 0.92-0.94.
+    - In a high-leverage design, HC3 gave 0.95 and HC1 0.76.
+    - `vce="hc1"` gives rd2d's behaviour; reference tests pin it.
+22. **Off-network distance for non-length metrics.**
+    - Charged at the snapped street's own cost per unit length; it was free.
+    - A point at an end node uses the node's mean rate, with a relative tolerance so
+      that 0 vs 1e-15 rounding does not decide.
+23. **Rivers:** new `direction="flow"` (the shorter directed path either way).
+24. **WBATE default:** equal weight per distinct place. Duplicates from snapping share
+    one weight.
+25. **LBATE:** `kind="min"` and `kind="absmax"` (Stata `estat lbate, min|absmax`).
+26. **Default seed 0** for the uniform band, so results are reproducible (rd2d fixes its seed too).
+27. **Points on the boundary line count as treated with `treated_side`**, as they already
+    did with `treated_region`.
+28. **`from_place` raises on download failure** (`offline_fallback=True` for demos).
+29. **Kept as is, deliberately:**
+    - `min_obs` default 20 + #terms(q): rd2d's `rd2d()` uses 52. With HC3 the coverage is
+      already near nominal, and 52 would turn many sparse-network points "insufficient".
+    - Standard CR1 cluster factor: rd2d's default multiplies an extra n/(n-k). The README
+      warns about clustering with few clusters, and the code warns below 10 per side.
+    - Python breaks exact ties between equidistant boundary nodes differently from R and
+      Stata. This only matters on perfectly regular lattices (the mock city at h = 2000).
+30. **Stata after the AppStream session expired (around 03:20 on 10/21).**
+    - Everything up to and including the identifiable basis and HC3 was run in Stata:
+      ALL TESTS PASSED and PARITY PASSED (40 random designs, worst difference 1.25e-8).
+    - Later changes are untested in Stata: snap cost, place weights / lbate kinds / seed /
+      on-line points, sorting tests (`rdnetmanip`), and flow. The cases for the next run
+      are on the `parity-cases` branch (commit 5e4294f).

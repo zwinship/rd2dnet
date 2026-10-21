@@ -1,9 +1,30 @@
-# Overnight report (2026-10-19)
+# Overnight report (nights of 2026-10-19 and 2026-10-20)
 
-Work is in PRs #4 (Stata's first run), #5 (parity harness and most fixes), #7 (collinear covariates)
-and #8 (input errors); #6 is this report. All were merged into `main` after green CI
-(the live-OSM job failed once on an Overpass HTTP 502 and passed on rerun). Nothing was
-published. Decisions waiting for you are in `DECISIONS-overnight.md`.
+## Night 2 summary (start here)
+
+- **Stata verified on everything up to and including night 1.** Run in Stata 19 at the start
+  of night 2: ALL TESTS PASSED, INSTALL CHECK PASSED, and PARITY PASSED (40 random designs,
+  worst difference to Python 5.8e-9). The only stale references were the transition-cost
+  values, which predate the own-edge penalty fix (PR #10).
+- **The open questions are decided, tested and merged** (PRs #11, #12, #15, #18). See
+  `DECISIONS-overnight.md` items 19-30.
+  - Sorting tests: straight-line density by default, plus the Bugni-Crippa-Restrepo
+    manipulation test.
+  - An identifiable local basis instead of the `s`-only fallback.
+  - HC3 as the default.
+  - Off-network distance charged at the street's cost rate.
+  - `direction="flow"` for rivers.
+  - WBATE weights per place; `lbate` min/absmax; seed 0; `from_place` fails loudly.
+- **CI:** all green on the merged result (pytest on 3.10-3.13 and Windows, notebook,
+  R CMD check on 5 platforms, Python-R parity, live OSM).
+- **Stata, still to run:** the AppStream session expired during a pause at about 03:20.
+  Stata code merged after that is written and reviewed but not run in Stata: snap cost,
+  place weights / lbate kinds / seed, `rdnetmanip` and normalize(euclidean), and
+  direction(flow). The commands below run all of it, including the parity check against
+  regenerated cases.
+- **Second-round bug hunt:** a statistical code review, a use-case tester and an
+  adversarial tester ran on the merged code. Their findings and fixes are below, under
+  "Night 2 bug hunt".
 
 ## Status by language
 
@@ -16,12 +37,12 @@ published. Decisions waiting for you are in `DECISIONS-overnight.md`.
 
 ## First thing this morning: run Stata on the merged code
 
-All PRs (#4-#8) are merged into `main` (027f206). In Stata 19 (AppStream), run these, typing
+All PRs (#4-#18) are merged into `main` (1dc01e9). In Stata 19 (AppStream), run these, typing
 each line in the Command window:
 
 ```stata
 clear all
-do https://raw.githubusercontent.com/zwinship/rd2dnet/027f206176ba34a3bc411fd6e54983d8e663bfd7/stata/test/fetch.do 027f206176ba34a3bc411fd6e54983d8e663bfd7
+do https://raw.githubusercontent.com/zwinship/rd2dnet/1dc01e934fc4958456fdd1806b7433e3df0a72fe/stata/test/fetch.do 1dc01e934fc4958456fdd1806b7433e3df0a72fe
 cd test
 do rd2dnet_tests.do
 ```
@@ -30,8 +51,8 @@ The test suite must end with `ALL TESTS PASSED`. Failures are listed at the end.
 run the install check and the Stata side of the parity harness:
 
 ```stata
-do https://raw.githubusercontent.com/zwinship/rd2dnet/027f206176ba34a3bc411fd6e54983d8e663bfd7/stata/test/install_check.do 027f206176ba34a3bc411fd6e54983d8e663bfd7
-do https://raw.githubusercontent.com/zwinship/rd2dnet/33ba50e93959f2de8fbd1307b466bc7b61677c38/parity/fetch_stata.do 33ba50e93959f2de8fbd1307b466bc7b61677c38
+do https://raw.githubusercontent.com/zwinship/rd2dnet/1dc01e934fc4958456fdd1806b7433e3df0a72fe/stata/test/install_check.do 1dc01e934fc4958456fdd1806b7433e3df0a72fe
+do https://raw.githubusercontent.com/zwinship/rd2dnet/5e4294fd248054c5bbe574754b5da9f92f31cbf1/parity/fetch_stata.do 5e4294fd248054c5bbe574754b5da9f92f31cbf1
 do parity/run_stata.do
 ```
 
