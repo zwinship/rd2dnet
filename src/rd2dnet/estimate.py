@@ -19,7 +19,8 @@ import pandas as pd
 from scipy import stats
 
 from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
-from .bandwidth import _check_cluster, _check_covs, _check_obs, _check_weights, default_min_obs, rdbwnet
+from .bandwidth import (_as_int, _check_cluster, _check_covs, _check_deriv, _check_obs, _check_tangvec, _check_weights,
+                        default_min_obs, rdbwnet)
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -63,8 +64,9 @@ class RDNetResult:
         ``weights`` has one entry per evaluation point and is normalised to sum
         to one. By default every distinct place where an estimated point lies
         gets equal weight: evaluation points that snapped to the same place
-        (``node_arc``) repeat one estimate and share its weight. Points that
-        were not estimated (masked, insufficient, ...) must get weight 0. The
+        (``node_arc``) repeat one estimate and share its weight. Points with a
+        weak first stage are left out by default but may be given weight. Points
+        that were not estimated (masked, insufficient, ...) must get weight 0. The
         standard error is ``sqrt(w' cov w)``, so it accounts for the
         correlation between nearby evaluation points.
         """
@@ -76,7 +78,7 @@ class RDNetResult:
             raise ValueError("WBATE weights must be finite")
         if w.sum() == 0:
             raise ValueError("WBATE weights must have a nonzero sum")
-        ok = self._ok()
+        ok = self._ok() | (self.table["status"] == "weak first stage").to_numpy()
         bad = np.flatnonzero(~ok & (w != 0))
         if len(bad):
             raise ValueError(f"WBATE puts weight on evaluation points that were not estimated: {bad.tolist()}; "
@@ -375,7 +377,11 @@ def rdnet(
 
     ``status`` is ``"ok"``, ``"masked"``, ``"insufficient"`` (fewer than
     ``min_obs`` observations on a side), ``"few clusters"``, ``"singular"``,
-    ``"weak first stage"`` or ``"no bandwidth"``.
+    ``"weak first stage"`` or ``"no bandwidth"``. In fuzzy designs a point
+    whose first stage is within two standard errors of zero
+    (``|fs| < 2 fs_se``) is ``"weak first stage"``: its estimates are
+    reported, but the delta-method interval for ``itt / fs`` is unreliable and
+    the point is left out of the default ``wbate()`` and of ``lbate()``.
 
     Returns
     -------
@@ -400,20 +406,20 @@ def rdnet(
     y = _check_obs(y, coords.n_obs, "y")
     if not 1 < level < 100:
         raise ValueError(f"level is a percentage, e.g. 95 (got {level})")
-    q = p + 1 if q is None else int(q)
-    if p < 0 or q < p:
+    p = _as_int(p, "p", 0)
+    q = p + 1 if q is None else _as_int(q, "q")
+    if q < p:
         raise ValueError("need 0 <= p <= q")
+    repp = _as_int(repp, "repp", 1)
     J = coords.n_eval
-    deriv = tuple(int(v) for v in deriv)
-    if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:
-        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
+    deriv = _check_deriv(deriv, p)
     tang = None
     if tangvec is not None:
         if sum(deriv) != 0:
             raise ValueError("give either deriv or tangvec, not both")
         if p < 1:
             raise ValueError("tangvec needs p >= 1")
-        tang = np.broadcast_to(np.asarray(tangvec, dtype=float), (J, 2))
+        tang = _check_tangvec(tangvec, J)
     if pooled and (sum(deriv) or tang is not None):
         raise ValueError("pooled=True estimates level jumps only")
     kfun = get_kernel(kernel)
@@ -623,7 +629,7 @@ def rdnet(
         Psi = np.zeros((len(union), len(hac_cols)))
         for c, (_, _, idx, psi) in enumerate(hac_cols):
             Psi[pos[idx], c] = psi
-        V = coords.hac_quadratic(union, Psi, conley_cutoff, conley_distance)
+        V = _psd(coords.hac_quadratic(union, Psi, conley_cutoff, conley_distance))
         se_all = np.sqrt(np.clip(np.diag(V), 0.0, None))
         for c, (j, name, _, _) in enumerate(hac_cols):
             if name == "se_rb":
@@ -638,6 +644,11 @@ def rdnet(
         cov[np.ix_(qj, qj)] = V[np.ix_(qc, qc)]
     elif psi_store:
         cov = _joint_covariance(psi_store, coords, vce, cluster, J)
+    if D is not None:
+        # a first stage indistinguishable from zero makes tau = itt / fs and its
+        # delta-method interval unreliable: flag it (the estimates are kept)
+        weak = (table["status"] == "ok") & (np.abs(table["fs"]) < 2 * table["fs_se"])
+        table.loc[weak, "status"] = "weak first stage"
     if cov is not None:
         ok = np.isfinite(np.diag(cov))
         crit = _uniform_critical_value(cov[np.ix_(ok, ok)], level, repp, seed)
@@ -645,13 +656,40 @@ def rdnet(
             table["cb_lo"] = table["tau_bc"] - crit * table["se_rb"]
             table["cb_hi"] = table["tau_bc"] + crit * table["se_rb"]
     g_ok = [g for g in g_min if g >= 2]
-    if g_ok and min(g_ok) < 10:
+    if g_ok and min(g_ok) < 50:
         warnings.warn(f"cluster-robust standard errors rest on few clusters: as few as {min(g_ok)} per side within "
-                      "the bandwidth at some evaluation points; with fewer than about 10 per side they are too "
-                      "small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff=...",
-                      stacklevel=2)
+                      "the bandwidth at some evaluation points. Local cluster-robust errors are too small unless "
+                      "there are many clusters per side (Monte Carlo coverage of 95% intervals: about 0.7 with 5-6, "
+                      "0.78 with 26, 0.88 with 48, 0.94 with 190). Consider conley_cutoff=...", stacklevel=2)
+    elif vce in ("hc0", "hc1", "hc2", "hc3"):
+        n_loc = len(np.unique(coords.loc))
+        if n_loc < 0.9 * coords.n_obs:
+            warnings.warn(f"the {coords.n_obs} observations sit at only {n_loc} distinct locations (a panel or repeated "
+                          f"measurements?); {vce.upper()} standard errors treat them as independent and are too small "
+                          "when observations at one place are correlated. Cluster by unit (cluster=...) or use "
+                          "conley_cutoff=...", stacklevel=2)
     return RDNetResult(table, p, q, kname, vce, level, repr(coords.network.metric), fuzzy=D is not None,
                        crit=crit, cov=cov, bandwidths=bw, coords=coords)
+
+
+def _psd(V: np.ndarray) -> np.ndarray:
+    """Nearest positive semi-definite matrix when ``V`` is clearly not one.
+
+    Bartlett weights are positive definite on a line but not on a network or
+    in the plane, so a Conley covariance can have negative eigenvalues (and
+    negative variances). They are set to zero, with a warning; a matrix that
+    is positive semi-definite up to rounding is returned unchanged.
+    """
+    if V.size == 0 or not np.all(np.isfinite(V)):
+        return V
+    w, Q = np.linalg.eigh(V)
+    if w.min() >= -1e-10 * max(w.max(), 0.0):
+        return V
+    warnings.warn("the Conley covariance was not positive semi-definite (Bartlett weights need not be on a "
+                  "network); its negative eigenvalues were set to 0. A smaller conley_cutoff avoids this",
+                  stacklevel=3)
+    out = (Q * np.clip(w, 0.0, None)) @ Q.T
+    return (out + out.T) / 2
 
 
 def _cluster_dof(n: int, k: int, cl) -> float:

@@ -527,3 +527,27 @@ def test_covariate_units_do_not_change_the_fit(coords, city):
 def test_conley_cutoff_above_the_bandwidth_warns(coords, city):
     with pytest.warns(UserWarning, match="exceeds the bandwidth"):
         rd2dnet.rdnet(city.obs["outcome"], coords, h=400.0, conley_cutoff=1500.0, cbands=False)
+
+
+def test_fuzzy_points_with_a_first_stage_near_zero_are_flagged(city, coords):
+    rng = np.random.default_rng(0)
+    d = rng.binomial(1, 0.5, coords.n_obs).astype(float)  # take-up unrelated to the boundary
+    r = rd2dnet.rdnet(city.obs["outcome"], coords, h=600, fuzzy=d, cbands=False)
+    t = r.table
+    weak = t["status"] == "weak first stage"
+    assert weak.any()
+    assert (np.abs(t.loc[weak, "fs"]) < 2 * t.loc[weak, "fs_se"]).all()
+    assert np.isfinite(t.loc[weak, "tau_bc"]).all()  # estimates are kept
+    strong = t["status"] == "ok"
+    assert (np.abs(t.loc[strong, "fs"]) >= 2 * t.loc[strong, "fs_se"]).all()
+
+
+def test_rdbwnet_reproduces_the_bandwidths_rdnet_selects_with_cluster_and_conley(city, coords):
+    y = city.obs["outcome"]
+    cl = (city.obs["x"] // 500).to_numpy()
+    r = rd2dnet.rdnet(y, coords, cluster=cl, cbands=False)
+    bw = rd2dnet.rdbwnet(y, coords, cluster=cl, vce="cluster", scaleregul=3)
+    np.testing.assert_allclose(r.table["h0"], bw["h0"], rtol=1e-12)
+    r = rd2dnet.rdnet(y, coords, conley_cutoff=150.0, cbands=False)
+    bw = rd2dnet.rdbwnet(y, coords, vce="conley", scaleregul=3)
+    np.testing.assert_allclose(r.table["h0"], bw["h0"], rtol=1e-12)

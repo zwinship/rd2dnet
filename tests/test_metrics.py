@@ -247,3 +247,80 @@ def test_off_network_distance_is_charged_at_the_streets_cost_rate():
     fixed = rd2dnet.NetworkGraph(G, travel_time(), snap_scale=0.0)
     c0 = rd2dnet.network_coordinates(fixed, bnd, np.array([[30.0, 50.0]]), eval_points=[50.0])
     np.testing.assert_allclose(c0.s, [5.0])
+
+
+def _crescent_graph(directed=False):
+    # a straight boundary street A-B-C plus a road from B to D that bulges 150 m into the control side
+    from shapely.geometry import LineString
+
+    G = nx.DiGraph() if directed else nx.Graph()
+    for n, (x, y) in {"A": (500, 0), "B": (500, 200), "D": (500, 300), "C": (500, 500), "E": (700, 250)}.items():
+        G.add_node(n, x=x, y=y)
+    for a, b in [("A", "B"), ("B", "D"), ("D", "C"), ("D", "E")]:
+        _add_edge(G, a, b)
+        if directed:
+            _add_edge(G, b, a)
+    geom = LineString([(500, 200), (360, 200), (350, 250), (360, 300), (500, 300)])
+    G.remove_edge("B", "D")
+    G.add_edge("B", "D", length=geom.length, geometry=geom)
+    if directed:
+        G.remove_edge("D", "B")
+        G.add_edge("D", "B", length=geom.length, geometry=geom.reverse())
+    return G, geom
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_a_road_with_both_ends_on_the_boundary_is_not_on_it(directed):
+    G, geom = _crescent_graph(directed)
+    net = rd2dnet.NetworkGraph(G, direction="out") if directed else rd2dnet.NetworkGraph(G)
+    bnd = rd2dnet.Boundary([(500, 0), (500, 500)], treated_side="right")
+    c = rd2dnet.network_coordinates(net, bnd, np.array([[350.0, 250.0], [650.0, 250.0]]), treated=[False, True],
+                                    eval_points=np.array([250.0]))
+    np.testing.assert_allclose(c.s[0], -geom.length / 2, rtol=1e-9)
+
+
+def test_tuple_node_labels_work_with_point_nodes():
+    G = nx.DiGraph()
+    pts = {(0, 0): (0, 0), (1, 0): (100, 0), (2, 0): (200, 0)}
+    for n, (x, y) in pts.items():
+        G.add_node(n, x=x, y=y)
+    for a, b in [((0, 0), (1, 0)), ((1, 0), (2, 0))]:
+        _add_edge(G, a, b)
+        _add_edge(G, b, a)
+    bnd = rd2dnet.Boundary([(150, -50), (150, 50)], treated_side="right")
+    # one location exactly on a node, one on an edge
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, direction="out"), bnd,
+                                    np.array([[100.0, 0.0], [20.0, 0.0], [200.0, 0.0]]), eval_points=[50.0])
+    np.testing.assert_allclose(c.s, [-50.0, -130.0, 50.0], rtol=1e-12)
+
+
+def test_transition_penalties_with_direction_in_follow_the_travel_order():
+    # L -> A residential, A -> B primary (crosses the boundary at x = 150); turning onto primary costs 50
+    G = nx.DiGraph()
+    for n, x in {"L": 0.0, "A": 100.0, "B": 200.0, "C": 300.0}.items():
+        G.add_node(n, x=x, y=0.0)
+    G.add_edge("L", "A", length=100.0, highway="residential")
+    G.add_edge("A", "B", length=100.0, highway="primary")
+    G.add_edge("C", "B", length=100.0, highway="primary")
+    G.add_edge("B", "C", length=100.0, highway="primary")
+    bnd = rd2dnet.Boundary([(150, -100), (150, 100)], treated_side="right")
+    met = TransitionCost("length", penalty={("residential", "primary"): 50.0})
+    X = np.array([[10.0, 0.0], [250.0, 0.0]])
+    for d in ("in", "flow"):
+        c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, metric=met, direction=d), bnd, X, eval_points=[100.0])
+        np.testing.assert_allclose(c.s[0], -190.0, rtol=1e-12)
+
+
+def test_callable_metric_that_does_not_add_up_over_split_edges_warns():
+    G = nx.Graph()
+    for n, (x, y) in {"a": (0, 0), "b": (200, 0)}.items():
+        G.add_node(n, x=x, y=y)
+    G.add_edge("a", "b", length=200.0, minutes=2.0)
+    bnd = rd2dnet.Boundary([(100, -50), (100, 50)], treated_side="right")
+    X = np.array([[20.0, 0.0], [180.0, 0.0]])
+    with pytest.warns(UserWarning, match="does not add up"):
+        rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, metric=lambda u, v, d: d["minutes"], snap_scale=0.01),
+                                    bnd, X, eval_points=[50.0])
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, metric=lambda u, v, d: d["minutes"], snap_scale=0.01),
+                                    bnd, X, eval_points=[50.0], extensive=("length", "minutes"))
+    np.testing.assert_allclose(c.s, [-0.8, 0.8], rtol=1e-12)

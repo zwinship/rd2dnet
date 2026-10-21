@@ -217,7 +217,8 @@
 #'   evaluation points), or the coverage-error-optimal `"cerrd"`, `"certwo"`,
 #'   `"icerrd"`, `"icertwo"`.
 #' @param vce `"hc0"`-`"hc3"` variance used inside the selector
-#'   (`"cluster"` and `"conley"` select with `"hc1"`).
+#'   (`"cluster"` and `"conley"` select with `"hc0"` residuals, cluster-robust
+#'   when `cluster` is given, as [rdnet()] does with those standard errors).
 #' @param bwcheck Every bandwidth is at least the distance to the
 #'   `bwcheck`-th nearest observation on each side (default `20 +` the number
 #'   of order-`p + 1` terms).
@@ -253,10 +254,10 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
     stop(sprintf("bwselect must be one of %s", paste(.BWSELECT, collapse = ", ")), call. = FALSE)
   }
   if (!vce %in% .VCE_TYPES) {
-    stop("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc1')",
+    stop("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc0')",
          call. = FALSE)
   }
-  if (!vce %in% c("hc0", "hc1", "hc2", "hc3")) vce <- "hc1"
+  if (!vce %in% c("hc0", "hc1", "hc2", "hc3")) vce <- "hc0"
   y <- .check_obs(y, coords$n_obs, "y")
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "triangular"

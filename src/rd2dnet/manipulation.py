@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .bandwidth import _as_int
 from .coordinates import NetworkCoordinates
 
 _M = 2147483647  # 2^31 - 1
@@ -228,10 +229,13 @@ def manipulation_test(
     if qs == [None]:
         qs = [200 if n_use >= 2000 else max(n_use // 10, 1)]
     rows = []
+    if k_max is not None:
+        k_max = _as_int(k_max, "k_max", 1)
     for qq in qs:
-        qq = int(qq)
+        qq = _as_int(qq, "q")
         if qq < 2 or qq > n_use:
-            raise ValueError(f"q must be between 2 and the number of usable locations ({n_use}), got {qq}")
+            what = "q" if q is not None else f"the default q ({qq}, a tenth of the usable locations)"
+            raise ValueError(f"{what} must be between 2 and the number of usable locations ({n_use})")
         if qq < 20:
             warnings.warn(f"q = {qq} locations give a test with little power", stacklevel=2)
         if qq > 0.4 * n_use:

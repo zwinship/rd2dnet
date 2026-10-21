@@ -33,14 +33,39 @@ from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
 
-def _warn_if_on_network(coords: NetworkCoordinates, stacklevel: int = 2) -> None:
-    """Warn when most locations lie on the network itself (no sorting test is valid then)."""
+def _street_closeness(coords: NetworkCoordinates, n_ref: int = 2000) -> float:
+    """Median snap distance of the locations relative to points spread uniformly over their extent.
+
+    About 1 when units are spread over the plane (parcels, households), near 0
+    when they sit on or next to the streets (stations on a river, GPS fixes of
+    vehicles). Scale-free: it compares with the same network's own spacing.
+    """
     depth = np.asarray(coords.snap.depth, dtype=float)[coords._first]
-    extent = float(np.hypot(*np.ptp(coords.network.coords, axis=0)))
-    if len(depth) and np.mean(depth <= 1e-6 * max(extent, 1.0)) > 0.5:
-        warnings.warn("most locations lie on the network itself (stations on a river, points on streets); "
-                      "sorting tests assume units spread over the plane, and in Monte Carlo runs none of them "
-                      "held its size for points on streets near a curved boundary", stacklevel=stacklevel)
+    xy = coords.xy[coords._first]
+    ok = np.isfinite(depth) & np.all(np.isfinite(xy), axis=1)
+    if ok.sum() < 20:
+        return np.nan
+    lo, hi = xy[ok].min(axis=0), xy[ok].max(axis=0)
+    ref_pts = np.random.default_rng(0).uniform(lo, hi, (n_ref, 2))
+    try:
+        ref = np.asarray(coords.network.snap(ref_pts).depth, dtype=float)
+    except ValueError:
+        return np.nan
+    med = float(np.median(ref))
+    if not med > 0:
+        return np.nan
+    return float(np.median(depth[ok])) / med
+
+
+def _warn_if_on_network(coords: NetworkCoordinates, stacklevel: int = 2) -> None:
+    """Warn when most locations lie on or next to the network itself (no sorting test is valid then)."""
+    r = _street_closeness(coords)
+    if np.isfinite(r) and r < 0.6:
+        where = "on the network itself" if r < 1e-6 else "on or next to the network"
+        warnings.warn(f"most locations lie {where} (stations on a river, GPS points on streets): their median "
+                      f"distance to the nearest street is {r:.2f} times that of points spread over the same area. "
+                      "Sorting tests assume units spread over the plane; in Monte Carlo runs none of them held its "
+                      "size for points on or near streets (GPS noise up to 15 m)", stacklevel=stacklevel)
 
 
 @dataclass
@@ -151,6 +176,14 @@ def _side_bandwidth(x, om, right, p, kfun, scaleregul, n_min):
     return float(min(max(h, lo), hi))
 
 
+def _arc_gap(boundary, arc, center):
+    """Distance along the boundary between arc positions (the shorter way round a closed ring)."""
+    gap = np.abs(np.asarray(arc, dtype=float) - center)
+    if boundary.closed:
+        gap = np.minimum(gap, boundary.length - gap)
+    return gap
+
+
 def _street_length_transform(coords: NetworkCoordinates, center, window):
     """Return ``G_left, G_right``: cumulative street length within distance ``a`` of the boundary."""
     net = coords.network
@@ -167,7 +200,7 @@ def _street_length_transform(coords: NetworkCoordinates, center, window):
            + coords.boundary.project(net.coords[np.maximum(src[v], 0)])) / 2
     keep &= ~coords.boundary.is_masked(arc)
     if center is not None:
-        keep &= np.abs(arc - center) <= window
+        keep &= _arc_gap(coords.boundary, arc, center) <= window
     exact = np.isfinite(cost)
     med = np.nanmedian(cost[keep]) if np.isfinite(cost[keep]).any() else np.nanmedian(np.abs(nd[u] - nd[v])[keep])
     out = []
@@ -291,7 +324,7 @@ def density(
         if window is None:
             raise ValueError("give a window (arc length) together with eval_index")
         center = coords.eval_node_arc[eval_index]
-        sel &= np.abs(arc - center) <= window
+        sel &= _arc_gap(coords.boundary, arc, center) <= window
     if normalize == "network":
         G_left, G_right = _street_length_transform(coords, center, window)
         s = np.where(T, G_right(s), G_left(s))

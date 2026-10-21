@@ -360,6 +360,8 @@ class NetworkGraph:
                 G.remove_edge(u, v)
             G.add_edge(u, cid, **first)
             G.add_edge(cid, v, **second)
+            if n_split == 0:
+                _check_split_cost(self.metric, u, v, data, [first, second])
             n_split += 1
         out = self._replace_graph(G)
         out.n_crossings_inserted = n_split
@@ -394,8 +396,10 @@ class NetworkGraph:
         node_label = np.empty(len(u), dtype=object)
         at_u = (u == v) | (frac <= 1e-9)
         at_v = ~at_u & (frac >= 1 - 1e-9)
-        node_label[at_u] = [self.nodes[k] for k in u[at_u]]
-        node_label[at_v] = [self.nodes[k] for k in v[at_v]]
+        for k in np.flatnonzero(at_u):  # element-wise: tuple labels must stay tuples
+            node_label[k] = self.nodes[u[k]]
+        for k in np.flatnonzero(at_v):
+            node_label[k] = self.nodes[v[k]]
         mid = np.flatnonzero(~at_u & ~at_v)
         if mid.size == 0:
             return self, np.array([self.node_index[x] for x in node_label], dtype=np.int64)
@@ -407,12 +411,21 @@ class NetworkGraph:
         cuts: dict[tuple[int, int], dict[float, Hashable]] = {}
         G = self.graph.copy()
         n_new = 0
+        # the new node sits on the street's own geometry, not on the chord
+        E = self.edge_frame()
+        efirst = {(int(min(a, b)), int(max(a, b))): (int(a), g)
+                  for a, b, g in zip(E["u"].to_numpy(), E["v"].to_numpy(), E["geometry"].to_numpy())}
         for k, a, b, tk in zip(mid, lo, hi, t):
             spots = cuts.setdefault((int(a), int(b)), {})
             key = round(float(tk), 12)
             if key not in spots:
-                xa, xb = self.coords[a], self.coords[b]
-                xy = xa + (xb - xa) * key
+                eu, geom = efirst.get((int(a), int(b)), (int(a), None))
+                if geom is not None:
+                    xy = np.asarray(shapely.line_interpolate_point(geom, key if eu == a else 1 - key,
+                                                                   normalized=True).coords[0])
+                else:
+                    xa, xb = self.coords[a], self.coords[b]
+                    xy = xa + (xb - xa) * key
                 pid = _fresh_label(G, "rdnet_point", n_new)
                 n_new = int(pid.rsplit("_", 1)[1]) + 1
                 G.add_node(pid, **{**_between(self.graph.nodes[self.nodes[a]], self.graph.nodes[self.nodes[b]], key),
@@ -420,6 +433,7 @@ class NetworkGraph:
                 spots[key] = pid
             node_label[k] = spots[key]
         multi = self.graph.is_multigraph()
+        checked = False
         for (a, b), spots in cuts.items():
             la, lb = self.nodes[a], self.nodes[b]
             ts = sorted(spots)
@@ -447,6 +461,7 @@ class NetworkGraph:
                     G.remove_edge(p, q)
                 chain = [p, *ids, q]
                 cut = [0.0, *pos, 1.0]
+                pieces = []
                 for i in range(len(chain) - 1):
                     share = cut[i + 1] - cut[i]
                     piece = dict(data)
@@ -456,6 +471,10 @@ class NetworkGraph:
                     if geom is not None:
                         piece["geometry"] = substring(geom, cut[i], cut[i + 1], normalized=True)
                     G.add_edge(chain[i], chain[i + 1], **piece)
+                    pieces.append(piece)
+                if not checked:
+                    _check_split_cost(self.metric, p, q, data, pieces)
+                    checked = True
         out = self._replace_graph(G)
         return out, np.array([out.node_index[x] for x in node_label], dtype=np.int64)
 
@@ -735,6 +754,25 @@ def _between(a: dict, b: dict, t: float) -> dict:
         if isinstance(x, (int, float, np.number)) and isinstance(y, (int, float, np.number))                 and not isinstance(x, bool) and not isinstance(y, bool):
             out[k] = float(x) + (float(y) - float(x)) * t
     return out
+
+
+def _check_split_cost(metric, u, v, data, pieces) -> None:
+    """Warn when a callable metric's cost does not add up over the pieces of a split edge.
+
+    String costs are split in proportion automatically; a callable may read
+    any attribute, and those it reads must be listed in ``extensive``.
+    """
+    if not any(callable(getattr(m, "cost", None)) for m in (metric, getattr(metric, "_base", None))):
+        return
+    try:
+        c = np.asarray(metric.edge_costs([u] * (len(pieces) + 1), [v] * (len(pieces) + 1), [data, *pieces]),
+                       dtype=float)
+    except Exception:  # costs that need the graph or other context: cannot check here
+        return
+    if np.all(np.isfinite(c)) and abs(c[1:].sum() - c[0]) > 1e-6 * max(abs(c[0]), 1e-12):
+        warnings.warn(f"the metric's cost does not add up over the pieces of a split edge ({c[1:].sum():g} "
+                      f"instead of {c[0]:g}): list the edge attributes a callable metric reads as costs in "
+                      "extensive=, e.g. extensive=('length', 'minutes')", stacklevel=3)
 
 
 def _cost_attributes(metric) -> set:

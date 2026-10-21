@@ -107,6 +107,10 @@ def rd2dnet(
             raise ValueError("network has no CRS to project lon/lat into")
         xy = project_lonlat(xy[:, 0], xy[:, 1], net.crs)
         b = project_lonlat(b[:, 0], b[:, 1], net.crs)
+    if not np.all(np.isfinite(xy)):
+        raise ValueError("X has missing or non-finite coordinates; drop those observations first")
+    if not np.all(np.isfinite(b)):
+        raise ValueError("b has missing or non-finite coordinates")
     t = np.asarray(t).astype(float).ravel()
     if np.isnan(t).any() or not np.isin(t, (0, 1)).all():
         raise ValueError("t must be a 0/1 (or boolean) treatment indicator without missing values")

@@ -407,6 +407,9 @@ class TransitionCost(NetworkMetric):
             for b in classes:
                 pen[class_id[a], class_id[b]] = self.transition_penalty(a, b)
         cid = np.fromiter((class_id.get(x, 0) for x in ecls), dtype=np.int64, count=m)
+        if graph.is_directed() and direction == "in":
+            # arcs are reversed, so the search meets each turn from its far side
+            pen = pen.T
 
         # States: one "standing at node" state per node, one per non-connector
         # arc, and one per (connector arc, remembered class).

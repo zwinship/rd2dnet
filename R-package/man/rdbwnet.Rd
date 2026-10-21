@@ -37,7 +37,8 @@ evaluation points), or the coverage-error-optimal \code{"cerrd"}, \code{"certwo"
 \code{"icerrd"}, \code{"icertwo"}.}
 
 \item{vce}{\code{"hc0"}-\code{"hc3"} variance used inside the selector
-(\code{"cluster"} and \code{"conley"} select with \code{"hc1"}).}
+(\code{"cluster"} and \code{"conley"} select with \code{"hc0"} residuals, cluster-robust
+when \code{cluster} is given, as \code{\link[=rdnet]{rdnet()}} does with those standard errors).}
 
 \item{bwcheck}{Every bandwidth is at least the distance to the
 \code{bwcheck}-th nearest observation on each side (default \verb{20 +} the number
