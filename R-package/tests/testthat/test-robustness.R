@@ -220,7 +220,7 @@ test_that("rdnet rejects malformed options", {
   expect_error(rdnet(y, cc, h = 600, repp = 0), "repp must be at least 1")
   expect_error(rdnet(y, cc, h = 600, tangvec = c(1, 0, 0)), "tangvec must be")
   expect_error(rdnet(y, cc, h = 600, tangvec = c(NaN, 1)), "tangvec must be finite")
-  expect_error(rdnet(y, cc, h = 600, tangvec = c(0, 0)), "must not be c\(0, 0\)")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(0, 0)), "must not be c.0, 0.")
   expect_error(rdbwnet(y, cc, deriv = c(0.5, 0)), "deriv must be an integer")
 })
 
