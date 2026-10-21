@@ -15,7 +15,7 @@ rdnet(
   covs = NULL,
   kernel = "triangular",
   bwselect = "mserd",
-  vce = "hc1",
+  vce = "hc3",
   cluster = NULL,
   conley_cutoff = NULL,
   conley_distance = "network",
@@ -68,8 +68,10 @@ or a function (see \code{\link[=get_kernel]{get_kernel()}}).}
 estimation, so it differs from a call to \code{\link[=rdbwnet]{rdbwnet()}} with its defaults;
 the selected bandwidths are stored in the \code{bandwidths} element.}
 
-\item{vce}{\code{"hc0"}-\code{"hc3"}; \code{"cluster"} (with \code{cluster}) and \code{"conley"}
-(with \code{conley_cutoff}) are implied when those are given.}
+\item{vce}{\code{"hc0"}-\code{"hc3"} (default \code{"hc3"}); \code{"cluster"} (with \code{cluster}) and
+\code{"conley"} (with \code{conley_cutoff}) are implied when those are given. rd2d uses
+HC1; HC3 is the default here because local samples on networks often contain
+high-leverage points (few distinct offsets), where HC1 understates the variance.}
 
 \item{cluster}{Cluster labels, one per observation; implies \code{vce = "cluster"}
 (CR1 with rd2d's \code{(n - 1)/(n - k) * g/(g - 1)} factor). Points with fewer

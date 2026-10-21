@@ -19,7 +19,7 @@
 {synopt:{opt der:iv(a c)}, {opt tang:vec(ts to)}}derivative targets, as in {helpb rdnet}{p_end}
 {synopt:{opt cov:s(varlist)}}covariates partialled out with common coefficients{p_end}
 {synopt:{opt fuz:zy(varname)}}take-up; uses the linearised outcome{p_end}
-{synopt:{opt vce(hc0|hc1|hc2|hc3)}}variance used inside the selector; default {cmd:hc1}{p_end}
+{synopt:{opt vce(hc0|hc1|hc2|hc3)}}variance used inside the selector; default {cmd:hc3}{p_end}
 {synopt:{opt cl:uster(varname)}}cluster-robust variance inside the selector{p_end}
 {synopt:{opt ker:nel(name)}}kernel; default {cmd:triangular}{p_end}
 {synopt:{opt bwch:eck(#)}}minimum bandwidth: distance to the #-th nearest observation per side; default 20 + the number of order-(p+1) terms{p_end}

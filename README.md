@@ -196,7 +196,10 @@ default). It falls back to the bundled mock network with a warning when offline.
 - **Fuzzy designs**: `rdnet(y, coords, fuzzy=D)` estimates the ratio of the outcome
   jump to the take-up jump at each boundary point. It reports the first stage `fs`
   and `fs_se`, and selects the bandwidth from the linearised outcome, as rd2d does.
-- **Standard errors** (`vce`): `hc0` to `hc3`, `cluster` (CR1 with rd2d's
+- **Standard errors** (`vce`): `hc0` to `hc3` (default `hc3`; rd2d uses `hc1`, but on
+  networks local samples often contain high-leverage points, and HC3 kept pointwise
+  coverage at 0.945-0.951 across our Monte Carlo designs where HC1 gave 0.92-0.94),
+  `cluster` (CR1 with rd2d's
   `(n - 1)/(n - k) * g/(g - 1)` factor), or `conley` (Bartlett
   spatial HAC over **network** or Euclidean distance). Conley is computed block by
   block, so memory stays bounded, and it also drives the uniform band's joint

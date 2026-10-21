@@ -37,6 +37,8 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* **Default `vce` is now `"hc3"`** in `rdnet()` and `rdbwnet()` (was `"hc1"`): HC3 kept Monte
+  Carlo coverage near 0.95 where HC1 under-covered with high-leverage local samples.
 * Local fits keep their identifiable terms (in degree order, dropping columns that are
   aliased or determined by a single observation) instead of switching the whole fit to
   `s` alone. A singular bias-correction fit no longer changes the main estimate.

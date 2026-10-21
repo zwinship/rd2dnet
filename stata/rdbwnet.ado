@@ -20,7 +20,7 @@ program define rdbwnet, rclass
     if "`kernel'" == "" local kernel triangular
     if "`bwselect'" == "" local bwselect mserd
     local vcetype = lower("`vce'")
-    if "`vcetype'" == "" local vcetype hc1
+    if "`vcetype'" == "" local vcetype hc3
     if !inlist("`vcetype'", "hc0", "hc1", "hc2", "hc3") {
         di as err "vce() must be hc0, hc1, hc2 or hc3 (use cluster() for clustering)"
         exit 198

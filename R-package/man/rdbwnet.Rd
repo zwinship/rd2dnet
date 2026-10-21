@@ -13,7 +13,7 @@ rdbwnet(
   covs = NULL,
   kernel = "triangular",
   bwselect = "mserd",
-  vce = "hc1",
+  vce = "hc3",
   cluster = NULL,
   fuzzy = NULL,
   weights = NULL,

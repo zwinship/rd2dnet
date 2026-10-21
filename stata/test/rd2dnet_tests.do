@@ -83,7 +83,7 @@ end
 
 capture program drop t_hc1
 program define t_hc1
-    rdnet outcome, h(600) seed(0)
+    rdnet outcome, h(600) vce(hc1) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 8  "2.2879700352572083 2.226131870704858 2.2374576858442436 2.216318573301832" 1e-8 "hc1 tau"
     rdn_expect_rows R 9  "0.6423910522468664 0.519468183514787 0.3817868050575414 0.450498262570776" 1e-8 "hc1 se"
@@ -129,15 +129,15 @@ program define t_models
     rdnet outcome, h(600) pooled seed(0)
     matrix R = e(results)
     rdn_expect_rows R 8 "2.33711903774262 2.28628744363469 2.24378223855976 2.20960952447098" 1e-8 "pooled tau"
-    rdnet outcome [aw=far], h(500 700) seed(0)
+    rdnet outcome [aw=far], h(500 700) vce(hc1) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 8  "2.39052455698188 2.60204927186686 2.44069271559587 2.4799033928382" 1e-8 "weights tau"
     rdn_expect_rows R 11 "0.780143295867975 0.507737602420415 0.494117067302827 0.577625222741211" 1e-8 "weights se_rb"
-    rdnet outcome, h(600) covs(lnfar) seed(0)
+    rdnet outcome, h(600) covs(lnfar) vce(hc1) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 8 "2.26211114648349 2.2266580452012 2.23727453004989 2.20988779475705" 1e-8 "covs tau"
     rdn_expect_rows R 9 "0.647342414736302 0.519161733126116 0.382049751911618 0.448214407246662" 1e-8 "covs se"
-    rdnet outcome, h(700) fuzzy(D) seed(0)
+    rdnet outcome, h(700) fuzzy(D) vce(hc1) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 8  "7.22528138668698 5.73956721098894 5.87435849102914 5.24722077290505" 1e-8 "fuzzy tau"
     rdn_expect_rows R 20 "0.292335873427158 0.38559002377044 0.379865950971725 0.418673765634722" 1e-8 "fuzzy first stage"
@@ -152,7 +152,7 @@ end
 
 capture program drop t_bandwidth
 program define t_bandwidth
-    rdnet outcome, seed(0)
+    rdnet outcome, vce(hc1) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 4  "645.51930767128 730.659206427927 560.790448573427 821.495489610758" 1e-6 "auto h"
     rdn_expect_rows R 10 "2.54273718655865 2.42473790752563 2.41529140108223 2.21032099845553" 1e-6 "auto tau_bc"
@@ -160,7 +160,7 @@ program define t_bandwidth
     * bandwidth identify the linear term in o, so the basis is (s, o), as in Python
     rdn_expect R[1,15] 0 0 "eval 1 estimated"
     rdn_expect R[1,22] 1 0 "eval 1 basis = (s, o)"
-    rdbwnet outcome, bwselect(msetwo)
+    rdbwnet outcome, bwselect(msetwo) vce(hc1)
     matrix B = r(bws)
     rdn_expect_rows B 21 "1010.98975735317 750.620801408354 584.100691648631 866.851382283764" 1e-6 "msetwo h0"
     rdn_expect_rows B 22 "804.073938664862 849.151186796829 685.342258189746 879.02354935806" 1e-6 "msetwo h1"
@@ -288,7 +288,7 @@ program define t_river
     forvalues i = 1/4 {
         rdn_expect _rdn_s[`i'] `: word `i' of `s'' 1e-9 "river s[`i']"
     }
-    rdnet y_out, h(1500) seed(0)
+    rdnet y_out, h(1500) vce(hc1) seed(0)
     matrix R = e(results)
     local tau -1.3986516707699939 -1.2344053207051944 -1.4911025736082353
     local tbc -1.23500711932145 -0.9986365254587386 -1.2862431836128785

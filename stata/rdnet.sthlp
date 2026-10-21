@@ -40,7 +40,7 @@
 {synopt:{opt min:obs(#)}}minimum local observations per side; default 20 + the number of order-q terms{p_end}
 
 {syntab:Standard errors and inference}
-{synopt:{opt vce(vcetype)}}{cmd:hc0}, {cmd:hc1} (default), {cmd:hc2}, {cmd:hc3}, {cmd:cluster} {it:clustvar}, or {cmd:conley} {it:#} [{cmd:network}|{cmd:euclidean}]{p_end}
+{synopt:{opt vce(vcetype)}}{cmd:hc0}, {cmd:hc1}, {cmd:hc2}, {cmd:hc3} (default), {cmd:cluster} {it:clustvar}, or {cmd:conley} {it:#} [{cmd:network}|{cmd:euclidean}]{p_end}
 {synopt:{opt conleyresids:cale(#)}}auxiliary fit for Conley residuals at # x h; default 3{p_end}
 {synopt:{opt conleyresido:rder(#)}}order of that auxiliary fit; default q{p_end}
 {synopt:{opt l:evel(#)}}confidence level; default {cmd:c(level)}{p_end}

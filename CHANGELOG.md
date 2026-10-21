@@ -52,6 +52,11 @@ Fixes:
 - `from_igraph` uses `length` when there is no `weight` attribute.
 
 Fixes from cross-language and invariance testing:
+- **Default `vce` is now `"hc3"`** in `rdnet` and `rdbwnet` (was `"hc1"`, rd2d's default), in
+  Python, R and Stata. Local samples on networks often contain high-leverage points (few
+  distinct offsets along the boundary), where HC1 understates the variance. In Monte Carlo
+  runs HC3 gave pointwise coverage 0.945-0.951 in every design (HC1: 0.92-0.94) and 0.95
+  in a high-leverage one-way-street design (HC1: 0.76). Pass `vce="hc1"` for rd2d's choice.
 - Local fits keep their identifiable terms instead of switching the whole fit to `s`
   alone (Python, R, Stata). Columns of the (s, o) basis are taken in degree order and
   a column is dropped when it is (nearly) a linear combination of those kept, or when it
