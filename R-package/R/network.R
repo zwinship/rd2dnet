@@ -225,7 +225,8 @@ node_distance <- function(net, a, b) {
 #' @export
 # Cost per unit of off-network distance for each snapped point: snap_scale when
 # it is a number, otherwise the snapped edge's cost divided by its length (for
-# points snapped to a node, the mean over the node's edges).
+# points at a node, including those projecting onto an edge's end, the mean over
+# the node's edges).
 .snap_rates <- function(net, snap) {
   n <- length(snap$u)
   if (!is.na(net$snap_scale)) return(rep(net$snap_scale, n))
@@ -242,8 +243,12 @@ node_distance <- function(net, a, b) {
   node_sum[is.na(node_sum)] <- 0
   node_rate <- ifelse(node_cnt > 0, node_sum / pmax(node_cnt, 1), fallback)
   out <- rate[match(paste(pmin(snap$u, snap$v), pmax(snap$u, snap$v)), key)]
-  at_node <- snap$u == snap$v | is.na(out)
-  out[at_node] <- node_rate[snap$u[at_node]]
+  # a point at an end node (snapped to a node, or projecting onto an edge's end)
+  # uses the node's rate: which of its edges it "snapped to" is arbitrary
+  at_v <- snap$u != snap$v & snap$cost_v == 0 & snap$cost_u > 0
+  at_u <- snap$u == snap$v | (snap$cost_u == 0 & !at_v) | is.na(out)
+  out[at_u] <- node_rate[snap$u[at_u]]
+  out[at_v] <- node_rate[snap$v[at_v]]
   out
 }
 

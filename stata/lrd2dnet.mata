@@ -1481,7 +1481,7 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
 {
     struct rdn_snap scalar S
     struct rdn_near scalar R
-    real colvector cand, ok, ei, ed
+    real colvector cand, ok, ei, ed, er, nr, atu, atv
     if (nodemode) {
         cand = selectindex(allowed)
         if (rows(cand) == 0) _error(3498, "no network nodes available for snapping")
@@ -1506,7 +1506,14 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
     S.cu = R.t :* N.fcost[ed]
     S.cv = (1 :- R.t) :* N.fcost[ed]
     S.depth = R.dist
-    S.rate = rdn_edge_rates(N)[ed]
+    // a point at an end node uses the node's rate (which of its edges it
+    // "snapped to" is arbitrary)
+    er = rdn_edge_rates(N)
+    nr = rdn_node_rates(N, er)
+    S.rate = er[ed]
+    atv = (S.u :!= S.v) :& (S.cv :== 0) :& (S.cu :> 0)
+    atu = (S.u :== S.v) :| ((S.cu :== 0) :& (!atv))
+    S.rate = rdn_where(atu, nr[S.u], rdn_where(atv, nr[S.v], S.rate))
     return(S)
 }
 

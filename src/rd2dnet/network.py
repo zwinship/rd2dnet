@@ -248,8 +248,8 @@ class NetworkGraph:
         """Cost per unit of off-network distance for each snapped point.
 
         ``snap_scale`` when it is a number; otherwise the snapped edge's cost
-        divided by its length (for points snapped to a node, the mean over the
-        node's edges).
+        divided by its length (for points at a node, including those projecting
+        onto an edge's end, the mean over the node's edges).
         """
         n = len(snap.u)
         if self.snap_scale is not None:
@@ -268,8 +268,13 @@ class NetworkGraph:
         u, v = np.asarray(snap.u), np.asarray(snap.v)
         k = np.minimum(u, v) * self.n_nodes + np.maximum(u, v)
         out = np.array([lookup.get(kk, np.nan) for kk in k.tolist()], dtype=float)
-        at_node = (u == v) | np.isnan(out)
-        out[at_node] = node_rate[u[at_node]]
+        # a point at an end node (snapped to a node, or projecting onto an edge's
+        # end) uses the node's rate: which of its edges it "snapped to" is arbitrary
+        cu, cv = np.asarray(snap.cost_u), np.asarray(snap.cost_v)
+        at_v = (u != v) & (cv == 0) & (cu > 0)
+        at_u = (u == v) | ((cu == 0) & ~at_v) | np.isnan(out)
+        out[at_u] = node_rate[u[at_u]]
+        out[at_v] = node_rate[v[at_v]]
         return out
 
     # --- boundary preparation ----------------------------------------------
