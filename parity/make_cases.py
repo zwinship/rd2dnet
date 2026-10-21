@@ -36,6 +36,7 @@ import rd2dnet
 STATUS = {"ok": 0, "masked": 1, "insufficient": 2, "singular": 3, "no bandwidth": 4,
           "weak first stage": 5, "few clusters": 6}
 BASIS = {"s,o": 1, "s": 2}
+MANIP_Q, MANIP_REPS = 60, 500
 RES_COLS = ["h0", "h1", "n0", "n1", "tau", "se", "tau_bc", "se_rb", "status", "basis"]
 
 
@@ -145,7 +146,7 @@ def random_spec(rng, kind, case):
         "case": case,
         "kind": kind,
         "directed": directed,
-        "direction": str(rng.choice(["both", "out", "in"])) if directed else "both",
+        "direction": str(rng.choice(["both", "out", "in", "flow"])) if directed else "both",
         "metric": str(metric),
         "penalty": float(np.round(rng.uniform(50, 300), 1)),
         "n_eval": int(rng.choice([5, 7, 9])),
@@ -183,7 +184,7 @@ def random_spec(rng, kind, case):
         elif extra == "deriv" and kind != "river":
             r["deriv"] = [1, 0]
         spec["runs"].append(r)
-    spec["density"].append({"normalize": str(rng.choice(["network", "none"])),
+    spec["density"].append({"normalize": str(rng.choice(["euclidean", "network", "none"])),
                             "bwselect": str(rng.choice(["common", "each"]))})
     spec["bw"].append({"bwselect": str(rng.choice(["mserd", "msetwo", "imserd", "cerrd"]))})
     return spec
@@ -247,6 +248,12 @@ def run_estimates(d, spec, obs, cc):
             kw["deriv"] = tuple(r["deriv"])
         res = rd2dnet.rdnet(obs["y_out"].to_numpy(), cc, **kw)
         res_frame(res.table).to_csv(d / f"py_res_{k}.csv", index=False)
+        if k == 1:  # aggregates of the first run (point estimates only: the band's draws differ by language)
+            agg = dict(wbate=np.nan, lbate_max=np.nan, lbate_min=np.nan, lbate_absmax=np.nan)
+            if (res.table["status"] == "ok").any() and res.crit is not None:
+                agg = dict(wbate=res.wbate()["tau_bc"], lbate_max=res.lbate()["tau_bc"],
+                           lbate_min=res.lbate("min")["tau_bc"], lbate_absmax=res.lbate("absmax")["tau_bc"])
+            pd.DataFrame([agg]).to_csv(d / "py_agg_1.csv", index=False, float_format="%.17g")
     for k, r in enumerate(spec["density"], 1):
         dr = rd2dnet.density(cc, normalize=r["normalize"], bwselect=r["bwselect"])
         pd.DataFrame([{k2: getattr(dr, k2) for k2 in ["diff", "diff_bc", "se", "h_left", "h_right"]}]).to_csv(
@@ -255,6 +262,9 @@ def run_estimates(d, spec, obs, cc):
         bw = rd2dnet.rdbwnet(obs["y_out"].to_numpy(), cc, bwselect=r["bwselect"])
         out = pd.DataFrame({"h0": bw["h0"], "h1": bw["h1"], "status": bw["status"].map(STATUS)})
         out.to_csv(d / f"py_bw_{k}.csv", index=False)
+    mt = rd2dnet.manipulation_test(cc, q=MANIP_Q, reps=MANIP_REPS)
+    pd.DataFrame([dict(statistic=mt.statistic, pvalue=mt.pvalue, n_treated=mt.n_treated)]).to_csv(
+        d / "py_manip_1.csv", index=False, float_format="%.17g")
 
 
 # --------------------------------------------------------------------------
@@ -301,6 +311,8 @@ def r_script(spec, bnd):
             a.append(f"deriv = c({r['deriv'][0]}, {r['deriv'][1]})")
         L.append(f"res <- rdnet(obs$y_out, cc, {', '.join(a)})")
         L.append(f"write_res(res$table, file.path(d, 'r_res_{k}.csv'))")
+        if k == 1:
+            L.append("write_agg(res, file.path(d, 'r_agg_1.csv'))")
     for k, r in enumerate(spec["density"], 1):
         L.append(f"dr <- density(cc, normalize = '{r['normalize']}', bwselect = '{r['bwselect']}')")
         L.append("write.csv(data.frame(diff = dr$diff, diff_bc = dr$diff_bc, se = dr$se, h_left = dr$h_left, "
@@ -309,6 +321,9 @@ def r_script(spec, bnd):
         L.append(f"bw <- rdbwnet(obs$y_out, cc, bwselect = '{r['bwselect']}')")
         L.append("write.csv(data.frame(h0 = bw$h0, h1 = bw$h1, status = status_code(bw$status)), "
                  f"file.path(d, 'r_bw_{k}.csv'), row.names = FALSE)")
+    L.append(f"mt <- manipulation_test(cc, q = {MANIP_Q}, reps = {MANIP_REPS})")
+    L.append("write.csv(data.frame(statistic = mt$statistic, pvalue = mt$pvalue, n_treated = mt$n_treated), "
+             "file.path(d, 'r_manip_1.csv'), row.names = FALSE)")
     return "\n".join(x for x in L if x) + "\n"
 
 
@@ -350,12 +365,16 @@ def stata_script(spec, bnd, cdir):
             o.append(f"deriv({r['deriv'][0]} {r['deriv'][1]})")
         L.append(f"rdnet y_out{w}, {' '.join(o)}")
         L.append(f'rdn_par_res {c}/py_res_{k}.csv" {spec["case"]} rdnet{k}')
+        if k == 1:
+            L.append(f'rdn_par_agg {c}/py_agg_1.csv" {spec["case"]} aggregates')
     for k, r in enumerate(spec["density"], 1):
         L.append(f"rdnetdensity, normalize({r['normalize']}) bwselect({r['bwselect']})")
         L.append(f'rdn_par_dens {c}/py_dens_{k}.csv" {spec["case"]} density{k}')
     for k, r in enumerate(spec["bw"], 1):
         L.append(f"rdbwnet y_out, bwselect({r['bwselect']})")
         L.append(f'rdn_par_bw {c}/py_bw_{k}.csv" {spec["case"]} rdbwnet{k}')
+    L.append(f"rdnetmanip, q({MANIP_Q}) reps({MANIP_REPS})")
+    L.append(f'rdn_par_manip {c}/py_manip_1.csv" {spec["case"]} manipulation')
     return "\n".join(L) + "\n"
 
 
