@@ -37,6 +37,8 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* `network_graph_from_place()` raises when the download fails; `offline_fallback = TRUE`
+  returns the mock city as before (for demos only).
 * **Default `vce` is now `"hc3"`** in `rdnet()` and `rdbwnet()` (was `"hc1"`): HC3 kept Monte
   Carlo coverage near 0.95 where HC1 under-covered with high-leverage local samples.
 * Local fits keep their identifiable terms (in degree order, dropping columns that are

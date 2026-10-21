@@ -432,7 +432,7 @@ class NetworkGraph:
         bbox: tuple[float, float, float, float] | None = None,
         network_type: str = "walk",
         metric="length",
-        offline_fallback: bool = True,
+        offline_fallback: bool = False,
         dist: float = 1000.0,
         min_area: float = 250_000.0,
         **kwargs,
@@ -446,9 +446,10 @@ class NetworkGraph:
         as points, and a query can also match a single building) the streets
         within ``dist`` metres of it are downloaded, with a warning.
 
-        If OSMnx is missing or the download fails and ``offline_fallback`` is
-        true, the bundled mock Midtown network is returned with a warning, so
-        scripts and tests keep working without internet access.
+        If OSMnx is missing or the download fails, the error is raised. With
+        ``offline_fallback=True`` the bundled mock Midtown network is returned
+        instead, with a warning (for demos and tests without internet access;
+        never for analysis, since the streets are not the requested place's).
         """
         try:
             import osmnx as ox
