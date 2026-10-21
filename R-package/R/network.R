@@ -705,8 +705,9 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #'
 #' Downloads streets with \pkg{dodgr} (which uses \pkg{osmdata}) and projects
 #' them to the local UTM zone with \pkg{sf}. If a package is missing or the
-#' download fails and `offline_fallback` is `TRUE`, the bundled mock Midtown
-#' network is returned with a warning, so scripts keep working offline.
+#' download fails, the error is raised; with `offline_fallback = TRUE` the
+#' bundled mock Midtown network is returned instead, with a warning (for demos
+#' and tests without internet access, never for analysis).
 #'
 #' @param query Place name, e.g. `"Midtown Manhattan, New York"`.
 #' @param bbox Alternatively a bounding box `c(xmin, ymin, xmax, ymax)` in
@@ -714,7 +715,8 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #' @param network_type `"walk"`, `"bike"` or `"drive"` (or a \pkg{dodgr}
 #'   weighting profile).
 #' @param metric Metric specification, as in [network_graph()].
-#' @param offline_fallback Return the bundled mock network when the download fails.
+#' @param offline_fallback Return the bundled mock network when the download
+#'   fails (default `FALSE`: raise the error).
 #' @param dist,min_area `query` is geocoded with Nominatim and the bounding box
 #'   of its top match is downloaded. When that match is a point (many
 #'   neighbourhoods, such as Midtown Manhattan, are mapped as points) or covers
@@ -725,12 +727,12 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #'   `travel_time` (s) edge columns.
 #' @examples
 #' \donttest{
-#' net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York"))
+#' net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE))
 #' net
 #' }
 #' @export
 network_graph_from_place <- function(query = NULL, bbox = NULL, network_type = "walk",
-                                     metric = "length", offline_fallback = TRUE, dist = 1000,
+                                     metric = "length", offline_fallback = FALSE, dist = 1000,
                                      min_area = 250000, ...) {
   if (is.null(query) && is.null(bbox)) stop("give a place query or a bbox", call. = FALSE)
   profile <- switch(network_type, walk = "foot", bike = "bicycle", drive = "motorcar", network_type)

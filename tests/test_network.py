@@ -84,14 +84,14 @@ def _fake_osmnx(monkeypatch, geom=None, *, fail=None):
 def test_from_place_offline_fallback(monkeypatch):
     _fake_osmnx(monkeypatch, fail=ConnectionError("no internet"))
     with pytest.warns(UserWarning, match="bundled mock"):
-        net = rd2dnet.NetworkGraph.from_place("Manhattan, New York")
+        net = rd2dnet.NetworkGraph.from_place("Manhattan, New York", offline_fallback=True)
     assert net.n_nodes == 450
 
 
 def test_from_place_raises_without_fallback(monkeypatch):
     _fake_osmnx(monkeypatch, fail=ConnectionError("down"))
     with pytest.raises(ConnectionError):
-        rd2dnet.NetworkGraph.from_place("Manhattan", offline_fallback=False)
+        rd2dnet.NetworkGraph.from_place("Manhattan")  # no silent fallback by default
 
 
 def test_from_place_uses_the_outline_of_a_large_area(monkeypatch):

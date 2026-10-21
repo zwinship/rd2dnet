@@ -66,7 +66,7 @@ test_that("networks from igraph", {
 
 test_that("from_place falls back to the mock network offline", {
   local_mocked_bindings(.geocode_bbox = function(...) stop("no internet"))
-  expect_warning(net <- network_graph_from_place("Manhattan, New York"), "bundled mock")
+  expect_warning(net <- network_graph_from_place("Manhattan, New York", offline_fallback = TRUE), "bundled mock")
   expect_equal(net$n_nodes, 450)
   expect_error(network_graph_from_place("Manhattan", offline_fallback = FALSE), "no internet")
   expect_error(network_graph_from_place(), "query or a bbox")

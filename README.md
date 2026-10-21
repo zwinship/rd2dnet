@@ -169,7 +169,8 @@ For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, whi
 `pip install "rd2dnet[osm]"`. The query's top geocoding match is used: its outline when it
 is an area of at least `min_area` (250,000 m² by default), otherwise (a neighbourhood
 mapped as a point, a single building) the streets within `dist` metres of it (1,000 by
-default). It falls back to the bundled mock network with a warning when offline.
+default). If the download fails it raises the error; `offline_fallback=True` returns the
+bundled mock network instead (for demos only).
 
 ### Features
 

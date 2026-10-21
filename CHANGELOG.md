@@ -61,6 +61,10 @@ Fixes from cross-language and invariance testing:
   design and the only one with power against sorting that offsets along the boundary.
   Both warn when the observations lie on the network itself, where no test held its size
   (Python, R, Stata).
+- `NetworkGraph.from_place` (R: `network_graph_from_place`) raises when the download fails
+  instead of returning the bundled mock city: a use-case tester's analysis of "Waltham,
+  Massachusetts" silently ran on the mock Manhattan streets after an Overpass timeout.
+  `offline_fallback=True` keeps the old behaviour for demos and tests.
 - **Default `vce` is now `"hc3"`** in `rdnet` and `rdbwnet` (was `"hc1"`, rd2d's default), in
   Python, R and Stata. Local samples on networks often contain high-leverage points (few
   distinct offsets along the boundary), where HC1 understates the variance. In Monte Carlo

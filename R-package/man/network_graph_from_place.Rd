@@ -9,7 +9,7 @@ network_graph_from_place(
   bbox = NULL,
   network_type = "walk",
   metric = "length",
-  offline_fallback = TRUE,
+  offline_fallback = FALSE,
   dist = 1000,
   min_area = 250000,
   ...
@@ -26,7 +26,8 @@ weighting profile).}
 
 \item{metric}{Metric specification, as in \code{\link[=network_graph]{network_graph()}}.}
 
-\item{offline_fallback}{Return the bundled mock network when the download fails.}
+\item{offline_fallback}{Return the bundled mock network when the download
+fails (default \code{FALSE}: raise the error).}
 
 \item{dist, min_area}{\code{query} is geocoded with Nominatim and the bounding box
 of its top match is downloaded. When that match is a point (many
@@ -43,12 +44,13 @@ A \code{\link[=network_graph]{network_graph()}} with \code{length} (m), \code{hi
 \description{
 Downloads streets with \pkg{dodgr} (which uses \pkg{osmdata}) and projects
 them to the local UTM zone with \pkg{sf}. If a package is missing or the
-download fails and \code{offline_fallback} is \code{TRUE}, the bundled mock Midtown
-network is returned with a warning, so scripts keep working offline.
+download fails, the error is raised; with \code{offline_fallback = TRUE} the
+bundled mock Midtown network is returned instead, with a warning (for demos
+and tests without internet access, never for analysis).
 }
 \examples{
 \donttest{
-net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York"))
+net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE))
 net
 }
 }
