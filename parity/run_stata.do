@@ -129,6 +129,51 @@ program define rdn_par_dens
     rdn_par_note `case' "`label' values" `worst'
 end
 
+capture program drop rdn_par_agg
+program define rdn_par_agg
+    * WBATE (equal weights per place) and LBATE max/min/absmax point estimates
+    args file case label
+    tempname R
+    matrix `R' = e(results)
+    local any 0
+    forvalues j = 1/`=rowsof(`R')' {
+        if `R'[`j', 15] == 0 local any 1
+    }
+    if !`any' exit
+    rdn_par_ref "`file'" "wbate lbate_max lbate_min lbate_absmax"
+    tempname V
+    quietly estat wbate, weights(equal)
+    local a1 = r(tau_bc)
+    quietly estat lbate
+    local a2 = r(tau_bc)
+    quietly estat lbate, min
+    local a3 = r(tau_bc)
+    quietly estat lbate, absmax
+    local a4 = r(tau_bc)
+    local worst 0
+    forvalues k = 1/4 {
+        local d = abs(`a`k'' - PYREF[1, `k']) / max(1, abs(PYREF[1, `k']))
+        if `d' >= . local d 1e300
+        if `d' > `worst' local worst `d'
+    }
+    rdn_par_note `case' "`label' values" `worst'
+end
+
+capture program drop rdn_par_manip
+program define rdn_par_manip
+    args file case label
+    tempname V
+    matrix `V' = (r(statistic), r(pvalue), r(n_treated))
+    rdn_par_ref "`file'" "statistic pvalue n_treated"
+    local worst 0
+    forvalues k = 1/3 {
+        local d = abs(`V'[1, `k'] - PYREF[1, `k']) / max(1, abs(PYREF[1, `k']))
+        if `d' >= . local d 1e300
+        if `d' > `worst' local worst `d'
+    }
+    rdn_par_note `case' "`label' values" `worst'
+end
+
 capture program drop rdn_par_bw
 program define rdn_par_bw
     args file case label

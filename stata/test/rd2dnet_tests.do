@@ -127,9 +127,14 @@ program define t_vce
     rdnet outcome, h(600) vce(conley 150 euclidean) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 11 "0.748630568292863 0.602154181109756 0.449459055690671 0.491291224104242" 1e-8 "conley euclidean se_rb"
+    rdnet outcome, h(600) vce(cluster block) cr1 seed(0)
+    matrix R = e(results)
+    rdn_expect_rows R 11 "0.3221750701567485 0.4308191219209627 0.45480015406506874 0.45409127249969544" 1e-8 "cluster CR1 se_rb"
     rdnet outcome, h(600) vce(cluster block) seed(0)
     matrix R = e(results)
-    rdn_expect_rows R 11 "0.3221750701567485 0.4308191219209627 0.45480015406506874 0.45409127249969544" 1e-8 "cluster se_rb"
+    rdn_expect_rows R 11 "0.8561412149244739 0.8145564381252992 0.6044838146114162 0.5914486569282575" 1e-8 "cluster CR2 se_rb"
+    rdn_expect_rows R 23 "2.1342578317476404 2.608646673715296 3.6268505432025187 2.954971141665643" 1e-8 "cluster CR2 df"
+    rdn_expect_rows R 12 "-0.9072022435686362 -0.1553808739725122 0.5900578237239358 0.41528505568326657" 1e-8 "cluster CR2 ci_lo"
     rdnet outcome, h(600) vce(hc3) seed(0)
     matrix R = e(results)
     rdn_expect_rows R 9 "0.722066730205256 0.575806269535848 0.403330350144766 0.481835465352973" 1e-8 "hc3 se"
@@ -465,6 +470,135 @@ program define t_pointnodes
     rdn_expect _rdn_s[3] -500 1e-12 "transition, own edge class: s[3]"
 end
 
+capture program drop t_round2
+program define t_round2
+    * transition penalties with direction(in) follow the order of travel:
+    * L -> A residential, A -> B primary (crossing the boundary at x = 150)
+    capture frame drop r2_nodes
+    capture frame drop r2_edges
+    frame create r2_nodes
+    frame r2_nodes {
+        set obs 4
+        gen id = _n
+        gen x = 100 * (_n - 1)
+        gen y = 0
+    }
+    frame create r2_edges
+    frame r2_edges {
+        set obs 4
+        gen from = .
+        gen to = .
+        local k 0
+        foreach e in "1 2" "2 3" "4 3" "3 4" {
+            local ++k
+            replace from = real(word("`e'", 1)) in `k'
+            replace to = real(word("`e'", 2)) in `k'
+        }
+        gen str12 highway = cond(_n == 1, "residential", "primary")
+        gen double length = 100
+    }
+    matrix P = (0, 50 \ 0, 0)
+    matrix rownames P = residential primary
+    matrix colnames P = residential primary
+    clear
+    set obs 2
+    gen double x = cond(_n == 1, 10, 250)
+    gen double y = 0
+    matrix PL = (150, -100 \ 150, 100)
+    matrix PE = (100)
+    foreach d in in flow {
+        rdnetset x y, nodes(r2_nodes) edges(r2_edges) boundary(PL) treatedside(right) evalpoints(PE) ///
+            directed direction(`d') classvar(highway) penaltymatrix(P)
+        rdn_expect _rdn_s[1] -190 1e-12 "transition, direction(`d'): s[1]"
+    }
+    * fuzzy points with a first stage near zero get status 5 (weak first stage)
+    rdnetmock, clear
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
+    set seed 1
+    gen byte d = runiform() < 0.5
+    rdnet outcome, h(600) fuzzy(d)
+    mata: st_numscalar("r2_weak", sum(st_matrix("e(results)")[., 15] :== 5))
+    mata: st_numscalar("r2_bad", sum((st_matrix("e(results)")[., 15] :== 0) :& (abs(st_matrix("e(results)")[., 20]) :< 2 :* st_matrix("e(results)")[., 21])))
+    rdn_expect (scalar(r2_weak)>0) 1 0 "weak first stage flagged"
+    rdn_expect scalar(r2_bad) 0 0 "no ok point with |fs| < 2 fs_se"
+    rcof "noisily rdnet outcome, h(600) tangvec(0 0)" == 198
+    rcof "noisily rdnetmanip, kmax(0)" == 198
+end
+
+capture program drop t_round3
+program define t_round3
+    * an edge crossing the boundary twice (both ends on the control side) is split twice
+    capture frame drop r3_nodes
+    capture frame drop r3_edges
+    frame create r3_nodes
+    frame r3_nodes {
+        set obs 4
+        gen id = _n
+        gen x = 20
+        gen y = 45
+        replace x = 80 in 2
+        replace x = 0 in 3/4
+        replace y = 0 in 3
+        replace y = 100 in 4
+    }
+    frame create r3_edges
+    frame r3_edges {
+        set obs 3
+        gen from = cond(_n == 2, 3, 1)
+        gen to = cond(_n == 1, 2, cond(_n == 2, 4, 3))
+        gen double length = cond(_n == 1, 60, cond(_n == 2, 100, sqrt(20^2 + 45^2)))
+    }
+    clear
+    set obs 2
+    gen double x = cond(_n == 1, 45, 30)
+    gen double y = 46
+    matrix NL = (-10, 50 \ 40, 50 \ 40, 40 \ 60, 40 \ 60, 50 \ 110, 50)
+    matrix PE = (55)
+    rdnetset x y, nodes(r3_nodes) edges(r3_edges) boundary(NL) treatedside(left) evalpoints(PE)
+    rdn_expect _rdn_s[1] 6 1e-9 "double crossing: s[1]"
+    rdn_expect _rdn_s[2] -11 1e-9 "double crossing: s[2]"
+    * evaluation points on a ring that follows streets stay where they were asked for
+    frame r3_nodes {
+        clear
+        set obs 81
+        gen id = _n
+        gen x = 25 * mod(_n - 1, 9)
+        gen y = 25 * floor((_n - 1) / 9)
+    }
+    frame r3_edges {
+        clear
+        set obs 144
+        gen from = .
+        gen to = .
+        local k 0
+        forvalues i = 1/81 {
+            if mod(`i' - 1, 9) < 8 {
+                local ++k
+                replace from = `i' in `k'
+                replace to = `i' + 1 in `k'
+            }
+            if `i' <= 72 {
+                local ++k
+                replace from = `i' in `k'
+                replace to = `i' + 9 in `k'
+            }
+        }
+        gen double length = 25
+    }
+    clear
+    set seed 1
+    set obs 500
+    gen double x = runiform(5, 195)
+    gen double y = runiform(5, 195)
+    matrix RG = (62.5, 50 \ 150, 50 \ 150, 150 \ 50, 150 \ 50, 50 \ 62.5, 50)
+    matrix PE = (237.5, 137.5, 337.5, 77.5, 397.5)
+    rdnetset x y, nodes(r3_nodes) edges(r3_edges) boundary(RG) treatedregion(RG) evalpoints(PE) tol(0.5)
+    matrix E = r(eval)
+    forvalues j = 1/5 {
+        rdn_expect E[`j',3] PE[1,`j'] 1e-9 "ring eval point `j' stays in place"
+    }
+end
+
 capture program drop t_errors
 program define t_errors
     rdnetmock, clear
@@ -497,6 +631,8 @@ rdn_block t_river
 rdn_block t_floor
 rdn_block t_pointnodes
 rdn_block t_errors
+rdn_block t_round2
+rdn_block t_round3
 
 di _n "{hline 70}"
 if $rdn_fails == 0 & $rdn_errors == 0 {

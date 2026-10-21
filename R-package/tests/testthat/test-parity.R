@@ -24,9 +24,17 @@ test_that("estimates and standard errors match the Python package", {
   conley <- rdnet(y, cc, h = 600, conley_cutoff = 150, seed = 0)$table$se_rb[ok]
   expect_equal(conley, c(0.8979338736065969, 0.6601068377141024, 0.5275681466518771, 0.6208458892927217),
                tolerance = 1e-10)
-  cluster <- rdnet(y, cc, h = 600, cluster = mock_city()$obs$block, seed = 0)$table$se_rb[ok]
+  cluster <- suppressWarnings(rdnet(y, cc, h = 600, cluster = mock_city()$obs$block, cluster_vce = "cr1",
+                                    seed = 0))$table$se_rb[ok]
   expect_equal(cluster, c(0.3221750701567485, 0.4308191219209627, 0.45480015406506874, 0.45409127249969544),
                tolerance = 1e-10)
+  cr2 <- rdnet(y, cc, h = 600, cluster = mock_city()$obs$block, seed = 0)$table[ok, ]
+  expect_equal(cr2$se_rb, c(0.8561412149244739, 0.8145564381252992, 0.6044838146114162, 0.5914486569282575),
+               tolerance = 1e-9)
+  expect_equal(cr2$df, c(2.1342578317476404, 2.608646673715296, 3.6268505432025187, 2.954971141665643),
+               tolerance = 1e-9)
+  expect_equal(cr2$ci_lo, c(-0.9072022435686362, -0.1553808739725122, 0.5900578237239358, 0.41528505568326657),
+               tolerance = 1e-9)
 })
 
 test_that("the density test matches the Python package", {

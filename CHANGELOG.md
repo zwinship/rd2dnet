@@ -26,6 +26,61 @@ New:
 
 Fixes:
 
+- **Cluster-robust standard errors now default to CR2** (Bell and McCaffrey 2002) with their
+  Satterthwaite degrees of freedom; intervals, p-values, the uniform band and WBATE use t
+  critical values (new `df` column). rd2d's CR1 is `cluster_vce="cr1"` (Stata: `cr1`). In
+  Monte Carlo runs (panels, spatial blocks, 6 to 100 clusters per side) CR1 covered
+  0.66-0.91 and CR2 0.955-0.97: a local fit puts most of its weight on the few clusters
+  next to the point, and their residuals absorb their own cluster effect (all three).
+- Boundary splits: stored geometries running v -> u were split at the mirror-image
+  position (`from_lines` layers, `to_undirected()` OSM graphs), and an edge crossing the
+  boundary twice with both ends on one side was not split at all. Every edge meeting the
+  boundary is now split at each crossing (all three; R also gained a cheap pre-filter).
+- Evaluation points on a closed ring that follows streets were moved to the street at the
+  ring's start (all three).
+- Nodes on the boundary line's extension beyond its ends changed side when the boundary was
+  reversed; they now count as treated either way (all three).
+- `wbate()` returned NaN when any point had no estimate (first stage exactly zero).
+- `TransitionCost(travel_time())` crashed (Python).
+- `density()` checks `p` and `bwselect`; data frames with `lat`/`lon` columns are read
+  longitude first.
+- R: OpenStreetMap downloads retry on public Overpass mirrors when the server is busy.
+- A road with both ends on the boundary (a crescent or loop into one side) was treated as
+  running along it, so locations on it got s = 0. A segment now counts as on the boundary
+  only if it lies on it (all three languages).
+- Point nodes on directed or transition-cost networks are placed on the street's geometry,
+  not on the chord between its end nodes (Python, R).
+- Directed networks and transition costs crashed with tuple node labels (as from grids and
+  momepy) when a location sat exactly on a node (Python).
+- Transition penalties with `direction="in"` (and `"flow"`) were charged in reverse order
+  (all three).
+- Callable metrics on attributes other than the split ones (for example minutes) copied the
+  full cost to each piece of a split edge; they now warn and point to `extensive=`.
+- `density(eval_index, window)` windows now wrap around closed rings (all three).
+- Conley covariances that are not positive semi-definite (Bartlett weights need not be on a
+  network) are projected onto the positive semi-definite cone, with a warning (all three).
+- Fuzzy designs: points whose first stage is within two standard errors of zero now have
+  status `"weak first stage"`; their estimates are kept, and the default `wbate()` and
+  `lbate()` leave them out (all three).
+- `rdbwnet(vce="cluster"|"conley")` now selects with HC0 residuals, as `rdnet` does with
+  those standard errors, so `rdnet`'s bandwidths can be reproduced (Python, R).
+- New warnings: HC standard errors with repeated locations (panels); cluster-robust errors
+  with fewer than 50 clusters per side (was 10); sorting tests on points on or near streets
+  (now judged by the locations' distance to the streets relative to evenly spread points,
+  so GPS fixes near streets are caught); `from_lines` layers whose line ends are mostly not
+  joined; `travel_time(default_kph=...)` when most edges lack a speed; precomputed metrics
+  only when edges actually cross the boundary.
+- Input checks: non-integer `p`, `q`, `deriv`, `repp`, `k_max` and manipulation `q`, and
+  malformed `tangvec`, are errors instead of being truncated or crashing; `rd2dnet()` with
+  missing coordinates says so.
+- Tutorial: the default variance is HC3 and the density default is `"euclidean"`.
+- `pooled=True` with different bandwidths on the two sides scaled the common slopes
+  differently on each side, so a linear surface was not fitted exactly. Both sides now use
+  one scale (all three languages).
+- Covariates in large units (for example 1e7) made local fits "singular": conditioning is
+  now judged on the column-equilibrated Gram matrix (all three).
+- `vce="conley"` warns when the cutoff exceeds the bandwidth; the HAC errors collapse
+  then (all three).
 - Closed-ring boundaries: offsets wrap the shorter way round, and the default evaluation
   grid no longer repeats the start point.
 - The density test kept control observations at `s = 0` on the treated side.

@@ -11,6 +11,16 @@ status_code <- function(s) {
   unname(codes[as.character(s)])
 }
 
+write_agg <- function(res, file) {
+  agg <- data.frame(wbate = NA_real_, lbate_max = NA_real_, lbate_min = NA_real_, lbate_absmax = NA_real_)
+  if (any(res$table$status == "ok") && !is.null(res$crit)) {
+    agg <- data.frame(wbate = unname(wbate(res)["tau_bc"]), lbate_max = unname(lbate(res)["tau_bc"]),
+                      lbate_min = unname(lbate(res, "min")["tau_bc"]),
+                      lbate_absmax = unname(lbate(res, "absmax")["tau_bc"]))
+  }
+  write.csv(agg, file, row.names = FALSE)
+}
+
 write_res <- function(t, file) {
   basis <- if ("basis" %in% names(t)) c("s,o" = 1, s = 2)[as.character(t$basis)] else NA
   out <- data.frame(h0 = t$h0, h1 = t$h1, n0 = t$n0, n1 = t$n1, tau = t$tau, se = t$se,

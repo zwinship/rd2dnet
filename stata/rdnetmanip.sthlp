@@ -48,7 +48,8 @@ denser on one stretch, the other on another), which a density test of the
 distance to the boundary cannot detect; against sorting in one direction
 everywhere, {helpb rdnetdensity} is more powerful. Report several values of
 q, e.g. {cmd:q(50 100 200)}. The test is not valid for observations that lie on
-the network itself (stations along a river, points on streets).
+or next to the network itself (stations along a river, points on streets, GPS
+fixes); a warning is shown then.
 
 
 {title:Stored results}

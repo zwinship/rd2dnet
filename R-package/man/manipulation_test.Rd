@@ -54,7 +54,7 @@ stretches, or projecting onto an end of an open boundary are left out.
 The test has power against sorting that offsets along the boundary, which a
 density test of the distance to the boundary cannot detect; against sorting in
 one direction everywhere, \code{\link[=density]{density()}} is more powerful. It is not valid for
-observations that lie on the network itself (stations along a river, points
+observations that lie on or next to the network (stations along a river, points
 on streets).
 }
 \examples{

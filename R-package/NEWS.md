@@ -37,6 +37,37 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* Cluster-robust errors default to CR2 (Bell-McCaffrey) with Satterthwaite degrees of
+  freedom and t critical values (`df` column); `cluster_vce = "cr1"` gives rd2d's CR1.
+  Monte Carlo coverage: CR1 0.66-0.91, CR2 0.955-0.97.
+* `with_boundary_crossings()` orients stored geometries from `from` to `to` and splits
+  edges at every crossing, including edges crossing twice with both ends on one side.
+* Evaluation points on closed rings that follow streets stay in place.
+* Points on the extension of the boundary line count as treated whichever way it runs.
+* `wbate()` ignores points without an estimate; `density()` checks `p`; `lat`/`lon`
+  columns are read longitude first.
+* `network_graph_from_place()` retries on Overpass mirrors when the server is busy.
+* A road with both ends on the boundary is on it only if it lies on it; locations on a
+  road that loops into one side no longer get `s = 0`.
+* Point nodes sit on the street geometry; transition penalties with `direction = "in"`
+  and `"flow"` are charged in the order of travel.
+* Cost functions whose cost does not add up over the pieces of a split edge warn (list
+  the columns they read in `extensive`).
+* `density()` windows wrap around closed rings.
+* Conley covariances are made positive semi-definite, with a warning.
+* Fuzzy designs: status `"weak first stage"` when `|fs| < 2 fs_se`; such points are left
+  out of the default `wbate()` and of `lbate()`.
+* `rdbwnet(vce = "cluster")`/`"conley"` select with HC0 residuals, as `rdnet()` does.
+* New warnings for repeated locations with HC errors, fewer than 50 clusters per side,
+  points on or near streets in sorting tests, unjoined line ends in
+  `network_graph_from_lines()`, and `travel_time(default_kph)` covering most edges.
+* Non-integer `p`, `q`, `deriv`, `repp`, `k_max` and malformed `tangvec` are errors;
+  `rd2dnet()` reports missing coordinates.
+* `pooled = TRUE` with different bandwidths on the two sides now scales the common
+  slopes the same way on both sides (a linear surface is fitted exactly).
+* Covariates in large units no longer make local fits singular: conditioning is judged on
+  the column-equilibrated Gram matrix.
+* `vce = "conley"` warns when `conley_cutoff` exceeds the bandwidth.
 * `density()` uses the signed straight-line distance to the boundary by default
   (`normalize = "euclidean"`); the old default (`"network"`) over-rejected badly at curved
   boundaries. New `manipulation_test()` (Bugni, Crippa and Restrepo, 2026).

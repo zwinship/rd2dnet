@@ -14,7 +14,7 @@ program define rdnet, eclass
         COVs(varlist numeric) KERnel(string) BWSelect(string) vce(string)                 ///
         FUZzy(varname numeric) POOLed Level(cilevel) NOCBands REPP(integer 2000)          ///
         MINobs(integer -1) SCALEREGul(real 3) SCALEBIAScrct(real 1)                       ///
-        CONLEYRESIDScale(real 3) CONLEYRESIDOrder(integer -1) SEED(integer 0) ]
+        CONLEYRESIDScale(real 3) CONLEYRESIDOrder(integer -1) SEED(integer 0) CR1 ]
 
     capture confirm variable _rdn_id
     if _rc {
@@ -169,6 +169,7 @@ program define rdnet, eclass
     if "`cutoff'" != "" ereturn scalar cutoff = `cutoff'
     ereturn local kernel `kname'
     ereturn local vce `vcetype'
+    if "`vcetype'" == "cluster" ereturn local clustvce = cond("`cr1'" != "", "cr1", "cr2")
     if "`clorig'" != "" ereturn local clustvar `clorig'
     if "`vcetype'" == "conley" ereturn local conley_distance = cond(`euclid', "euclidean", "network")
     ereturn local bwselect = cond("`h'`hmatrix'" == "", "`bwselect'", "manual")
@@ -212,11 +213,12 @@ program define Display
         local stl = cond(`st' == 0, "", cond(`st' == 1, "masked", cond(`st' == 2, "insufficient", ///
             cond(`st' == 3, "singular", cond(`st' == 4, "no bandwidth", ///
             cond(`st' == 5, "weak first stage", "few clusters"))))))
-        if `st' == 0 {
+        if `st' == 0 | (`st' == 5 & `R'[`j', 10] < .) {
             di as txt %6.0f `j' _col(9) as res %9.1f `R'[`j', 2] _col(19) %7.1f `R'[`j', 4] ///
                 _col(28) %7.1f `R'[`j', 5] _col(37) %5.0f `R'[`j', 6] _col(44) %5.0f `R'[`j', 7] ///
                 _col(51) %8.3f `R'[`j', 8] _col(61) %8.3f `R'[`j', 10] _col(71) %8.3f `R'[`j', 11] ///
-                _col(81) %8.3f `R'[`j', 12] _col(90) %8.3f `R'[`j', 13]
+                _col(81) %8.3f `R'[`j', 12] _col(90) %8.3f `R'[`j', 13] _col(99) as txt cond(`st' == 5, "w", "")
+            if `st' == 5 local anyweak 1
         }
         else {
             di as txt %6.0f `j' _col(9) as res %9.1f `R'[`j', 2] _col(19) as txt "(`stl')"
@@ -224,6 +226,9 @@ program define Display
     }
     di as txt "{hline 100}"
     di as txt "  tau: order-p estimate; tau_bc, se_rb and the CI: robust bias-corrected (order q)."
+    if "`anyweak'" != "" {
+        di as txt "  w: weak first stage (|fs| < 2 fs_se); the interval is unreliable. Not in e(b)."
+    }
     tempname BS
     matrix `BS' = `R'[1..., 22]
     local n_s = 0

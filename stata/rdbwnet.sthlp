@@ -38,6 +38,9 @@ a separate pilot for the bias, regularisation and a higher-order bias term.
 {cmd:mserd} uses one bandwidth for both sides, {cmd:msetwo} one per side, and
 the {cmd:i*} variants one bandwidth for all evaluation points. The {cmd:cer*}
 variants shrink the MSE-optimal bandwidth by n^(1/(2p+4) - 1/(p+4)).
+Every bandwidth is kept between its point's floor (hmin, enough observations
+per side) and ceiling (hmax), so a common bandwidth is raised or lowered at
+points where it would fall outside that range.
 {helpb rdnet} calls it when {opt h()} is omitted.
 
 

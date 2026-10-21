@@ -51,6 +51,12 @@
     if (all(c("x", "y") %in% names(points))) {
       return(cbind(as.numeric(points$x), as.numeric(points$y)))
     }
+    low <- tolower(names(points))
+    for (xy in list(c("lon", "lat"), c("lng", "lat"), c("longitude", "latitude"), c("long", "lat"))) {
+      if (all(xy %in% low)) { # longitude first, whatever the column order
+        return(cbind(as.numeric(points[[match(xy[1], low)]]), as.numeric(points[[match(xy[2], low)]])))
+      }
+    }
     if (ncol(points) == 2) return(cbind(as.numeric(points[[1]]), as.numeric(points[[2]])))
     stop("a data frame of points needs `x` and `y` columns (or exactly two columns)", call. = FALSE)
   }
@@ -226,4 +232,48 @@ rect_polygon <- function(xmin, ymin, xmax, ymax) {
   k <- which(hit)[which.min(arc[hit])]
   point <- c(px[k] + t[k] * rx[k], py[k] + t[k] * ry[k])
   list(point = point, t = if (sg$total > 0) arc[k] / sg$total else 0.5)
+}
+
+# Every place where polyline G meets polyline B: a matrix with columns t
+# (normalized position along G), x and y, sorted along G and without repeats.
+# Where G runs along B, both ends of that stretch are included.
+.all_crossings <- function(G, B) {
+  sg <- .segments(G)
+  sb <- .segments(B)
+  if (sg$total <= 0) return(matrix(numeric(), 0, 3, dimnames = list(NULL, c("t", "x", "y"))))
+  ng <- length(sg$len)
+  nb <- length(sb$len)
+  i <- rep(seq_len(ng), times = nb)
+  j <- rep(seq_len(nb), each = ng)
+  px <- sg$x0[i]
+  py <- sg$y0[i]
+  rx <- sg$x1[i] - px
+  ry <- sg$y1[i] - py
+  qx <- sb$x0[j]
+  qy <- sb$y0[j]
+  sx <- sb$x1[j] - qx
+  sy <- sb$y1[j] - qy
+  den <- .cross2(rx, ry, sx, sy)
+  t <- .cross2(qx - px, qy - py, sx, sy) / den
+  u <- .cross2(qx - px, qy - py, rx, ry) / den
+  hit <- den != 0 & t >= 0 & t <= 1 & u >= 0 & u <= 1
+  tt <- t[hit]
+  ii <- i[hit]
+  # collinear overlaps: both ends of the shared stretch
+  rr <- rx * rx + ry * ry
+  col <- den == 0 & .cross2(qx - px, qy - py, rx, ry) == 0 & rr > 0
+  if (any(col)) {
+    ta <- ((qx - px) * rx + (qy - py) * ry) / rr
+    tb <- ta + (sx * rx + sy * ry) / rr
+    lo <- pmax(0, pmin(ta, tb))
+    hi <- pmin(1, pmax(ta, tb))
+    col <- col & lo <= hi
+    tt <- c(tt, lo[col], hi[col])
+    ii <- c(ii, i[col], i[col])
+  }
+  arc <- sg$cum[ii] + tt * sg$len[ii]
+  out <- cbind(t = arc / sg$total, x = sg$x0[ii] + tt * (sg$x1[ii] - sg$x0[ii]),
+               y = sg$y0[ii] + tt * (sg$y1[ii] - sg$y0[ii]))
+  out <- out[order(out[, "t"]), , drop = FALSE]
+  out[!duplicated(round(out[, "t"], 12)), , drop = FALSE]
 }

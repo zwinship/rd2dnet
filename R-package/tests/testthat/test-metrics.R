@@ -217,3 +217,55 @@ test_that("off-network distance is charged at the street's cost rate", {
   net0 <- network_graph(edges, nodes, travel_time(), snap_scale = 0)
   expect_equal(network_coordinates(net0, bnd, rbind(c(30, 50)), eval_points = 50)$s, 5)
 })
+
+test_that("a road with both ends on the boundary is not on it", {
+  crescent <- rbind(c(500, 200), c(360, 200), c(350, 250), c(360, 300), c(500, 300))
+  glen <- sum(sqrt(rowSums(diff(crescent)^2)))
+  nodes <- data.frame(name = c("A", "B", "D", "C", "E"), x = c(500, 500, 500, 500, 700), y = c(0, 200, 300, 500, 250))
+  edges <- data.frame(from = c("A", "B", "D", "D"), to = c("B", "D", "C", "E"), length = c(200, glen, 200, 200))
+  edges$geometry <- list(NULL, crescent, NULL, NULL)
+  bnd <- boundary(rbind(c(500, 0), c(500, 500)), treated_side = "right")
+  X <- rbind(c(350, 250), c(650, 250))
+  cc <- network_coordinates(network_graph(edges, nodes), bnd, X, treated = c(FALSE, TRUE), eval_points = 250)
+  expect_equal(cc$s[1], -glen / 2, tolerance = 1e-9)
+  back <- edges
+  back$from <- edges$to
+  back$to <- edges$from
+  back$geometry <- list(NULL, crescent[5:1, ], NULL, NULL)
+  dnet <- network_graph(rbind(edges, back), nodes, directed = TRUE, direction = "out")
+  cc <- network_coordinates(dnet, bnd, X, treated = c(FALSE, TRUE), eval_points = 250)
+  expect_equal(cc$s[1], -glen / 2, tolerance = 1e-9)
+})
+
+test_that("transition penalties with direction in follow the travel order", {
+  nodes <- data.frame(name = c("L", "A", "B", "C"), x = c(0, 100, 200, 300), y = 0)
+  edges <- data.frame(from = c("L", "A", "C", "B"), to = c("A", "B", "B", "C"), length = 100,
+                      highway = c("residential", "primary", "primary", "primary"))
+  cls <- c("residential", "primary")
+  pen <- matrix(NA_real_, 2, 2, dimnames = list(cls, cls))
+  pen["residential", "primary"] <- 50
+  m <- transition_cost("length", class_attr = "highway", penalty = pen)
+  bnd <- boundary(rbind(c(150, -100), c(150, 100)), treated_side = "right")
+  for (d in c("in", "flow")) {
+    net <- network_graph(edges, nodes, metric = m, directed = TRUE, direction = d)
+    cc <- network_coordinates(net, bnd, rbind(c(10, 0), c(250, 0)), eval_points = 100)
+    expect_equal(cc$s[1], -190, tolerance = 1e-12)
+  }
+})
+
+test_that("a cost function that does not add up over split edges warns", {
+  nodes <- data.frame(name = c("a", "b"), x = c(0, 200), y = 0)
+  edges <- data.frame(from = "a", to = "b", length = 200, minutes = 2)
+  bnd <- boundary(rbind(c(100, -50), c(100, 50)), treated_side = "right")
+  X <- rbind(c(20, 0), c(180, 0))
+  net <- network_graph(edges, nodes, metric = edge_cost(function(e) e$minutes), snap_scale = 0.01)
+  expect_warning(network_coordinates(net, bnd, X, eval_points = 50), "does not add up")
+  cc <- network_coordinates(net, bnd, X, eval_points = 50, extensive = c("length", "minutes"))
+  expect_equal(cc$s, c(-0.8, 0.8), tolerance = 1e-12)
+})
+
+test_that("travel_time warns when most edges use the default speed", {
+  nodes <- data.frame(name = 0:2, x = c(0, 100, 200), y = 0)
+  net <- network_graph(data.frame(from = 0:1, to = 1:2, length = 100), nodes, travel_time(default_kph = 40))
+  expect_warning(node_distance(net, 0, 2), "default_kph = 40")
+})

@@ -50,6 +50,10 @@ rd2dnet <- function(Y, X, t, b, network, boundary = NULL, treated_side = NULL, m
     xy <- project_lonlat(xy[, 1], xy[, 2], net$crs)
     b <- project_lonlat(b[, 1], b[, 2], net$crs)
   }
+  if (!all(is.finite(xy))) {
+    stop("X has missing or non-finite coordinates; drop those observations first", call. = FALSE)
+  }
+  if (!all(is.finite(b))) stop("b has missing or non-finite coordinates", call. = FALSE)
   t <- .as_treatment(t, nrow(xy))
   if (is.null(boundary)) boundary <- boundary_from_points(b, xy, t, treated_side = treated_side)
   coords <- network_coordinates(net, boundary, xy, treated = t, eval_points = b, snap = snap)
@@ -281,7 +285,35 @@ network_graph_from_lines <- function(lines, metric = "length", tol = 1e-6, split
   if (!"length" %in% names(edges)) edges$length <- len
   edges$geometry <- geoms
   rownames(edges) <- NULL
+  .warn_unjoined(nodes, edges, len, tol, split_at_intersections)
   network_graph(edges, nodes, metric = metric, directed = directed, crs = inp$crs, ...)
+}
+
+# Warn when most line ends join no other line (ends that miss by more than
+# `tol`, or layers not split at junctions).
+.warn_unjoined <- function(nodes, edges, len, tol, split) {
+  n <- nrow(nodes)
+  if (n < 10) return(invisible())
+  deg <- tabulate(match(c(edges$from, edges$to), nodes$name), n)
+  dangle <- which(deg == 1)
+  if (length(dangle) <= 0.5 * n) return(invisible())
+  xy <- cbind(nodes$x, nodes$y)
+  probe <- dangle[unique(round(seq(1, length(dangle), length.out = min(500, length(dangle)))))]
+  gap <- vapply(probe, function(i) {
+    d <- sqrt((xy[, 1] - xy[i, 1])^2 + (xy[, 2] - xy[i, 2])^2)
+    min(d[-i])
+  }, numeric(1))
+  g <- stats::median(gap)
+  hint <- character()
+  if (g < 0.1 * stats::median(len)) {
+    hint <- c(hint, sprintf("increase tol (ends miss each other by a median %.3g; tol = %.2g would join them)",
+                            g, 2 * g))
+  }
+  if (!split) hint <- c(hint, "use split_at_intersections = TRUE if lines cross without ending at junctions")
+  if (!length(hint)) hint <- "check the layer"
+  warning(sprintf("%d of %d line ends are not joined to any other line (tol = %g), so the network is mostly disconnected: %s",
+                  length(dangle), n, tol, paste(hint, collapse = "; or ")), call. = FALSE)
+  invisible()
 }
 
 .lines_input <- function(lines, coords, to_crs, crs, split) {

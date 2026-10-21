@@ -148,3 +148,31 @@ def test_flow_direction_measures_both_sides_of_a_river():
     flow = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, direction="flow"), bnd, pts, eval_points=[500.0])
     np.testing.assert_allclose(flow.s, [-150.0, 150.0])
     np.testing.assert_allclose(flow.at(0)[0], [150.0, 150.0])
+
+
+def test_from_lines_warns_when_line_ends_miss_each_other():
+    import warnings as _w
+
+    from shapely.geometry import LineString
+
+    lines = []
+    for i in range(6):
+        for j in range(6):
+            lines.append(LineString([(i * 100, j * 100), (i * 100 + 99.7, j * 100)]))
+            lines.append(LineString([(i * 100, j * 100), (i * 100, j * 100 + 99.7)]))
+    with pytest.warns(UserWarning, match="not joined to any other line"):
+        rd2dnet.NetworkGraph.from_lines(lines)
+    with _w.catch_warnings():
+        _w.simplefilter("error")
+        rd2dnet.NetworkGraph.from_lines(lines, tol=0.5)
+
+
+def test_travel_time_warns_when_most_edges_use_the_default_speed():
+    G = nx.path_graph(3)
+    for n in G.nodes:
+        G.nodes[n]["x"], G.nodes[n]["y"] = 100.0 * n, 0.0
+    for u, v in G.edges:
+        G.edges[u, v]["length"] = 100.0
+    net = rd2dnet.NetworkGraph(G, rd2dnet.travel_time(default_kph=40))
+    with pytest.warns(UserWarning, match="use default_kph=40"):
+        net.edge_frame()

@@ -263,7 +263,7 @@ Conley option, whose residuals come from a wider auxiliary fit, is the validated
 code("""
 y_ = y
 fits = {
-    "HC1": rd2dnet.rdnet(y_, coords, h=600.0, seed=0),
+    "HC3 (default)": rd2dnet.rdnet(y_, coords, h=600.0, seed=0),
     "cluster (block)": rd2dnet.rdnet(y_, coords, h=600.0, cluster=obs["block"], seed=0),
     "Conley 150 m (network)": rd2dnet.rdnet(y_, coords, h=600.0, conley_cutoff=150.0, seed=0),
     "Conley 150 m (Euclidean)": rd2dnet.rdnet(y_, coords, h=600.0, conley_cutoff=150.0,
@@ -276,14 +276,18 @@ md("""
 ## 8. Density (sorting) test
 
 The local polynomial density test of Cattaneo, Jansson and Ma (`rddensity`). By default
-position is measured in **cumulative street length** from the boundary
-(`normalize="network"`), so the test asks whether there are more parcels per metre of
-street on one side, instead of reacting to differences in street supply.
+position is the signed straight-line distance to the boundary (`normalize="euclidean"`),
+which keeps its size at curved boundaries. `normalize="network"` measures position in
+cumulative street length instead (more parcels per metre of street on one side); it is
+valid only at straight boundaries and over-rejects badly at curved ones.
+`manipulation_test()` is the test of Bugni, Crippa and Restrepo (2026): among the `q`
+locations nearest the boundary, are treated and control equally likely everywhere along
+it? Both tests assume units spread over the plane, not points on the streets.
 """)
 
 code("""
 print(rd2dnet.density(coords))
-print(rd2dnet.density(coords, normalize="none"))
+print(rd2dnet.manipulation_test(coords, seed=0))
 """)
 
 md("""

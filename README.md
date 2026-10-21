@@ -242,8 +242,10 @@ bundled mock network instead (for demos only).
     in every stretch of the boundary. It held its size on every design and is the only
     test with power against sorting that offsets along the boundary; report a few `q`,
     e.g. `q=[50, 100, 200]`. Python, R and Stata (`rdnetmanip`) give identical answers.
-  - Neither is valid when the observations lie on the network itself (points on
-    streets); a warning says so.
+  - Neither is valid when the observations lie on or next to the network itself (points
+    on streets, GPS fixes of vehicles). A warning says so when the locations' median
+    distance to the nearest street is below 0.6 times that of points spread evenly over
+    the same area (GPS noise of up to about 15 m).
 
 ## Validation (Monte Carlo on the bundled mock city)
 

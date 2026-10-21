@@ -97,3 +97,46 @@ def test_density_local_window(coords):
     assert r.n_left + r.n_right < coords.n_obs
     with pytest.raises(ValueError):
         rd2dnet.density(coords, eval_index=j)
+
+
+def test_density_window_wraps_around_a_closed_ring():
+    import networkx as nx
+    from shapely.geometry import Point
+
+    G = nx.grid_2d_graph(11, 11)
+    for n in G.nodes:
+        G.nodes[n]["x"], G.nodes[n]["y"] = 100.0 * n[0], 100.0 * n[1]
+    for a, b in G.edges:
+        G.edges[a, b]["length"] = 100.0
+    bnd = rd2dnet.Boundary.from_region(Point(500, 500).buffer(300, quad_segs=64))
+    X = np.random.default_rng(8).uniform(0, 1000, (8000, 2))
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bnd, X, n_eval=8)
+    n = [rd2dnet.density(c, eval_index=j, window=150.0, h=40.0).n_left for j in range(8)]
+    # the window at the ring's start reaches back across it, like every other point's window
+    assert n[0] > 0.7 * np.median(n)
+
+
+@pytest.mark.parametrize("noise, warns", [(0.0, True), (5.0, True), (None, False)])
+def test_sorting_tests_warn_for_points_on_or_near_streets(noise, warns):
+    import networkx as nx
+
+    G = nx.grid_2d_graph(11, 11)
+    for n in G.nodes:
+        G.nodes[n]["x"], G.nodes[n]["y"] = 100.0 * n[0], 100.0 * n[1]
+    for a, b in G.edges:
+        G.edges[a, b]["length"] = 100.0
+    rng = np.random.default_rng(3)
+    if noise is None:  # spread over the plane
+        X = rng.uniform(0, 1000, (3000, 2))
+    else:  # on horizontal and vertical streets, with GPS-like noise
+        t = rng.uniform(0, 1000, 3000)
+        k = rng.integers(0, 11, 3000) * 100.0
+        X = np.where(rng.random(3000)[:, None] < 0.5, np.c_[t, k], np.c_[k, t]) + rng.normal(0, noise, (3000, 2))
+    bnd = rd2dnet.Boundary([(550, -10), (550, 1010)], treated_side="right")
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bnd, X, n_eval=5)
+    import warnings as _w
+
+    with _w.catch_warnings(record=True) as rec:
+        _w.simplefilter("always")
+        rd2dnet.density(c)
+    assert any("next to the network" in str(r.message) or "network itself" in str(r.message) for r in rec) == warns
