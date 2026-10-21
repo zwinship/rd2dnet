@@ -85,7 +85,8 @@ factor (n - 1)/(n - k) x g/(g - 1).
 {pstd}
 {cmd:estat wbate} reports the weighted boundary average treatment effect
 w'tau (rd2d's WBATE). Weights have one entry per evaluation point and are
-normalised to sum to one; points that were not estimated must get weight 0.
+normalised to sum to one; points that were not estimated must get weight 0
+(points with a weak first stage may be given weight).
 {cmd:weights(equal)} gives every distinct place of the estimated points equal
 weight (points that snapped to the same place, {cmd:node_arc}, share it). The standard error
 sqrt(w' Sigma w) uses the joint covariance {cmd:e(cov)}.
@@ -125,7 +126,11 @@ joint covariance, {cmd:test} and {cmd:lincom} work directly, e.g.
 {pstd}
 Status codes in {cmd:e(results)}: 0 ok, 1 masked, 2 insufficient
 observations, 3 singular local design, 4 no bandwidth, 5 weak first stage,
-6 few clusters (fewer than two clusters on a side of the local sample).
+6 few clusters (fewer than two clusters on a side of the local sample). In fuzzy
+designs a point whose first stage is within two standard errors of zero
+(|fs| < 2 fs_se) has status 5: its estimates are reported, but the delta-method
+interval for itt/fs is unreliable, and {cmd:weights(equal)} and {cmd:estat lbate}
+leave it out.
 
 {pstd}
 The local fit is a polynomial in (s, o). Where the network meets the boundary

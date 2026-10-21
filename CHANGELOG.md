@@ -26,6 +26,35 @@ New:
 
 Fixes:
 
+- A road with both ends on the boundary (a crescent or loop into one side) was treated as
+  running along it, so locations on it got s = 0. A segment now counts as on the boundary
+  only if it lies on it (all three languages).
+- Point nodes on directed or transition-cost networks are placed on the street's geometry,
+  not on the chord between its end nodes (Python, R).
+- Directed networks and transition costs crashed with tuple node labels (as from grids and
+  momepy) when a location sat exactly on a node (Python).
+- Transition penalties with `direction="in"` (and `"flow"`) were charged in reverse order
+  (all three).
+- Callable metrics on attributes other than the split ones (for example minutes) copied the
+  full cost to each piece of a split edge; they now warn and point to `extensive=`.
+- `density(eval_index, window)` windows now wrap around closed rings (all three).
+- Conley covariances that are not positive semi-definite (Bartlett weights need not be on a
+  network) are projected onto the positive semi-definite cone, with a warning (all three).
+- Fuzzy designs: points whose first stage is within two standard errors of zero now have
+  status `"weak first stage"`; their estimates are kept, and the default `wbate()` and
+  `lbate()` leave them out (all three).
+- `rdbwnet(vce="cluster"|"conley")` now selects with HC0 residuals, as `rdnet` does with
+  those standard errors, so `rdnet`'s bandwidths can be reproduced (Python, R).
+- New warnings: HC standard errors with repeated locations (panels); cluster-robust errors
+  with fewer than 50 clusters per side (was 10); sorting tests on points on or near streets
+  (now judged by the locations' distance to the streets relative to evenly spread points,
+  so GPS fixes near streets are caught); `from_lines` layers whose line ends are mostly not
+  joined; `travel_time(default_kph=...)` when most edges lack a speed; precomputed metrics
+  only when edges actually cross the boundary.
+- Input checks: non-integer `p`, `q`, `deriv`, `repp`, `k_max` and manipulation `q`, and
+  malformed `tangvec`, are errors instead of being truncated or crashing; `rd2dnet()` with
+  missing coordinates says so.
+- Tutorial: the default variance is HC3 and the density default is `"euclidean"`.
 - `pooled=True` with different bandwidths on the two sides scaled the common slopes
   differently on each side, so a linear surface was not fitted exactly. Both sides now use
   one scale (all three languages).

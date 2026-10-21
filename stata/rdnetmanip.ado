@@ -13,6 +13,10 @@ program define rdnetmanip, rclass
     marksample touse, novarlist
     markout `touse' _rdn_id
     local qlist `q'
+    if `kmax' == 0 {
+        di as err "kmax() must be at least 1"
+        exit 198
+    }
     if `kmax' < 0 local kmax
     rd2dnet_mata
     mata: rdn_manip_entry()
