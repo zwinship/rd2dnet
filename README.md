@@ -54,7 +54,8 @@ replaces both pieces:
 | inference | robust bias correction with `q = p + 1` | same, plus uniform bands |
 
 Points snap to the nearest street segment on their own side. The off-network
-"depth" is charged through `snap_scale`.
+"depth" is charged at the snapped street's own cost per metre by default (1 for
+length, the street's seconds per metre for travel time), or at a fixed `snap_scale`.
 
 ## Distance is a metric you choose
 

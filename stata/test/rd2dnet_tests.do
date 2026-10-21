@@ -193,7 +193,7 @@ program define t_metrics
     rdnetmock, clear
     rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) cost(travel_time) boundary(rdn_line) ///
         treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
-    local s 78.106176 107.859586909091 -118.87362 -178.695072 149.707296 152.134416
+    local s 80.508528 111.763714909091 -121.85946 -183.33648 150.969168 156.090672
     forvalues i = 1/6 {
         rdn_expect _rdn_s[`i'] `: word `i' of `s'' 1e-9 "travel time s[`i']"
     }

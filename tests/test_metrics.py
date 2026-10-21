@@ -231,3 +231,19 @@ def test_precomputed_from_od_table():
     assert np.isinf(m2.matrix[1, 0])
     with pytest.raises(ValueError, match="non-negative"):
         Precomputed.from_od(od.assign(cost=-1.0))
+
+
+def test_off_network_distance_is_charged_at_the_streets_cost_rate():
+    # one street 0 -> 1 crossing the boundary, travel time at 36 km/h (0.1 s per metre)
+    G = nx.Graph()
+    G.add_node(0, x=0.0, y=-100.0)
+    G.add_node(1, x=0.0, y=100.0)
+    G.add_edge(0, 1, length=200.0, speed_kph=36.0)
+    net = rd2dnet.NetworkGraph(G, travel_time())
+    bnd = rd2dnet.Boundary([(-50, 0), (50, 0)], treated_side="left")
+    c = rd2dnet.network_coordinates(net, bnd, np.array([[30.0, 50.0], [0.0, 50.0]]), eval_points=[50.0])
+    # 50 m along the street (5 s), plus 30 m off it at the same rate (3 s)
+    np.testing.assert_allclose(c.s, [8.0, 5.0])
+    fixed = rd2dnet.NetworkGraph(G, travel_time(), snap_scale=0.0)
+    c0 = rd2dnet.network_coordinates(fixed, bnd, np.array([[30.0, 50.0]]), eval_points=[50.0])
+    np.testing.assert_allclose(c0.s, [5.0])

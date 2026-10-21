@@ -1443,7 +1443,36 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
 // ---------------------------------------------------------------------------
 
 struct rdn_snap {
-    real colvector u, v, cu, cv, depth
+    real colvector u, v, cu, cv, depth, rate
+}
+
+// Cost per unit length of each street in the edge table (cost / length), with
+// the median for streets without a usable length; and the mean over each
+// node's streets.
+real colvector rdn_edge_rates(struct rdn_net scalar N)
+{
+    real colvector r, good
+    real scalar fb
+    r = N.fcost :/ N.flen
+    good = (r :< .) :& (N.flen :> 0) :& (N.fcost :< rdn_inf())
+    fb = (sum(good) ? rdn_median(select(r, good)) : 0)
+    return(rdn_where(good, r, J(rows(r), 1, fb)))
+}
+
+real colvector rdn_node_rates(struct rdn_net scalar N, real colvector er)
+{
+    real colvector sm, ct
+    real scalar k, fb
+    sm = J(N.n, 1, 0)
+    ct = J(N.n, 1, 0)
+    for (k = 1; k <= rows(er); k++) {
+        sm[N.fu[k]] = sm[N.fu[k]] + er[k]
+        sm[N.fv[k]] = sm[N.fv[k]] + er[k]
+        ct[N.fu[k]] = ct[N.fu[k]] + 1
+        ct[N.fv[k]] = ct[N.fv[k]] + 1
+    }
+    fb = (rows(er) ? rdn_median(er) : 0)
+    return(rdn_where(ct :> 0, sm :/ rowmax((ct, J(N.n, 1, 1))), J(N.n, 1, fb)))
 }
 
 // Attach points to the nearest allowed street segment (or node).
@@ -1463,6 +1492,7 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
         S.cu = J(rows(xy), 1, 0)
         S.cv = J(rows(xy), 1, 0)
         S.depth = R.dist
+        S.rate = rdn_node_rates(N, rdn_edge_rates(N))[S.u]
         return(S)
     }
     ok = allowed[N.fu] :& allowed[N.fv] :& (N.fcost :< rdn_inf())
@@ -1476,6 +1506,7 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
     S.cu = R.t :* N.fcost[ed]
     S.cv = (1 :- R.t) :* N.fcost[ed]
     S.depth = R.dist
+    S.rate = rdn_edge_rates(N)[ed]
     return(S)
 }
 
@@ -1575,7 +1606,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     struct rdn_snap scalar S
     real colvector bnodes, loc, firstl, TL, u, v, cu, cv, dep, m, allowed, depc
     real colvector viau, viav, dist, xnode, onedge, unreach, safe, bnarc, tot, frac, idx
-    real colvector pu, pv, pc, onends, pnode, off
+    real colvector pu, pv, pc, onends, pnode, off, rate
     struct rdn_net scalar NP
     real matrix xyl, D
     real scalar n, side, j, Jn, useT
@@ -1606,6 +1637,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     cu = J(n, 1, .)
     cv = J(n, 1, .)
     dep = J(n, 1, .)
+    rate = J(n, 1, .)
     for (side = 1; side <= 2; side++) {
         if (side == 1) {
             m = selectindex(TL)
@@ -1622,8 +1654,10 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
         cu[m] = S.cu
         cv[m] = S.cv
         dep[m] = S.depth
+        rate[m] = S.rate
     }
-    depc = dep :* C.N.snapscale
+    // off-network cost: snapscale(), or the snapped street's cost per unit length
+    depc = dep :* (C.N.snapscale < . ? J(n, 1, C.N.snapscale) : rate)
 
     bnarc = rdn_bproject(C.B, C.N.xy[bnodes, .])
     if (rows(evalarc)) C.evalarc = evalarc
@@ -3291,7 +3325,9 @@ void rdn_setup()
     }
     else N.penmat = J(0, 0, .)
     ss = rdn_lnum("snapscale", -1)
-    if (ss < 0) ss = (costv == "length" ? 1 : 0)
+    // default: 1 for length; otherwise missing, meaning the snapped street's
+    // cost per unit length (travel time: that street's seconds per metre)
+    if (ss < 0) ss = (costv == "length" ? 1 : .)
     N.snapscale = ss
     if (!rdn_lnum("nosplit", 0)) rdn_split(N, B)
     rdn_edge_frame(N)

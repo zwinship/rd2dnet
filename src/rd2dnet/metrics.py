@@ -223,8 +223,12 @@ class NetworkMetric:
         return np.array([self.edge_cost(u, v, d) for u, v, d in zip(u_labels, v_labels, datas)], dtype=float)
 
     @property
-    def default_snap_scale(self) -> float:
-        """Metric cost per unit of straight-line snapping distance."""
+    def default_snap_scale(self) -> float | None:
+        """Metric cost per unit of straight-line snapping distance.
+
+        ``None`` means: the cost per unit length of the edge a point is snapped
+        to (its cost divided by its length).
+        """
         return 0.0
 
 
@@ -238,8 +242,10 @@ class EdgeCost(NetworkMetric):
         also accepts a ``graph`` keyword receives the networkx graph, which
         gives access to node attributes (see :func:`node_contrast`).
     snap_scale
-        Cost per metre of off-network snapping distance. Defaults to 1 when the
-        cost is ``"length"`` and 0 otherwise.
+        Cost per metre of off-network snapping distance. By default the walk to
+        the street costs what the same distance along the snapped edge costs
+        (its cost divided by its length): 1 for ``"length"``, the street's
+        seconds per metre for travel time.
     """
 
     def __init__(self, cost: str | EdgeCostFn = "length", *, snap_scale: float | None = None, name: str | None = None):
@@ -253,10 +259,10 @@ class EdgeCost(NetworkMetric):
         return f"EdgeCost({self.name!r})"
 
     @property
-    def default_snap_scale(self) -> float:
+    def default_snap_scale(self) -> float | None:
         if self._snap_scale is not None:
             return float(self._snap_scale)
-        return 1.0 if self.cost == "length" else 0.0
+        return 1.0 if self.cost == "length" else None
 
     def edge_cost(self, u, v, data) -> float:
         if isinstance(self.cost, str):
@@ -330,7 +336,7 @@ class TransitionCost(NetworkMetric):
         return f"TransitionCost({self._base.name!r}, class_attr={self.class_attr!r})"
 
     @property
-    def default_snap_scale(self) -> float:
+    def default_snap_scale(self) -> float | None:
         return self._base.default_snap_scale
 
     def edge_cost(self, u, v, data) -> float:
@@ -523,4 +529,4 @@ def node_contrast(attr: str, weight: float, base: str = "length", snap_scale: fl
         return float(_scalar(data[base])) + weight * abs(a - b)
 
     _cost.__name__ = f"{base}+{weight}*|d{attr}|"
-    return EdgeCost(_cost, snap_scale=snap_scale if snap_scale is not None else (1.0 if base == "length" else 0.0))
+    return EdgeCost(_cost, snap_scale=snap_scale if snap_scale is not None else (1.0 if base == "length" else None))

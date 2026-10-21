@@ -500,7 +500,7 @@ def network_coordinates(
             cu[side_mask], cv[side_mask] = sn.cost_u, sn.cost_v
             depth[side_mask] = sn.depth
     snapped = Snap(u, v, cu, cv, depth)
-    depth_cost = depth * network.snap_scale
+    depth_cost = depth * network.snap_rates(snapped)
     extent = float(np.hypot(*np.ptp(network.coords, axis=0)))
     if len(depth) and extent > 0 and np.median(depth) > extent:
         warnings.warn(f"the points lie far from the network (median distance {np.median(depth):.4g}, network extent "
