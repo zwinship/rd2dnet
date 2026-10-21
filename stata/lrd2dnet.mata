@@ -939,9 +939,49 @@ struct rdn_net {
     real matrix xy, penmat
     real colvector efrom, eto, ecost, elen, iscross
     real colvector fu, fv, flen, fcost, fglen
-    real scalar n, directed, metric, defpen, snapscale, ncross
+    real scalar n, directed, metric, defpen, snapscale, ncross, flow
     string scalar direction
-    struct rdn_engine scalar E
+    struct rdn_engine scalar E, E2
+}
+
+// Distances, nearest sources and close pairs on the network: with
+// direction(flow), the shorter of the directed paths a -> b (engine E, edges
+// as drawn) and b -> a (engine E2, edges reversed).
+real matrix rdn_net_distances(struct rdn_net scalar N, real colvector sources, real scalar limit)
+{
+    real matrix A, B
+    A = rdn_distances(N.E, sources, limit)
+    if (!N.flow) return(A)
+    B = rdn_distances(N.E2, sources, limit)
+    return(A :* (A :<= B) + B :* (B :< A))
+}
+
+void rdn_net_nearest(struct rdn_net scalar N, real colvector sources, real colvector dist, real colvector src)
+{
+    real colvector d2, s2, take
+    rdn_nearest_source(N.E, sources, dist, src)
+    if (!N.flow) return
+    d2 = .
+    s2 = .
+    rdn_nearest_source(N.E2, sources, d2, s2)
+    take = (d2 :< dist)
+    dist = rdn_where(take, d2, dist)
+    src = rdn_where(take, s2, src)
+}
+
+real matrix rdn_net_pairs(struct rdn_net scalar N, real colvector sources, real scalar limit)
+{
+    real matrix P, o
+    real colvector keep
+    real scalar r
+    P = rdn_pairs(N.E, sources, limit)
+    if (!N.flow) return(P)
+    P = P \ rdn_pairs(N.E2, sources, limit)
+    if (rows(P) == 0) return(P)
+    P = P[order(P, (1, 2, 3)), .]
+    keep = J(rows(P), 1, 1)
+    for (r = 2; r <= rows(P); r++) keep[r] = (P[r, 1] != P[r - 1, 1]) | (P[r, 2] != P[r - 1, 2])
+    return(select(P, keep))
 }
 
 // Edge table: one row per undirected street (of parallel edges, the cheapest,
@@ -998,8 +1038,23 @@ void rdn_compile(struct rdn_net scalar N)
     string colvector cls, classes
     real matrix pen
     real scalar mm, C, nmem, a, b, k, nstates, tot, s, mem, ed, p
-    struct rdn_engine scalar A
+    struct rdn_engine scalar A, E1
     transmorphic map
+    N.flow = 0
+    if (N.directed & N.direction == "flow") {
+        // the shorter of the directed paths a -> b and b -> a: engines for the
+        // edges as drawn (E) and reversed (E2)
+        N.direction = "out"
+        rdn_compile(N)
+        E1 = N.E
+        N.direction = "in"
+        rdn_compile(N)
+        N.E2 = N.E
+        N.E = E1
+        N.direction = "flow"
+        N.flow = 1
+        return
+    }
     if (!N.directed | N.direction == "both") {
         tail = N.efrom \ N.eto
         head = N.eto \ N.efrom
@@ -1708,7 +1763,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     }
     ndist = .
     nsrc = .
-    rdn_nearest_source(C.N.E, bnodes, ndist, nsrc)
+    rdn_net_nearest(C.N, bnodes, ndist, nsrc)
     C.nodedist = ndist
     C.nodesrc = nsrc
     viau = cu + C.nodedist[u]
@@ -1745,7 +1800,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
 
     // node rows: metric distance from each evaluation point to every node
     Jn = rows(C.evalarc)
-    D = rdn_distances(C.N.E, C.eu \ C.ev, rdn_inf())
+    D = rdn_net_distances(C.N, C.eu \ C.ev, rdn_inf())
     C.NR = J(Jn, C.N.n, .)
     for (j = 1; j <= Jn; j++) {
         C.NR[j, .] = colmin((C.ecu[j] :+ D[j, .]) \ (C.ecv[j] :+ D[Jn + j, .]))
@@ -1970,7 +2025,7 @@ real matrix rdn_hac(struct rdn_coords scalar C, real colvector idx, real matrix 
         nodes = uniqrows(eu \ ev)
         npos = J(C.N.n, 1, 0)
         npos[nodes] = (1::rows(nodes))
-        PR = rdn_pairs(C.N.E, nodes, cutoff)
+        PR = rdn_net_pairs(C.N, nodes, cutoff)
         if (rows(PR)) {
             tgt = npos[PR[., 2]]
             keep = selectindex(tgt :> 0)

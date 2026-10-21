@@ -20,7 +20,9 @@
 #' @param directed Whether edges are one-way (`from` -> `to`).
 #' @param direction For directed networks: `"both"` treats every edge as
 #'   two-way (pedestrian access, the default); `"out"` follows edge direction;
-#'   `"in"` reverses it.
+#'   `"in"` reverses it; `"flow"` follows edge direction in whichever order works
+#'   (the shorter of the directed paths a -> b and b -> a), so on a river drawn
+#'   downstream both sides of the boundary are measured along the flow.
 #' @param x,y Names of the coordinate columns in `nodes`.
 #' @param crs Coordinate reference system label of the projected coordinates
 #'   (used to project longitude/latitude points).
@@ -39,8 +41,8 @@
 #' @export
 network_graph <- function(edges, nodes, metric = "length", directed = FALSE, direction = "both",
                           x = "x", y = "y", crs = NULL, snap_scale = NULL) {
-  if (!direction %in% c("both", "out", "in")) {
-    stop("direction must be one of 'both', 'out', 'in'", call. = FALSE)
+  if (!direction %in% c("both", "out", "in", "flow")) {
+    stop("direction must be one of 'both', 'out', 'in', 'flow'", call. = FALSE)
   }
   nodes <- as.data.frame(nodes, stringsAsFactors = FALSE)
   edges <- as.data.frame(edges, stringsAsFactors = FALSE)
@@ -162,7 +164,18 @@ print.rd2dnet_network <- function(x, ...) {
 # Shortest-path engine compiled from the metric (built on first use).
 .engine <- function(net) {
   if (is.null(net$cache$engine)) {
-    net$cache$engine <- .compile_metric(net$metric, net)
+    if (identical(net$direction, "flow") && isTRUE(net$directed)) {
+      # distances along directed paths in whichever order works: the shorter of
+      # a -> b (edges as drawn) and b -> a (edges reversed)
+      n_out <- net
+      n_out$direction <- "out"
+      n_in <- net
+      n_in$direction <- "in"
+      net$cache$engine <- list(type = "flow", out = .compile_metric(net$metric, n_out),
+                               inn = .compile_metric(net$metric, n_in))
+    } else {
+      net$cache$engine <- .compile_metric(net$metric, net)
+    }
   }
   net$cache$engine
 }

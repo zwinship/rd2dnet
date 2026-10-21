@@ -44,7 +44,7 @@
 {synopt:{opt cost(varname)}}edge cost that defines distance; default {cmd:length}{p_end}
 {synopt:{opt length(varname)}}geometric edge length; default {cmd:length}{p_end}
 {synopt:{opt dir:ected}}edges are one-way ({it:from} -> {it:to}){p_end}
-{synopt:{opt direction(both|out|in)}}how directed edges are traversed; default {cmd:both}{p_end}
+{synopt:{opt direction(both|out|in|flow)}}how directed edges are traversed; default {cmd:both}{p_end}
 
 {syntab:Road-class transition penalties}
 {synopt:{opt classvar(varname)}}edge class (e.g. OSM {cmd:highway}); turns penalties on{p_end}
@@ -117,7 +117,9 @@ junctions.
 distances run from the boundary to each observation along edge directions (on
 a river drawn downstream, observations upstream of the boundary cannot be
 reached); {opt direction(in)} measures distances from each observation to the
-boundary.
+boundary; {opt direction(flow)} follows edge directions in whichever order works
+(the shorter of the two directed paths), so on a river drawn downstream both
+sides of the boundary are measured along the flow.
 
 {pstd}
 {bf:Closed boundaries.} When the first and last vertices of {opt boundary()}

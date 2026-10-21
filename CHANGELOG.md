@@ -65,6 +65,11 @@ Fixes from cross-language and invariance testing:
   instead of returning the bundled mock city: a use-case tester's analysis of "Waltham,
   Massachusetts" silently ran on the mock Manhattan streets after an Overpass timeout.
   `offline_fallback=True` keeps the old behaviour for demos and tests.
+- `direction="flow"` for directed networks (Stata: `direction(flow)`): distances follow edge
+  directions in whichever order works (the shorter of the directed paths a -> b and
+  b -> a). On a river drawn downstream, `"out"` leaves the upstream side unreachable, so
+  nothing could be estimated; with `"flow"` upstream locations reach the boundary
+  downstream and downstream locations are reached from it (Python, R, Stata).
 - **Default `vce` is now `"hc3"`** in `rdnet` and `rdbwnet` (was `"hc1"`, rd2d's default), in
   Python, R and Stata. Local samples on networks often contain high-leverage points (few
   distinct offsets along the boundary), where HC1 understates the variance. In Monte Carlo

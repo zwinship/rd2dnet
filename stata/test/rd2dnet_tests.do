@@ -414,6 +414,13 @@ program define t_pointnodes
     local w2 = -(2 * sqrt(300^2 + 100^2) + 50)
     rdn_expect _rdn_s[1] `w1' 1e-12 "one-way edge: s[1]"
     rdn_expect _rdn_s[2] `w2' 1e-12 "one-way edge: s[2]"
+    * direction(flow): the shorter directed path either way; from the points on
+    * N -> M only the downstream end M is reachable, and M is a dead end, so the
+    * path is the one from the boundary (as with direction(out))
+    rdnetset x y, nodes(pn_nodes) edges(pn_edges) boundary(PL) treatedside(left) evalpoints(PE) ///
+        directed direction(flow)
+    rdn_expect _rdn_s[1] `w1' 1e-12 "flow: s[1]"
+    rdn_expect _rdn_s[2] `w2' 1e-12 "flow: s[2]"
     * the transition penalty applies to the edge a location sits on: points on the
     * primary edge P-Q reach the boundary along primary streets via Z, not via X
     frame pn_nodes {
