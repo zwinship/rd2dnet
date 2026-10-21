@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .bandwidth import _as_int
 from .coordinates import NetworkCoordinates
 
 _M = 2147483647  # 2^31 - 1
@@ -82,6 +83,8 @@ class ManipulationTestResult:
             f"rd2dnet manipulation test (Bugni, Crippa and Restrepo): q={self.q} locations within "
             f"{self.distance:.4g} of the boundary, {self.n_treated} treated; S={self.statistic:.3f}, "
             f"p={self.pvalue:.4f} (critical value {self.crit:.3f} at {self.level:g}%, {self.reps} draws)"
+            + ("" if self.path is None or len(self.path) < 2 else
+               "\n" + self.path[["q", "statistic", "pvalue", "n_treated", "distance"]].to_string(index=False))
         )
 
 
@@ -196,7 +199,7 @@ def manipulation_test(
     Notes
     -----
     Designed for units located in the plane (parcels, households, firms). It is
-    not valid for observations that lie on the network itself (stations along a
+    not valid for observations that lie on or next to the network (stations along a
     river, points on streets): where a line crosses the boundary at an angle,
     position along the boundary sorts the nearest points by side, and in Monte
     Carlo runs the test rejected up to 94% of the time without sorting. It has
@@ -228,10 +231,13 @@ def manipulation_test(
     if qs == [None]:
         qs = [200 if n_use >= 2000 else max(n_use // 10, 1)]
     rows = []
+    if k_max is not None:
+        k_max = _as_int(k_max, "k_max", 1)
     for qq in qs:
-        qq = int(qq)
+        qq = _as_int(qq, "q")
         if qq < 2 or qq > n_use:
-            raise ValueError(f"q must be between 2 and the number of usable locations ({n_use}), got {qq}")
+            what = "q" if q is not None else f"the default q ({qq}, a tenth of the usable locations)"
+            raise ValueError(f"{what} must be between 2 and the number of usable locations ({n_use})")
         if qq < 20:
             warnings.warn(f"q = {qq} locations give a test with little power", stacklevel=2)
         if qq > 0.4 * n_use:

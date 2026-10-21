@@ -19,7 +19,8 @@ import pandas as pd
 from scipy import stats
 
 from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
-from .bandwidth import _check_cluster, _check_covs, _check_obs, _check_weights, default_min_obs, rdbwnet
+from .bandwidth import (_as_int, _check_cluster, _check_covs, _check_deriv, _check_obs, _check_tangvec, _check_weights,
+                        default_min_obs, rdbwnet)
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -63,8 +64,9 @@ class RDNetResult:
         ``weights`` has one entry per evaluation point and is normalised to sum
         to one. By default every distinct place where an estimated point lies
         gets equal weight: evaluation points that snapped to the same place
-        (``node_arc``) repeat one estimate and share its weight. Points that
-        were not estimated (masked, insufficient, ...) must get weight 0. The
+        (``node_arc``) repeat one estimate and share its weight. Points with a
+        weak first stage are left out by default but may be given weight. Points
+        that were not estimated (masked, insufficient, ...) must get weight 0. The
         standard error is ``sqrt(w' cov w)``, so it accounts for the
         correlation between nearby evaluation points.
         """
@@ -76,19 +78,25 @@ class RDNetResult:
             raise ValueError("WBATE weights must be finite")
         if w.sum() == 0:
             raise ValueError("WBATE weights must have a nonzero sum")
-        ok = self._ok()
+        weak = (self.table["status"] == "weak first stage").to_numpy() & np.isfinite(self.table["tau_bc"].to_numpy())
+        ok = self._ok() | weak
         bad = np.flatnonzero(~ok & (w != 0))
         if len(bad):
             raise ValueError(f"WBATE puts weight on evaluation points that were not estimated: {bad.tolist()}; "
                              "give them weight 0")
-        w = (w / w.sum())[ok]
+        w = w / w.sum()
+        ok &= w != 0  # points with weight 0 do not enter (their covariance rows may be missing)
+        w = w[ok]
         t = self.table.loc[ok]
         tau_q = float(w @ t["tau_bc"].to_numpy())
         se = float(np.sqrt(max(w @ self.cov[np.ix_(ok, ok)] @ w, 0.0)))
         z = stats.norm.ppf(0.5 + self.level / 200)
+        # CR2 cluster errors: t with the smallest degrees of freedom among the weighted points
+        df = float(t["df"].to_numpy()[w != 0].min()) if "df" in t and (w != 0).any() else np.inf
+        rec = dict(tau_bc=tau_q)
+        _set_rb(rec, se, z, df)
         return pd.Series(dict(tau=float(w @ t["tau"].to_numpy()), tau_bc=tau_q, se_rb=se,
-                              ci_lo=tau_q - z * se, ci_hi=tau_q + z * se,
-                              pvalue=2 * stats.norm.sf(abs(tau_q / se)) if se > 0 else np.nan), name="WBATE")
+                              ci_lo=rec["ci_lo"], ci_hi=rec["ci_hi"], pvalue=rec["pvalue"]), name="WBATE")
 
     def lbate(self, kind: str = "max") -> pd.Series:
         """Largest boundary average treatment effect ``max_j tau(b_j)`` (rd2d's LBATE).
@@ -106,8 +114,9 @@ class RDNetResult:
         if not ok.any() or self.crit is None:
             raise ValueError("LBATE needs at least one estimated evaluation point")
         t = self.table.loc[ok]
-        lo = (t["tau_bc"] - self.crit * t["se_rb"]).to_numpy()
-        hi = (t["tau_bc"] + self.crit * t["se_rb"]).to_numpy()
+        cb = _band_crit(self.crit, t)
+        lo = (t["tau_bc"] - cb * t["se_rb"]).to_numpy()
+        hi = (t["tau_bc"] + cb * t["se_rb"]).to_numpy()
         tau, tbc = t["tau"].to_numpy(), t["tau_bc"].to_numpy()
         if kind == "max":
             vals = (tau.max(), tbc.max(), lo.max(), hi.max())
@@ -272,6 +281,7 @@ def rdnet(
     bwselect: str = "mserd",
     vce: str = "hc3",
     cluster=None,
+    cluster_vce: str = "cr2",
     conley_cutoff: float | None = None,
     conley_distance: str = "network",
     conley_resid_scale: float = 3.0,
@@ -347,6 +357,15 @@ def rdnet(
         With repeated measurements (panels), clusters much smaller than the
         bandwidth, such as the unit itself, can still understate the variance
         of spatially correlated shocks; ``conley_cutoff`` is the safer choice.
+    cluster_vce
+        ``"cr2"`` (default): the bias-reduced cluster variance of Bell and
+        McCaffrey (2002) with their Satterthwaite degrees of freedom; intervals,
+        p-values, the uniform band and WBATE use t critical values (the ``df``
+        column). ``"cr1"``: rd2d's cluster variance with the factor
+        ``(n - 1) / (n - k) * G / (G - 1)`` and normal critical values. A local
+        fit puts most of its weight on a few clusters near the point, whose
+        residuals absorb their own cluster effect: in Monte Carlo runs CR1
+        covered 0.66-0.91 (6 to 100 clusters per side), CR2 0.955-0.97.
     level
         Confidence level in percent for intervals and the uniform band.
     cbands
@@ -375,7 +394,11 @@ def rdnet(
 
     ``status`` is ``"ok"``, ``"masked"``, ``"insufficient"`` (fewer than
     ``min_obs`` observations on a side), ``"few clusters"``, ``"singular"``,
-    ``"weak first stage"`` or ``"no bandwidth"``.
+    ``"weak first stage"`` or ``"no bandwidth"``. In fuzzy designs a point
+    whose first stage is within two standard errors of zero
+    (``|fs| < 2 fs_se``) is ``"weak first stage"``: its estimates are
+    reported, but the delta-method interval for ``itt / fs`` is unreliable and
+    the point is left out of the default ``wbate()`` and of ``lbate()``.
 
     Returns
     -------
@@ -400,20 +423,20 @@ def rdnet(
     y = _check_obs(y, coords.n_obs, "y")
     if not 1 < level < 100:
         raise ValueError(f"level is a percentage, e.g. 95 (got {level})")
-    q = p + 1 if q is None else int(q)
-    if p < 0 or q < p:
+    p = _as_int(p, "p", 0)
+    q = p + 1 if q is None else _as_int(q, "q")
+    if q < p:
         raise ValueError("need 0 <= p <= q")
+    repp = _as_int(repp, "repp", 1)
     J = coords.n_eval
-    deriv = tuple(int(v) for v in deriv)
-    if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:
-        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
+    deriv = _check_deriv(deriv, p)
     tang = None
     if tangvec is not None:
         if sum(deriv) != 0:
             raise ValueError("give either deriv or tangvec, not both")
         if p < 1:
             raise ValueError("tangvec needs p >= 1")
-        tang = np.broadcast_to(np.asarray(tangvec, dtype=float), (J, 2))
+        tang = _check_tangvec(tangvec, J)
     if pooled and (sum(deriv) or tang is not None):
         raise ValueError("pooled=True estimates level jumps only")
     kfun = get_kernel(kernel)
@@ -435,6 +458,9 @@ def rdnet(
         raise ValueError(f"vce must be one of {VCE_TYPES}")
     if vce == "cluster" and cluster is None:
         raise ValueError("vce='cluster' needs a cluster variable")
+    if cluster_vce not in ("cr2", "cr1"):
+        raise ValueError("cluster_vce must be 'cr2' or 'cr1'")
+    cr2 = vce == "cluster" and cluster_vce == "cr2"
     if vce == "conley" and (conley_cutoff is None or conley_cutoff <= 0):
         raise ValueError("vce='conley' needs a positive conley_cutoff")
     if conley_distance not in ("network", "euclidean"):
@@ -453,6 +479,14 @@ def rdnet(
     else:
         bases = [None] * J
         H = _bandwidth_matrix(h, J)
+    if vce == "conley":
+        hfin = H[np.all(np.isfinite(H) & (H > 0), axis=1)]
+        if len(hfin) and conley_cutoff > hfin.min():
+            warnings.warn(f"conley_cutoff ({conley_cutoff:g}) exceeds the bandwidth at some evaluation points "
+                          f"(smallest {hfin.min():.4g}): the HAC form is built from the local fits' own "
+                          "residuals, and as the cutoff approaches the extent of the local sample it stops "
+                          "measuring the variance (Monte Carlo coverage fell to 0.8 at cutoffs of several "
+                          "bandwidths). Use a cutoff below the bandwidth", stacklevel=2)
 
     z = stats.norm.ppf(0.5 + level / 200)
     T = coords.treated
@@ -473,6 +507,9 @@ def rdnet(
     def local_var(idx, psi, k):
         if conley:
             return np.nan
+        if cr2:  # CR2 influences carry their own adjustment: plain sum of squared cluster sums
+            _, codes = np.unique(cluster[idx], return_inverse=True)
+            return float(np.sum(np.bincount(codes, weights=psi) ** 2))
         v = variance(psi, vce, cluster=None if cluster is None else cluster[idx])
         if vce == "cluster":  # variance() applies g / (g - 1); rd2d's CR1 also has (n - 1) / (n - k)
             v *= _cluster_dof(len(idx), k, cluster[idx])
@@ -530,9 +567,12 @@ def rdnet(
                 ka = _identifiable(Xa, wk[m])
                 Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False)
                 aux = (Xa[:, ka], wk[m], m, Xi[:, ka])
-            out, ks, offset = {}, {}, {}
+            out, ks, offset, dfs = {}, {}, {}, {}
             for order in (p, q):
-                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
+                # the pooled model's slopes are common to both sides, so its basis uses
+                # one scale; the side-specific model scales each side by its own h
+                hb = np.full(len(idx), max(H[j, 0], H[j, 1])) if pooled else hside[idx]
+                X = _design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled)
                 c = np.zeros(X.shape[1])
                 if pooled:
                     c[1] = 1.0
@@ -553,10 +593,15 @@ def rdnet(
                     first = 2 if pooled else 0
                     offset[order] = any(keep[first + i] for i, oe in enumerate(oexp) if oe > 0)
                 jumps, psis = [], []
+                adj = None
                 for target in targets:
                     f = wls(X, target[idx], w[idx])
                     jumps.append(float(c @ f.beta))
-                    if aux is None:
+                    if cr2:
+                        if adj is None:  # depends on the design and clusters only, not the target
+                            adj, dfs[order] = f.cr2(c, cluster[idx])
+                        psis.append(adj * f.resid)
+                    elif aux is None:
                         psis.append(f.influence(c, base_vce))
                     else:
                         Xa, wa, m, Xi = aux
@@ -573,12 +618,12 @@ def rdnet(
                     extra = {"itt": itt, "fs": fs, "_psi_fs": psis[1]}
                 ks[order] = X.shape[1]
                 out[order] = (tau, np.sqrt(max(local_var(idx, psi, ks[order]), 0.0)), psi, extra)
-            return out, ks, offset[p]
+            return out, ks, offset[p], dfs.get(q, np.inf)
 
         out = None
         try:
             try:
-                out, ks, has_o = fit()
+                out, ks, has_o, df_q = fit()
                 # "s" when no term in the offset o is identified (a river, rail line or
                 # highway crossing the border at one point): the fit is in s alone
                 rec["basis"] = "s,o" if has_o else "s"
@@ -600,7 +645,9 @@ def rdnet(
         if conley:
             hac_cols += [(j, "se", idx, psi_p), (j, "se_rb", idx, psi_q)]
         rec.update(tau=tau_p, se=se_p, tau_bc=tau_q, **extra)
-        _set_rb(rec, se_q, z)
+        if cr2:
+            rec["df"] = df_q
+        _set_rb(rec, se_q, z, rec.get("df", np.inf))
         psi_store[j] = (idx, psi_q, ks[q])
     table = pd.DataFrame(rows)
     table["h"] = np.where(np.isclose(table["h0"], table["h1"]), table["h0"], np.nan)
@@ -612,7 +659,7 @@ def rdnet(
         Psi = np.zeros((len(union), len(hac_cols)))
         for c, (_, _, idx, psi) in enumerate(hac_cols):
             Psi[pos[idx], c] = psi
-        V = coords.hac_quadratic(union, Psi, conley_cutoff, conley_distance)
+        V = _psd(coords.hac_quadratic(union, Psi, conley_cutoff, conley_distance))
         se_all = np.sqrt(np.clip(np.diag(V), 0.0, None))
         for c, (j, name, _, _) in enumerate(hac_cols):
             if name == "se_rb":
@@ -626,21 +673,54 @@ def rdnet(
         cov = np.full((J, J), np.nan)
         cov[np.ix_(qj, qj)] = V[np.ix_(qc, qc)]
     elif psi_store:
-        cov = _joint_covariance(psi_store, coords, vce, cluster, J)
+        cov = _joint_covariance(psi_store, coords, vce, cluster, J, cr2)
+    if D is not None:
+        # a first stage indistinguishable from zero makes tau = itt / fs and its
+        # delta-method interval unreliable: flag it (the estimates are kept)
+        weak = (table["status"] == "ok") & (np.abs(table["fs"]) < 2 * table["fs_se"])
+        table.loc[weak, "status"] = "weak first stage"
     if cov is not None:
         ok = np.isfinite(np.diag(cov))
         crit = _uniform_critical_value(cov[np.ix_(ok, ok)], level, repp, seed)
         if cbands:
-            table["cb_lo"] = table["tau_bc"] - crit * table["se_rb"]
-            table["cb_hi"] = table["tau_bc"] + crit * table["se_rb"]
+            cb = _band_crit(crit, table)
+            table["cb_lo"] = table["tau_bc"] - cb * table["se_rb"]
+            table["cb_hi"] = table["tau_bc"] + cb * table["se_rb"]
     g_ok = [g for g in g_min if g >= 2]
-    if g_ok and min(g_ok) < 10:
+    if g_ok and min(g_ok) < 50 and not cr2:
         warnings.warn(f"cluster-robust standard errors rest on few clusters: as few as {min(g_ok)} per side within "
-                      "the bandwidth at some evaluation points; with fewer than about 10 per side they are too "
-                      "small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff=...",
-                      stacklevel=2)
+                      "the bandwidth at some evaluation points. Local cluster-robust errors are too small unless "
+                      "there are many clusters per side (Monte Carlo coverage of 95% intervals: about 0.7 with 5-6, "
+                      "0.78 with 26, 0.88 with 48, 0.94 with 190). Consider conley_cutoff=...", stacklevel=2)
+    elif vce in ("hc0", "hc1", "hc2", "hc3"):
+        n_loc = len(np.unique(coords.loc))
+        if n_loc < 0.9 * coords.n_obs:
+            warnings.warn(f"the {coords.n_obs} observations sit at only {n_loc} distinct locations (a panel or repeated "
+                          f"measurements?); {vce.upper()} standard errors treat them as independent and are too small "
+                          "when observations at one place are correlated. Cluster by unit (cluster=...) or use "
+                          "conley_cutoff=...", stacklevel=2)
     return RDNetResult(table, p, q, kname, vce, level, repr(coords.network.metric), fuzzy=D is not None,
                        crit=crit, cov=cov, bandwidths=bw, coords=coords)
+
+
+def _psd(V: np.ndarray) -> np.ndarray:
+    """Nearest positive semi-definite matrix when ``V`` is clearly not one.
+
+    Bartlett weights are positive definite on a line but not on a network or
+    in the plane, so a Conley covariance can have negative eigenvalues (and
+    negative variances). They are set to zero, with a warning; a matrix that
+    is positive semi-definite up to rounding is returned unchanged.
+    """
+    if V.size == 0 or not np.all(np.isfinite(V)):
+        return V
+    w, Q = np.linalg.eigh(V)
+    if w.min() >= -1e-10 * max(w.max(), 0.0):
+        return V
+    warnings.warn("the Conley covariance was not positive semi-definite (Bartlett weights need not be on a "
+                  "network); its negative eigenvalues were set to 0. A smaller conley_cutoff avoids this",
+                  stacklevel=3)
+    out = (Q * np.clip(w, 0.0, None)) @ Q.T
+    return (out + out.T) / 2
 
 
 def _cluster_dof(n: int, k: int, cl) -> float:
@@ -648,14 +728,37 @@ def _cluster_dof(n: int, k: int, cl) -> float:
     return (n - 1) / (n - k) if n > k and len(np.unique(cl)) > 1 else 1.0
 
 
-def _set_rb(rec: dict, se_q: float, z: float) -> None:
-    """Robust standard error, confidence interval and p-value from the bias-corrected fit."""
+def _set_rb(rec: dict, se_q: float, z: float, df: float = np.inf) -> None:
+    """Robust standard error, confidence interval and p-value from the bias-corrected fit.
+
+    With finite ``df`` (CR2 cluster errors) the interval and p-value use the t
+    distribution with ``df`` degrees of freedom; ``z`` is the normal quantile.
+    """
     tau_q = rec["tau_bc"]
-    rec.update(se_rb=se_q, ci_lo=tau_q - z * se_q, ci_hi=tau_q + z * se_q,
-               pvalue=2 * stats.norm.sf(abs(tau_q / se_q)) if se_q > 0 else np.nan)
+    fin = bool(np.isfinite(df) and df > 0)
+    zq = float(stats.t.ppf(stats.norm.cdf(z), df)) if fin else z
+    if se_q > 0:
+        pv = 2 * stats.t.sf(abs(tau_q / se_q), df) if fin else 2 * stats.norm.sf(abs(tau_q / se_q))
+    else:
+        pv = np.nan
+    rec.update(se_rb=se_q, ci_lo=tau_q - zq * se_q, ci_hi=tau_q + zq * se_q, pvalue=pv)
 
 
-def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
+def _band_crit(crit: float, table: pd.DataFrame) -> np.ndarray:
+    """Per-point uniform-band critical values.
+
+    The normal sup-quantile ``crit``, mapped to each point's t distribution
+    (same tail probability) when the table has CR2 degrees of freedom ``df``.
+    """
+    out = np.full(len(table), float(crit))
+    if "df" in table:
+        df = table["df"].to_numpy(dtype=float)
+        fin = np.isfinite(df) & (df > 0)
+        out[fin] = stats.t.ppf(stats.norm.cdf(crit), df[fin])
+    return out
+
+
+def _joint_covariance(psi_store, coords, vce, cluster, J, cr2: bool = False) -> np.ndarray:
     """``J x J`` covariance of the bias-corrected estimates, NaN where a point was not estimated.
 
     Its diagonal reproduces the pointwise variances exactly. For clustering, the
@@ -679,7 +782,7 @@ def _joint_covariance(psi_store, coords, vce, cluster, J) -> np.ndarray:
         for c, j in enumerate(keys):
             idx, _, k = psi_store[j]
             g = len(np.unique(cluster[idx]))
-            f[c] = np.sqrt((g / (g - 1) if g > 1 else 1.0) * _cluster_dof(len(idx), k, cluster[idx]))
+            f[c] = 1.0 if cr2 else np.sqrt((g / (g - 1) if g > 1 else 1.0) * _cluster_dof(len(idx), k, cluster[idx]))
         V = (G.T @ G) * np.outer(f, f)
     else:
         V = Psi.T @ Psi

@@ -448,7 +448,8 @@ test_that("plot accepts a scalar or function truth", {
 
 test_that("few clusters within the bandwidth warn", {
   city <- mock_city()
-  expect_warning(rdnet(city$obs$outcome, mock_coords(), h = 600, cluster = city$obs$x %/% 700, seed = 0),
+  expect_warning(rdnet(city$obs$outcome, mock_coords(), h = 600, cluster = city$obs$x %/% 700, cluster_vce = "cr1",
+                       seed = 0),
                  "few clusters")
 })
 
@@ -509,4 +510,119 @@ test_that("points on the line are treated with either side rule", {
   on <- rbind(c(50, 0))
   expect_true(boundary_is_treated(boundary(L, treated_side = "left"), on))
   expect_true(boundary_is_treated(boundary(L, treated_side = "right"), on))
+})
+
+test_that("a pooled fit with side bandwidths is exact without noise", {
+  cc <- mock_coords()
+  y <- 2 * cc$treated + 0.004 * cc$s
+  t <- rdnet(y, cc, h = c(400, 700), pooled = TRUE, cbands = FALSE)$table
+  ok <- t$status == "ok"
+  expect_equal(t$tau[ok], rep(2, sum(ok)), tolerance = 1e-9)
+})
+
+test_that("covariate units do not change the fit", {
+  cc <- mock_coords()
+  set.seed(0)
+  z <- mock_city()$obs$far + rnorm(cc$n_obs)
+  y <- mock_city()$obs$outcome
+  a <- rdnet(y, cc, h = 600, covs = z, cbands = FALSE)$table
+  b <- rdnet(y, cc, h = 600, covs = z * 1e7, cbands = FALSE)$table
+  expect_equal(b$status, a$status)
+  ok <- a$status == "ok"
+  expect_equal(b$tau[ok], a$tau[ok], tolerance = 1e-8)
+})
+
+test_that("a Conley cutoff above the bandwidth warns", {
+  expect_warning(rdnet(mock_city()$obs$outcome, mock_coords(), h = 400, conley_cutoff = 1500, cbands = FALSE),
+                 "exceeds the bandwidth")
+})
+
+test_that("fuzzy points with a first stage near zero are flagged", {
+  cc <- mock_coords()
+  set.seed(0)
+  d <- stats::rbinom(cc$n_obs, 1, 0.5) # take-up unrelated to the boundary
+  t <- rdnet(mock_city()$obs$outcome, cc, h = 600, fuzzy = d, cbands = FALSE)$table
+  weak <- t$status == "weak first stage"
+  expect_true(any(weak))
+  expect_true(all(abs(t$fs[weak]) < 2 * t$fs_se[weak]))
+  expect_true(all(is.finite(t$tau_bc[weak])))
+  strong <- t$status == "ok"
+  expect_true(all(abs(t$fs[strong]) >= 2 * t$fs_se[strong]))
+})
+
+test_that("rdbwnet reproduces the bandwidths rdnet selects with cluster and conley", {
+  city <- mock_city()
+  cc <- mock_coords()
+  y <- city$obs$outcome
+  cl <- city$obs$x %/% 500
+  r <- suppressWarnings(rdnet(y, cc, cluster = cl, cbands = FALSE))
+  bw <- rdbwnet(y, cc, cluster = cl, vce = "cluster", scaleregul = 3)
+  expect_equal(r$table$h0, bw$h0, tolerance = 1e-12)
+  r <- rdnet(y, cc, conley_cutoff = 150, cbands = FALSE)
+  bw <- rdbwnet(y, cc, vce = "conley", scaleregul = 3)
+  expect_equal(r$table$h0, bw$h0, tolerance = 1e-12)
+})
+
+test_that("HC errors warn when observations repeat at few locations", {
+  city <- mock_city()
+  xy <- as.matrix(city$obs[rep(seq_len(300), 3), c("x", "y")])
+  cc <- network_coordinates(city$network(), city$boundary, xy, n_eval = 5)
+  set.seed(1)
+  expect_warning(rdnet(stats::rnorm(nrow(xy)), cc, h = 800, cbands = FALSE), "distinct locations")
+})
+
+test_that("CR2 matches the dense Bell-McCaffrey formulas", {
+  set.seed(4)
+  n <- 120
+  X <- cbind(1, matrix(stats::rnorm(2 * n), n))
+  w <- stats::runif(n, 0.2, 2)
+  y <- stats::rnorm(n)
+  cl <- sample(0:8, n, replace = TRUE)
+  cvec <- c(1, 0.3, 0)
+  f <- .wls(X, y, w)
+  adj <- .cr2(f, cvec, cl)
+  se <- sqrt(sum(rowsum(adj$R * f$resid, cl)^2))
+  B <- solve(crossprod(X * w, X)) %*% t(X * w)
+  M <- diag(n) - X %*% B
+  a <- drop(cvec %*% B)
+  MM <- M %*% t(M)
+  R <- numeric(n)
+  for (g in unique(cl)) {
+    m <- which(cl == g)
+    e <- eigen(MM[m, m, drop = FALSE], symmetric = TRUE)
+    ev <- ifelse(e$values > 1e-10 * max(e$values), 1 / sqrt(pmax(e$values, 1e-300)), 0)
+    R[m] <- e$vectors %*% (ev * crossprod(e$vectors, a[m]))
+  }
+  Rb <- sapply(sort(unique(cl)), function(g) ifelse(cl == g, R, 0))
+  S <- crossprod(Rb, M %*% y)
+  P <- t(Rb) %*% MM %*% Rb
+  expect_equal(se, sqrt(sum(S^2)), tolerance = 1e-10)
+  expect_equal(adj$df, sum(diag(P))^2 / sum(P * P), tolerance = 1e-10)
+})
+
+test_that("cluster errors default to CR2 with t intervals", {
+  city <- mock_city()
+  cc <- mock_coords()
+  y <- city$obs$outcome
+  blocks <- (city$obs$x %/% 300) * 100 + city$obs$y %/% 300
+  r2 <- rdnet(y, cc, h = 600, cluster = blocks, seed = 0)
+  r1 <- suppressWarnings(rdnet(y, cc, h = 600, cluster = blocks, cluster_vce = "cr1", seed = 0))
+  ok <- r2$table$status == "ok"
+  expect_false(is.null(r2$table$df))
+  expect_true(is.null(r1$table$df))
+  expect_equal(r2$table$tau_bc[ok], r1$table$tau_bc[ok], tolerance = 1e-12)
+  q <- stats::qt(0.975, r2$table$df[ok])
+  expect_equal(r2$table$ci_hi[ok] - r2$table$tau_bc[ok], q * r2$table$se_rb[ok], tolerance = 1e-10)
+  expect_equal(sqrt(diag(r2$cov)[ok]), r2$table$se_rb[ok], tolerance = 1e-10)
+  expect_true(all(is.finite(wbate(r2))) || is.na(wbate(r2)[["pvalue"]]))
+  expect_error(rdnet(y, cc, h = 600, cluster = blocks, cluster_vce = "cr3"), "cluster_vce")
+})
+
+test_that("wbate ignores points whose first stage is exactly zero", {
+  city <- mock_city()
+  d <- ifelse(city$obs$x < 1200, 0, as.numeric(city$obs$treated))
+  r <- rdnet(city$obs$outcome, mock_coords(), h = 600, fuzzy = d, cbands = FALSE)
+  expect_true(anyNA(r$table$tau_bc))
+  out <- wbate(r)
+  expect_true(is.finite(out[["tau_bc"]]) && is.finite(out[["se_rb"]]))
 })

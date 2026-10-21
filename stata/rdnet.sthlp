@@ -41,6 +41,7 @@
 
 {syntab:Standard errors and inference}
 {synopt:{opt vce(vcetype)}}{cmd:hc0}, {cmd:hc1}, {cmd:hc2}, {cmd:hc3} (default), {cmd:cluster} {it:clustvar}, or {cmd:conley} {it:#} [{cmd:network}|{cmd:euclidean}]{p_end}
+{synopt:{opt cr1}}with {cmd:vce(cluster)}: rd2d's CR1 cluster variance with normal critical values instead of the default CR2 with t critical values{p_end}
 {synopt:{opt conleyresids:cale(#)}}auxiliary fit for Conley residuals at # x h; default 3{p_end}
 {synopt:{opt conleyresido:rder(#)}}order of that auxiliary fit; default q{p_end}
 {synopt:{opt l:evel(#)}}confidence level; default {cmd:c(level)}{p_end}
@@ -69,8 +70,17 @@ covariance of the estimates.
 Conley standard errors are a Bartlett spatial HAC over network (or Euclidean)
 distance with residuals from a wider auxiliary fit ({opt conleyresidscale()});
 residuals from the estimation fit itself absorb spatially correlated shocks
-and make the HAC variance too small. Cluster-robust errors use rd2d's CR1
-factor (n - 1)/(n - k) x g/(g - 1).
+and make the HAC variance too small.
+
+{pstd}
+Cluster-robust errors are by default the bias-reduced CR2 variance of Bell and
+McCaffrey (2002) with their Satterthwaite degrees of freedom (column {cmd:df} of
+{cmd:e(results)}); intervals, p-values, the uniform band and {cmd:estat wbate}
+use t critical values. A local fit puts most of its weight on a few clusters
+near the point, whose residuals absorb their own cluster effect: in Monte Carlo
+runs rd2d's CR1 (option {opt cr1}, factor (n - 1)/(n - k) x g/(g - 1), normal
+critical values) covered 0.66-0.91 with 6 to 100 clusters per side, CR2
+0.955-0.97.
 
 
 {marker estat}{...}
@@ -85,7 +95,8 @@ factor (n - 1)/(n - k) x g/(g - 1).
 {pstd}
 {cmd:estat wbate} reports the weighted boundary average treatment effect
 w'tau (rd2d's WBATE). Weights have one entry per evaluation point and are
-normalised to sum to one; points that were not estimated must get weight 0.
+normalised to sum to one; points that were not estimated must get weight 0
+(points with a weak first stage may be given weight).
 {cmd:weights(equal)} gives every distinct place of the estimated points equal
 weight (points that snapped to the same place, {cmd:node_arc}, share it). The standard error
 sqrt(w' Sigma w) uses the joint covariance {cmd:e(cov)}.
@@ -115,17 +126,22 @@ joint covariance, {cmd:test} and {cmd:lincom} work directly, e.g.
 {synopt:{cmd:e(level)}, {cmd:e(p)}, {cmd:e(q)}, {cmd:e(min_obs)}, {cmd:e(cutoff)}}settings{p_end}
 {p2col 5 20 24 2: Macros}{p_end}
 {synopt:{cmd:e(cmd)}}{cmd:rdnet}{p_end}
-{synopt:{cmd:e(vce)}, {cmd:e(kernel)}, {cmd:e(bwselect)}, {cmd:e(cost)}, {cmd:e(fuzzy)}, {cmd:e(covs)}}settings{p_end}
+{synopt:{cmd:e(vce)}, {cmd:e(clustvce)} (cr2 or cr1), {cmd:e(kernel)}, {cmd:e(bwselect)}, {cmd:e(cost)}, {cmd:e(fuzzy)}, {cmd:e(covs)}}settings{p_end}
 {p2col 5 20 24 2: Matrices}{p_end}
 {synopt:{cmd:e(b)}, {cmd:e(V)}}tau_bc and its covariance at the estimated points{p_end}
-{synopt:{cmd:e(results)}}one row per evaluation point: eval arc node_arc h0 h1 n0 n1 tau se tau_bc se_rb ci_lo ci_hi pvalue status h cb_lo cb_hi itt fs fs_se basis{p_end}
+{synopt:{cmd:e(results)}}one row per evaluation point: eval arc node_arc h0 h1 n0 n1 tau se tau_bc se_rb ci_lo ci_hi pvalue status h cb_lo cb_hi itt fs fs_se basis df (CR2 degrees of freedom){p_end}
 {synopt:{cmd:e(cov)}}J x J covariance of tau_bc (missing for points not estimated){p_end}
 {synopt:{cmd:e(bandwidths)}}selected bandwidths (see {helpb rdbwnet}), when {opt h()} is omitted{p_end}
 
 {pstd}
 Status codes in {cmd:e(results)}: 0 ok, 1 masked, 2 insufficient
 observations, 3 singular local design, 4 no bandwidth, 5 weak first stage,
-6 few clusters (fewer than two clusters on a side of the local sample).
+6 few clusters (fewer than two clusters on a side of the local sample). In fuzzy
+designs a point whose first stage is within two standard errors of zero
+(|fs| < 2 fs_se) has status 5: its estimates are shown (marked w) and kept in
+{cmd:e(results)}, but not in {cmd:e(b)}; the delta-method
+interval for itt/fs is unreliable, and {cmd:weights(equal)} and {cmd:estat lbate}
+leave it out.
 
 {pstd}
 The local fit is a polynomial in (s, o). Where the network meets the boundary

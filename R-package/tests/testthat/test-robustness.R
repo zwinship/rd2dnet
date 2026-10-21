@@ -210,3 +210,100 @@ test_that("collinear covariates warn", {
   expect_warning(rdnet(mock_city()$obs$outcome, mock_coords(), h = 600, covs = cbind(z, 2 * z + 1), cbands = FALSE),
                  "collinear")
 })
+
+test_that("rdnet rejects malformed options", {
+  y <- mock_city()$obs$outcome
+  cc <- mock_coords()
+  expect_error(rdnet(y, cc, h = 600, deriv = c(0.5, 0)), "deriv must be an integer")
+  expect_error(rdnet(y, cc, h = 600, p = 1.5), "p must be an integer")
+  expect_error(rdnet(y, cc, h = 600, q = 2.5), "q must be an integer")
+  expect_error(rdnet(y, cc, h = 600, repp = 0), "repp must be at least 1")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(1, 0, 0)), "tangvec must be")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(NaN, 1)), "tangvec must be finite")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(0, 0)), "must not be c.0, 0.")
+  expect_error(rdbwnet(y, cc, deriv = c(0.5, 0)), "deriv must be an integer")
+})
+
+test_that("manipulation_test rejects bad q and k_max", {
+  expect_error(manipulation_test(mock_coords(), k_max = 0), "k_max must be at least 1")
+  expect_error(manipulation_test(mock_coords(), q = 50.5), "q must be an integer")
+})
+
+test_that("rd2dnet with missing locations says so", {
+  city <- mock_city()
+  X <- as.matrix(city$obs[c("x", "y")])
+  X[4, 1] <- NA
+  b <- boundary_interpolate(city$boundary, boundary_grid(city$boundary, 5, start = 100, end = 2900))
+  expect_error(rd2dnet(city$obs$outcome, X, city$obs$treated, b, city$network()), "X has missing")
+})
+
+test_that("the Conley covariance is made positive semi-definite", {
+  V <- matrix(c(1, 2, 2, 1), 2)
+  expect_warning(P <- .psd(V), "not positive semi-definite")
+  expect_true(min(eigen(P, symmetric = TRUE)$values) >= -1e-12)
+  expect_equal(P, matrix(1.5, 2, 2), tolerance = 1e-12)
+  W <- matrix(c(2, 1, 1, 2), 2)
+  expect_identical(expect_silent(.psd(W)), W)
+})
+
+test_that("from_lines warns when line ends miss each other", {
+  L <- list()
+  for (i in 0:5) for (j in 0:5) {
+    L[[length(L) + 1]] <- rbind(c(i * 100, j * 100), c(i * 100 + 99.7, j * 100))
+    L[[length(L) + 1]] <- rbind(c(i * 100, j * 100), c(i * 100, j * 100 + 99.7))
+  }
+  expect_warning(network_graph_from_lines(L), "not joined to any other line")
+  expect_silent(network_graph_from_lines(L, tol = 0.5))
+})
+
+test_that("edges whose geometry runs backwards are split at the right place", {
+  nodes <- data.frame(name = c("u", "v", "w"), x = c(0, 0, 20), y = c(0, 100, 30))
+  edges <- data.frame(from = c("w", "u"), to = c("u", "v"), length = c(sqrt(20^2 + 30^2), 100))
+  edges$geometry <- list(NULL, rbind(c(0, 100), c(0, 0))) # stored v -> u
+  bnd <- boundary(rbind(c(-50, 30), c(50, 30)), treated_side = "left")
+  cc <- network_coordinates(network_graph(edges, nodes), bnd, rbind(c(1, 90), c(1, 10)), treated = c(1, 0),
+                            eval_points = rbind(c(0, 30)))
+  expect_equal(cc$s, c(61, -21), tolerance = 1e-9)
+})
+
+test_that("an edge crossing the boundary twice is split at both crossings", {
+  bnd <- boundary(rbind(c(-10, 50), c(40, 50), c(40, 40), c(60, 40), c(60, 50), c(110, 50)), treated_side = "left")
+  nodes <- data.frame(name = c("a", "b", "c", "d"), x = c(20, 80, 0, 0), y = c(45, 45, 0, 100))
+  edges <- data.frame(from = c("a", "c", "a"), to = c("b", "d", "c"), length = c(60, 100, sqrt(20^2 + 45^2)))
+  cc <- network_coordinates(network_graph(edges, nodes), bnd, rbind(c(45, 46), c(30, 46)),
+                            eval_points = rbind(c(40, 45)))
+  expect_equal(cc$s, c(6, -11), tolerance = 1e-9)
+})
+
+test_that("evaluation points on a ring that follows streets stay in place", {
+  xs <- seq(0, 200, by = 25)
+  g <- expand.grid(x = xs, y = xs)
+  nodes <- data.frame(name = paste(g$x, g$y), x = g$x, y = g$y)
+  e <- rbind(data.frame(from = paste(g$x, g$y), to = paste(g$x + 25, g$y))[g$x < 200, ],
+             data.frame(from = paste(g$x, g$y), to = paste(g$x, g$y + 25))[g$y < 200, ])
+  e$length <- 25
+  net <- network_graph(e, nodes)
+  ev <- rbind(c(100, 150), c(150, 100), c(50, 100), c(140, 50), c(60, 50))
+  set.seed(1)
+  pts <- matrix(stats::runif(1000, 5, 195), ncol = 2)
+  for (start in c(50, 62.5)) {
+    ring <- boundary_from_region(rbind(c(start, 50), c(150, 50), c(150, 150), c(50, 150), c(50, 50)))
+    cc <- network_coordinates(net, ring, pts, eval_points = ev)
+    expect_equal(cc$eval_node_arc, boundary_project(ring, ev), tolerance = 1e-9)
+  }
+})
+
+test_that("nodes on the extension of the boundary line do not depend on its direction", {
+  for (side in c("left", "right")) {
+    b <- boundary(rbind(c(0, 0), c(100, 0)), treated_side = side)
+    expect_true(all(boundary_is_treated(b, rbind(c(150, 0), c(-50, 0)))))
+  }
+})
+
+test_that("lon/lat columns are read in the right order", {
+  expect_equal(.as_points(data.frame(lat = c(40, 41), lon = c(-73, -74))), cbind(c(-73, -74), c(40, 41)))
+})
+
+test_that("density rejects a fractional p", {
+  expect_error(density(mock_coords(), p = 1.5), "p must be an integer")
+})

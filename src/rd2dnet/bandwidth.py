@@ -214,6 +214,45 @@ def _check_index(v, name: str) -> None:
                       stacklevel=3)
 
 
+def _as_int(x, name: str, lo: int | None = None) -> int:
+    """An integer option: integer-valued (1.0 is fine, 2.7 is an error) and at least ``lo``."""
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer (got {x!r})") from None
+    if not np.isfinite(f) or f != round(f):
+        raise ValueError(f"{name} must be an integer (got {x!r})")
+    if lo is not None and f < lo:
+        raise ValueError(f"{name} must be at least {lo} (got {x!r})")
+    return int(f)
+
+
+def _check_deriv(deriv, p: int) -> tuple:
+    d = np.asarray(deriv, dtype=object).ravel()
+    if len(d) != 2:
+        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
+    out = tuple(_as_int(v, "deriv", 0) for v in d)
+    if sum(out) > p:
+        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
+    return out
+
+
+def _check_tangvec(tangvec, J: int) -> np.ndarray:
+    """Tangent directions as a (J, 2) array: one direction for all points, or one per point."""
+    try:
+        t = np.asarray(tangvec, dtype=float)
+    except (TypeError, ValueError):
+        raise ValueError("tangvec must be numeric: (t1, t2) or one row per evaluation point") from None
+    if t.shape not in ((2,), (1, 2), (J, 2)):
+        raise ValueError(f"tangvec must be (t1, t2) or a ({J}, 2) array, got shape {t.shape}")
+    t = np.broadcast_to(t, (J, 2))
+    if not np.all(np.isfinite(t)):
+        raise ValueError("tangvec must be finite")
+    if np.any(np.hypot(t[:, 0], t[:, 1]) == 0):
+        raise ValueError("tangvec must not be (0, 0)")
+    return t
+
+
 def _check_obs(v, n: int, name: str) -> np.ndarray:
     _check_index(v, name)
     v = np.asarray(v, dtype=float)
@@ -309,9 +348,14 @@ def rdbwnet(
         ``"mserd"`` (one MSE-optimal bandwidth for both sides), ``"msetwo"``
         (one per side), ``"imserd"``/``"imsetwo"`` (one bandwidth for all
         evaluation points), or the coverage-error-optimal ``"cerrd"``,
-        ``"certwo"``, ``"icerrd"``, ``"icertwo"``.
+        ``"certwo"``, ``"icerrd"``, ``"icertwo"``. Every bandwidth is kept
+        between the ``bwcheck`` floor and the distance to the farthest
+        observation at its own point, so a common bandwidth is raised (or
+        lowered) at points where it would fall outside that range.
     vce
-        ``"hc0"``-``"hc3"`` variance used inside the selector (others fall back to ``"hc1"``).
+        ``"hc0"``-``"hc3"`` variance used inside the selector. ``"cluster"`` and ``"conley"``
+        select with ``"hc0"`` residuals (cluster-robust when ``cluster`` is given), as
+        :func:`rdnet` does with those standard errors.
     bwcheck
         Every bandwidth is at least the distance to the ``bwcheck``-th nearest
         observation on each side (default ``20 +`` the number of order-``p + 1`` terms).
@@ -334,9 +378,9 @@ def rdbwnet(
     if bwselect not in BWSELECT:
         raise ValueError(f"bwselect must be one of {BWSELECT}")
     if vce not in ("hc0", "hc1", "hc2", "hc3", "cluster", "conley"):
-        raise ValueError("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc1')")
+        raise ValueError("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc0')")
     if vce not in ("hc0", "hc1", "hc2", "hc3"):
-        vce = "hc1"
+        vce = "hc0"
     y = _check_obs(y, coords.n_obs, "y")
     kfun = get_kernel(kernel)
     kname = kernel.lower() if isinstance(kernel, str) else "triangular"
@@ -351,10 +395,8 @@ def rdbwnet(
     # Effective sample sizes count distinct locations (mass points count once), as in rd2d.
     n_eff = len(np.unique(coords.loc[np.isfinite(s)]))
     n_eff_side = [len(np.unique(coords.loc[np.isfinite(s) & (T == t)])) for t in (False, True)]
-    deriv = tuple(int(v) for v in deriv)
-    if len(deriv) != 2 or min(deriv) < 0 or sum(deriv) > p:
-        raise ValueError("deriv must be (a, c) with a, c >= 0 and a + c <= p")
-    tang = None if tangvec is None else np.broadcast_to(np.asarray(tangvec, dtype=float), (coords.n_eval, 2))
+    deriv = _check_deriv(deriv, p)
+    tang = None if tangvec is None else _check_tangvec(tangvec, coords.n_eval)
     v_ord = 1 if tang is not None else sum(deriv)
     expo_b = 1.0 / (2 * p + 6)
 
