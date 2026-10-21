@@ -100,3 +100,135 @@ Each entry: the decision, the alternatives, and why. All are reversible.
 Note: the Monte Carlo agent ran `taskkill /F /IM python.exe` once early on, which
 stopped every Python process on this machine at that moment. Nothing of yours was
 running as far as I can tell, but check if you had Python jobs open overnight.
+
+## Night 2 (2026-10-20/21): decisions on the open questions
+
+You asked me to decide these. Each was tested before it was adopted; details are in
+CHANGELOG.md and the PRs.
+
+19. **Sorting tests (density over-rejection on curved boundaries).**
+    - Research: Bugni, Crippa and Restrepo (2026, arXiv:2609.00350) give a manipulation
+      test for boundary designs and show why signed-distance density tests can fail.
+      Sorting is a statement about where units locate in the plane, so the network
+      should not enter the null.
+    - Monte Carlo (500 reps per cell, n = 6k and 24k), comparing three options:
+
+      | option | size with units in the plane | power |
+      |---|---|---|
+      | `density(normalize="euclidean")` (new) | 0.03-0.06 on straight, ring, wavy and irregular boundaries, river and panel | the most against one-sided sorting |
+      | `"network"` (old default) | 0.34-1.00 on curved boundaries | not meaningful |
+      | `"none"` | 0.08-0.33 | not meaningful |
+
+    - The BCR test held its size everywhere in the plane. It is the only test with power
+      against sorting that offsets along the boundary; q = 200 was best.
+    - Decision: `density()` defaults to `"euclidean"`; new `manipulation_test()` /
+      `rdnetmanip` with q = 200. Both warn when observations lie on the network itself,
+      where no test held its size.
+    - Not done: porting rddensity's bandwidth selector. Size is already correct with the
+      current selector.
+20. **Near-singular fits.**
+    - Decision: replace the all-or-nothing `s` fallback with an "identifiable basis".
+      Columns are kept in degree order; a column is dropped if it is aliased (relative
+      residual < 1e-4) or would give an observation leverage 1.
+    - Effects: a singular bias-correction fit no longer biases tau (2.83 → 2.5 exactly).
+      On a one-way grid with an o² term pinned by one observation, the sd of tau_bc fell
+      from 1.67 to 0.44.
+21. **Default vce = HC3** (was HC1, rd2d's choice).
+    - HC3 gave 0.945-0.951 pointwise coverage in every Monte Carlo design; HC1 gave 0.92-0.94.
+    - In a high-leverage design, HC3 gave 0.95 and HC1 0.76.
+    - `vce="hc1"` gives rd2d's behaviour; reference tests pin it.
+22. **Off-network distance for non-length metrics.**
+    - Charged at the snapped street's own cost per unit length; it was free.
+    - A point at an end node uses the node's mean rate, with a relative tolerance so
+      that 0 vs 1e-15 rounding does not decide.
+23. **Rivers:** new `direction="flow"` (the shorter directed path either way).
+24. **WBATE default:** equal weight per distinct place. Duplicates from snapping share
+    one weight.
+25. **LBATE:** `kind="min"` and `kind="absmax"` (Stata `estat lbate, min|absmax`).
+26. **Default seed 0** for the uniform band, so results are reproducible (rd2d fixes its seed too).
+27. **Points on the boundary line count as treated with `treated_side`**, as they already
+    did with `treated_region`.
+28. **`from_place` raises on download failure** (`offline_fallback=True` for demos).
+29. **Kept as is, deliberately:**
+    - `min_obs` default 20 + #terms(q): rd2d's `rd2d()` uses 52. With HC3 the coverage is
+      already near nominal, and 52 would turn many sparse-network points "insufficient".
+    - Standard CR1 cluster factor: rd2d's default multiplies an extra n/(n-k). The README
+      warns about clustering with few clusters, and the code warns below 10 per side.
+    - Python breaks exact ties between equidistant boundary nodes differently from R and
+      Stata. This only matters on perfectly regular lattices (the mock city at h = 2000).
+30. **Stata after the AppStream session expired (around 03:20 on 10/21).**
+    - Everything up to and including the identifiable basis and HC3 was run in Stata:
+      ALL TESTS PASSED and PARITY PASSED (40 random designs, worst difference 1.25e-8).
+    - Later changes are untested in Stata: snap cost, place weights / lbate kinds / seed /
+      on-line points, sorting tests (`rdnetmanip`), and flow. The cases for the next run
+      are on the `parity-cases` branch (commit 5e4294f).
+31. **Statistical review fixes (PR #20).**
+    - `pooled=True` with h0 != h1: the common slopes are scaled by one bandwidth,
+      max(h0, h1), on both sides. Side-specific scaling made the "common" slopes
+      differ between the sides, so even a noiseless plane was not fitted exactly.
+    - Singularity is judged on the column-equilibrated Gram matrix (and that matrix is
+      inverted). Covariates in dollars made every point "singular" before.
+    - `vce="conley"` warns when the cutoff exceeds the bandwidth: the HAC sums then
+      cover most of the local sample, whose residuals sum to zero by construction, and
+      the SEs collapse.
+32. **A street counts as running along the boundary only if it lies on it** (its quarter
+    points within `tol`), not merely because both ends do. A road that loops into one
+    side and comes back gave its locations s = 0.
+33. **Conley covariance: projected onto the PSD cone**, with a warning. Bartlett weights
+    are positive definite on a line but not on a network distance (minimum eigenvalue
+    -0.99 found at cutoff 400). Clipping only the diagonal could give se = 0. The
+    projection leaves PSD matrices untouched (tolerance 1e-10 relative), so ordinary
+    results do not change.
+34. **Fuzzy designs: status "weak first stage" when |fs| < 2 fs_se.** The estimates stay
+    in the table; the default WBATE and LBATE leave such points out, explicit WBATE
+    weights may include them. Monte Carlo: 8-9% of points had |fs| < 2 fs_se, their
+    se_rb reached 30, and the default WBATE SE exceeded 5 in a fifth of replications.
+    A two-standard-error rule is the simplest honest flag; a weak-IV-robust
+    (Anderson-Rubin) interval would be the next step.
+35. **`rdbwnet(vce="cluster"|"conley")` selects with HC0 residuals**, as `rdnet` does
+    internally with those standard errors, so `rdnet`'s bandwidths can be reproduced.
+    The docstrings had promised HC1, which neither did consistently.
+36. **Warnings, with thresholds from Monte Carlo runs:**
+    - cluster-robust errors with fewer than 50 clusters per side (was 10; coverage was
+      0.78 with 26 and 0.88 with 48);
+    - HC errors when observations sit at fewer than 90% distinct locations (panels:
+      HC3 coverage 0.49);
+    - sorting tests when the locations' median distance to the nearest street is below
+      0.6 times that of evenly spread points (a 45 x 45 lattice over the same extent,
+      the same in all three languages). GPS noise of 3 / 8 / 15 m gives ratios of
+      0.15 / 0.33 / 0.51, with rejection rates of 0.93 / 0.85 / 0.33 for the
+      manipulation test. Parcels in the mock city give 0.90; uniform points about 1.
+37. **Callable metrics:** the package cannot know which attributes a function reads, so
+    it checks that the pieces of the first split edge add up to the original cost and
+    warns otherwise (pointing to `extensive=`). Costs that read node attributes
+    (`node_contrast`) are not checked. The boundary split cache is now keyed on
+    `extensive` too.
+38. **Cluster-robust errors: CR2 (Bell-McCaffrey) with Satterthwaite degrees of freedom by
+    default; rd2d's CR1 stays available** (`cluster_vce="cr1"`, Stata `cr1`). This departs
+    from rd2d on purpose. A Monte Carlo (`C:\Users\zwins\agent_cluster`, 1000 replications per
+    cell, fixed bandwidth) found:
+    - **Why CR1 fails:** the jump is an extrapolated intercept, so the 3 clusters nearest the
+      point carry two thirds of the weight, at leverage around 0.5. Their residuals absorb
+      their own cluster effect: the expected CR1 variance is 0.36-0.83 of the truth, and the
+      effective number of clusters is about 5 even with 50 in the window.
+    - **Coverage of 95% intervals** (panels with 16-100 sites per side; spatial blocks with
+      6 and 20 per side; independent errors clustered by block):
+      - CR1, normal: 0.66-0.91.
+      - CR1, t(G-1): 0.71-0.91.
+      - CR3, t(G-1): about 0.95 pointwise, but the uniform band reaches only 0.88-0.95.
+      - Wider-fit residuals: 0.85 with 6 blocks.
+      - **CR2 with Bell-McCaffrey df: 0.955-0.97 pointwise and 0.96-0.99 for the band.**
+    - **The cost** is honest width: CR2 intervals are 1.2-3.2 times as long as CR1's. With
+      6 blocks per side the degrees of freedom are about 2.
+    - **Implementation:** an exact low-rank form, D_g = I + U M U' with U = [X_g, W_g X_g], so
+      large clusters are cheap. The uniform band maps the normal sup-quantile to each point's
+      t distribution. WBATE uses the smallest df among the weighted points.
+    - The few-clusters warning (below 50 per side) now applies to CR1 only.
+39. **Boundary splitting** now splits every edge that meets the boundary line at each
+    crossing. Before, only edges whose ends were on opposite sides were split, and only at
+    the first crossing. Stretches along the boundary contribute both of their ends. Stored
+    geometries are oriented from u to v first. R pre-filters with
+    d(u) + d(v) <= edge length, which is exact.
+40. **Points on the boundary line's extension beyond its ends are treated**, whichever
+    direction the line runs. They have no side, and the old rule flipped them when `b` was
+    reversed.
