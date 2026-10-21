@@ -14,7 +14,7 @@ program define rdnet, eclass
         COVs(varlist numeric) KERnel(string) BWSelect(string) vce(string)                 ///
         FUZzy(varname numeric) POOLed Level(cilevel) NOCBands REPP(integer 2000)          ///
         MINobs(integer -1) SCALEREGul(real 3) SCALEBIAScrct(real 1)                       ///
-        CONLEYRESIDScale(real 3) CONLEYRESIDOrder(integer -1) SEED(integer 0) ]
+        CONLEYRESIDScale(real 3) CONLEYRESIDOrder(integer -1) SEED(integer 0) CR1 ]
 
     capture confirm variable _rdn_id
     if _rc {
@@ -169,6 +169,7 @@ program define rdnet, eclass
     if "`cutoff'" != "" ereturn scalar cutoff = `cutoff'
     ereturn local kernel `kname'
     ereturn local vce `vcetype'
+    if "`vcetype'" == "cluster" ereturn local clustvce = cond("`cr1'" != "", "cr1", "cr2")
     if "`clorig'" != "" ereturn local clustvar `clorig'
     if "`vcetype'" == "conley" ereturn local conley_distance = cond(`euclid', "euclidean", "network")
     ereturn local bwselect = cond("`h'`hmatrix'" == "", "`bwselect'", "manual")

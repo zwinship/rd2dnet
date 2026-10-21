@@ -448,7 +448,8 @@ test_that("plot accepts a scalar or function truth", {
 
 test_that("few clusters within the bandwidth warn", {
   city <- mock_city()
-  expect_warning(rdnet(city$obs$outcome, mock_coords(), h = 600, cluster = city$obs$x %/% 700, seed = 0),
+  expect_warning(rdnet(city$obs$outcome, mock_coords(), h = 600, cluster = city$obs$x %/% 700, cluster_vce = "cr1",
+                       seed = 0),
                  "few clusters")
 })
 
@@ -568,4 +569,60 @@ test_that("HC errors warn when observations repeat at few locations", {
   cc <- network_coordinates(city$network(), city$boundary, xy, n_eval = 5)
   set.seed(1)
   expect_warning(rdnet(stats::rnorm(nrow(xy)), cc, h = 800, cbands = FALSE), "distinct locations")
+})
+
+test_that("CR2 matches the dense Bell-McCaffrey formulas", {
+  set.seed(4)
+  n <- 120
+  X <- cbind(1, matrix(stats::rnorm(2 * n), n))
+  w <- stats::runif(n, 0.2, 2)
+  y <- stats::rnorm(n)
+  cl <- sample(0:8, n, replace = TRUE)
+  cvec <- c(1, 0.3, 0)
+  f <- .wls(X, y, w)
+  adj <- .cr2(f, cvec, cl)
+  se <- sqrt(sum(rowsum(adj$R * f$resid, cl)^2))
+  B <- solve(crossprod(X * w, X)) %*% t(X * w)
+  M <- diag(n) - X %*% B
+  a <- drop(cvec %*% B)
+  MM <- M %*% t(M)
+  R <- numeric(n)
+  for (g in unique(cl)) {
+    m <- which(cl == g)
+    e <- eigen(MM[m, m, drop = FALSE], symmetric = TRUE)
+    ev <- ifelse(e$values > 1e-10 * max(e$values), 1 / sqrt(pmax(e$values, 1e-300)), 0)
+    R[m] <- e$vectors %*% (ev * crossprod(e$vectors, a[m]))
+  }
+  Rb <- sapply(sort(unique(cl)), function(g) ifelse(cl == g, R, 0))
+  S <- crossprod(Rb, M %*% y)
+  P <- t(Rb) %*% MM %*% Rb
+  expect_equal(se, sqrt(sum(S^2)), tolerance = 1e-10)
+  expect_equal(adj$df, sum(diag(P))^2 / sum(P * P), tolerance = 1e-10)
+})
+
+test_that("cluster errors default to CR2 with t intervals", {
+  city <- mock_city()
+  cc <- mock_coords()
+  y <- city$obs$outcome
+  blocks <- (city$obs$x %/% 300) * 100 + city$obs$y %/% 300
+  r2 <- rdnet(y, cc, h = 600, cluster = blocks, seed = 0)
+  r1 <- suppressWarnings(rdnet(y, cc, h = 600, cluster = blocks, cluster_vce = "cr1", seed = 0))
+  ok <- r2$table$status == "ok"
+  expect_false(is.null(r2$table$df))
+  expect_true(is.null(r1$table$df))
+  expect_equal(r2$table$tau_bc[ok], r1$table$tau_bc[ok], tolerance = 1e-12)
+  q <- stats::qt(0.975, r2$table$df[ok])
+  expect_equal(r2$table$ci_hi[ok] - r2$table$tau_bc[ok], q * r2$table$se_rb[ok], tolerance = 1e-10)
+  expect_equal(sqrt(diag(r2$cov)[ok]), r2$table$se_rb[ok], tolerance = 1e-10)
+  expect_true(all(is.finite(wbate(r2))) || is.na(wbate(r2)[["pvalue"]]))
+  expect_error(rdnet(y, cc, h = 600, cluster = blocks, cluster_vce = "cr3"), "cluster_vce")
+})
+
+test_that("wbate ignores points whose first stage is exactly zero", {
+  city <- mock_city()
+  d <- ifelse(city$obs$x < 1200, 0, as.numeric(city$obs$treated))
+  r <- rdnet(city$obs$outcome, mock_coords(), h = 600, fuzzy = d, cbands = FALSE)
+  expect_true(anyNA(r$table$tau_bc))
+  out <- wbate(r)
+  expect_true(is.finite(out[["tau_bc"]]) && is.finite(out[["se_rb"]]))
 })

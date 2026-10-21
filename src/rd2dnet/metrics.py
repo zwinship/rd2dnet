@@ -358,7 +358,14 @@ class TransitionCost(NetworkMetric):
         default_class: Any = "unclassified",
         snap_scale: float | None = None,
     ):
-        self._base = EdgeCost(edge_cost, snap_scale=snap_scale)
+        if isinstance(edge_cost, EdgeCost):  # e.g. travel_time(): use it as it is
+            import copy
+
+            self._base = copy.copy(edge_cost)
+            if snap_scale is not None:
+                self._base._snap_scale = snap_scale
+        else:
+            self._base = EdgeCost(edge_cost, snap_scale=snap_scale)
         self.class_attr = class_attr
         self.penalty = penalty or {}
         self.default_penalty = float(default_penalty)

@@ -158,10 +158,16 @@ boundary_is_treated <- function(b, xy) {
   foot <- .line_interpolate(b$segs, arc)
   tx <- z[, 1] - a[, 1]
   ty <- z[, 2] - a[, 2]
-  left <- tx * (xy[, 2] - foot[, 2]) - ty * (xy[, 1] - foot[, 1]) > 0
-  # points on the line (within tol) count as treated, as with a treated_region
-  on <- sqrt((xy[, 1] - foot[, 1])^2 + (xy[, 2] - foot[, 2])^2) <= b$tol
-  (if (identical(b$treated_side, "left")) left else !left) | on
+  rx <- xy[, 1] - foot[, 1]
+  ry <- xy[, 2] - foot[, 2]
+  cross <- tx * ry - ty * rx
+  # points on the line (within tol) count as treated, as with a treated_region;
+  # so do points on its extension beyond an end (no side there), whichever way
+  # the line runs
+  on <- sqrt(rx^2 + ry^2) <= b$tol
+  tie <- abs(cross) <= 1e-9 * sqrt(tx^2 + ty^2) * sqrt(rx^2 + ry^2)
+  side <- if (identical(b$treated_side, "left")) cross > 0 else cross < 0
+  side | on | tie
 }
 
 #' Masked stretches of the boundary

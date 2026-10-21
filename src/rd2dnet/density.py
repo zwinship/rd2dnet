@@ -28,7 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
-from .bandwidth import _check_weights
+from .bandwidth import _as_int, _check_weights
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
@@ -294,9 +294,12 @@ def density(
     if normalize not in ("none", "network", "euclidean"):
         raise ValueError("normalize must be 'euclidean', 'none' or 'network'")
     _warn_if_on_network(coords, stacklevel=3)
-    q = p + 1 if q is None else int(q)
+    p = _as_int(p, "p")
+    q = p + 1 if q is None else _as_int(q, "q")
     if p < 1 or q < p:
         raise ValueError("need 1 <= p <= q")
+    if bwselect not in ("common", "each"):
+        raise ValueError("bwselect must be 'common' or 'each'")
     kfun = get_kernel(kernel)
     T = coords.treated
     om = np.ones(coords.n_obs) if weights is None else _check_weights(weights, coords.n_obs)

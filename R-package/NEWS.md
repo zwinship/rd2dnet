@@ -37,6 +37,16 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* Cluster-robust errors default to CR2 (Bell-McCaffrey) with Satterthwaite degrees of
+  freedom and t critical values (`df` column); `cluster_vce = "cr1"` gives rd2d's CR1.
+  Monte Carlo coverage: CR1 0.66-0.91, CR2 0.955-0.97.
+* `with_boundary_crossings()` orients stored geometries from `from` to `to` and splits
+  edges at every crossing, including edges crossing twice with both ends on one side.
+* Evaluation points on closed rings that follow streets stay in place.
+* Points on the extension of the boundary line count as treated whichever way it runs.
+* `wbate()` ignores points without an estimate; `density()` checks `p`; `lat`/`lon`
+  columns are read longitude first.
+* `network_graph_from_place()` retries on Overpass mirrors when the server is busy.
 * A road with both ends on the boundary is on it only if it lies on it; locations on a
   road that loops into one side no longer get `s = 0`.
 * Point nodes sit on the street geometry; transition penalties with `direction = "in"`

@@ -348,7 +348,13 @@ print.rd2dnet_coords <- function(x, ...) {
 
 .snap_eval_points <- function(net, b, eval_arc, node_on, bnodes, bnode_arc) {
   k <- length(eval_arc)
-  nearest <- bnodes[vapply(eval_arc, function(a) which.min(abs(bnode_arc - a)), integer(1))]
+  L <- b$length
+  closed <- isTRUE(b$closed)
+  nearest <- bnodes[vapply(eval_arc, function(a) {
+    gap <- abs(bnode_arc - a)
+    if (closed) gap <- pmin(gap, L - gap) # the shorter way round the ring
+    which.min(gap)
+  }, integer(1))]
   out <- .snap(nearest, nearest, numeric(k), numeric(k), numeric(k))
   if (!isTRUE(net$metric$supports_edge_snapping)) {
     return(out)
@@ -361,14 +367,18 @@ print.rd2dnet_coords <- function(x, ...) {
   E <- E[along, , drop = FALSE]
   au <- boundary_project(b, net$coords[E$u, , drop = FALSE])
   av <- boundary_project(b, net$coords[E$v, , drop = FALSE])
-  lo <- pmin(au, av)
-  hi <- pmax(au, av)
+  # signed arc length from u to v; on a ring the shorter way, so a street across
+  # the ring's start (arcs near 0 and near L) spans the seam, not the ring
+  span <- av - au
+  if (closed) span <- (span + L / 2) %% L - L / 2
   for (j in seq_len(k)) {
-    a <- eval_arc[j]
-    inside <- which(lo <= a & a <= hi & hi > lo)
+    along_u <- eval_arc[j] - au
+    if (closed) along_u <- ifelse(span >= 0, along_u %% L, -((-along_u) %% L))
+    frac_all <- ifelse(span != 0, along_u / span, -1)
+    inside <- which(frac_all >= 0 & frac_all <= 1 & span != 0)
     if (!length(inside)) next
     r <- inside[1]
-    frac <- (a - au[r]) / (av[r] - au[r])
+    frac <- frac_all[r]
     out$u[j] <- E$u[r]
     out$v[j] <- E$v[r]
     out$cost_u[j] <- frac * E$cost[r]

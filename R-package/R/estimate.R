@@ -45,12 +45,19 @@
 #'   `"conley"` (with `conley_cutoff`) are implied when those are given. rd2d uses
 #'   HC1; HC3 is the default here because local samples on networks often contain
 #'   high-leverage points (few distinct offsets), where HC1 understates the variance.
-#' @param cluster Cluster labels, one per observation; implies `vce = "cluster"`
-#'   (CR1 with rd2d's `(n - 1)/(n - k) * g/(g - 1)` factor). Points with fewer
-#'   than two clusters on a side get status `"few clusters"`. With repeated
-#'   measurements (panels), clusters much smaller than the bandwidth, such as
-#'   the unit itself, can still understate the variance of spatially
-#'   correlated shocks; `conley_cutoff` is the safer choice.
+#' @param cluster Cluster labels, one per observation; implies `vce = "cluster"`.
+#'   Points with fewer than two clusters on a side get status `"few clusters"`.
+#'   With repeated measurements (panels), clusters much smaller than the
+#'   bandwidth, such as the unit itself, can still understate the variance of
+#'   spatially correlated shocks; `conley_cutoff` is the safer choice.
+#' @param cluster_vce `"cr2"` (default): the bias-reduced cluster variance of
+#'   Bell and McCaffrey (2002) with their Satterthwaite degrees of freedom;
+#'   intervals, p-values, the uniform band and WBATE use t critical values (the
+#'   `df` column). `"cr1"`: rd2d's cluster variance with the factor
+#'   `(n - 1)/(n - k) * G/(G - 1)` and normal critical values. A local fit puts
+#'   most of its weight on a few clusters near the point, whose residuals absorb
+#'   their own cluster effect: in Monte Carlo runs CR1 covered 0.66-0.91 (6 to
+#'   100 clusters per side), CR2 0.955-0.97.
 #' @param conley_cutoff,conley_distance Spatial HAC with Bartlett weights over
 #'   `"network"` (default) or `"euclidean"` distance, used for pointwise
 #'   errors and for the uniform band.
@@ -129,7 +136,7 @@
 #' @export
 rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec = NULL,
                   covs = NULL, kernel = "triangular", bwselect = "mserd", vce = "hc3",
-                  cluster = NULL, conley_cutoff = NULL, conley_distance = "network",
+                  cluster = NULL, cluster_vce = "cr2", conley_cutoff = NULL, conley_distance = "network",
                   conley_resid_scale = 3, conley_resid_order = NULL, fuzzy = NULL,
                   weights = NULL, pooled = FALSE, level = 95, cbands = TRUE, repp = 2000,
                   min_obs = NULL, scaleregul = 3, scalebiascrct = 1, seed = 0) {
@@ -179,6 +186,10 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     stop(sprintf("vce must be one of %s", paste(.VCE_TYPES, collapse = ", ")), call. = FALSE)
   }
   if (vce == "cluster" && is.null(cluster)) stop("vce = 'cluster' needs a cluster variable", call. = FALSE)
+  if (!(is.character(cluster_vce) && length(cluster_vce) == 1 && cluster_vce %in% c("cr2", "cr1"))) {
+    stop("cluster_vce must be 'cr2' or 'cr1'", call. = FALSE)
+  }
+  cr2 <- vce == "cluster" && cluster_vce == "cr2"
   if (vce == "conley" && (is.null(conley_cutoff) || conley_cutoff <= 0)) {
     stop("vce = 'conley' needs a positive conley_cutoff", call. = FALSE)
   }
@@ -239,6 +250,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     if (conley) {
       return(NA_real_)
     }
+    # CR2 influences carry their own adjustment: plain sum of squared cluster sums
+    if (cr2) return(sum(rowsum(psi, cluster[idx])^2))
     v <- .variance(psi, vce, cluster = if (is.null(cluster)) NULL else cluster[idx])
     # .variance() applies g / (g - 1); rd2d's CR1 also has (n - 1) / (n - k)
     if (vce == "cluster") v <- v * .cluster_dof(length(idx), k, cluster[idx])
@@ -307,6 +320,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       }
       out <- list()
       ks <- c()
+      dfs <- c()
       for (order in unique(c(p, q))) {
         # the pooled model's slopes are common to both sides, so its basis uses one
         # scale; the side-specific model scales each side by its own h
@@ -335,10 +349,18 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         cvec <- cvec[keep]
         jumps <- numeric(0)
         psis <- list()
+        adj <- NULL
         for (target in targets) {
           f <- .wls(X, target[idx], w[idx])
           jumps <- c(jumps, sum(cvec * f$beta))
-          if (is.null(aux)) {
+          if (cr2) {
+            # depends on the design and clusters only, not the target
+            if (is.null(adj)) {
+              adj <- .cr2(f, cvec, cluster[idx])
+              dfs[as.character(order)] <- adj$df
+            }
+            psis[[length(psis) + 1]] <- adj$R * f$resid
+          } else if (is.null(aux)) {
             psis[[length(psis) + 1]] <- .influence(f, cvec, base_vce)
           } else {
             beta_a <- .wls(aux$Xa, target[aux$m], aux$wa)$beta
@@ -365,7 +387,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       }
       # "s" when no term in the offset o is identified (a river, rail line or
       # highway crossing the border at one point): the fit is in s alone
-      list(out = out, ks = ks, basis = if (has_o) "s,o" else "s")
+      list(out = out, ks = ks, basis = if (has_o) "s,o" else "s",
+           df = if (cr2) dfs[[as.character(q)]] else Inf)
     }
 
     fit <- tryCatch(fit_all(), rd2dnet_singular = function(e) "singular",
@@ -392,7 +415,11 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     tab$tau[j] <- fp$tau
     tab$se[j] <- fp$se
     tab$tau_bc[j] <- fq$tau
-    tab <- .set_rb(tab, j, fq$se, z)
+    if (cr2) {
+      if (is.null(tab$df)) tab$df <- NA_real_
+      tab$df[j] <- fit$df
+    }
+    tab <- .set_rb(tab, j, fq$se, z, if (cr2) fit$df else Inf)
     psi_store[[as.character(j)]] <- list(j = j, idx = idx, psi = fq$psi, k = kq)
   }
 
@@ -419,7 +446,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     cov <- matrix(NA_real_, J, J)
     cov[qj, qj] <- V[qc, qc]
   } else if (length(psi_store)) {
-    cov <- .joint_covariance(psi_store, coords, vce, cluster, J)
+    cov <- .joint_covariance(psi_store, coords, vce, cluster, J, cr2)
   }
   if (!is.null(D)) {
     # a first stage indistinguishable from zero makes tau = itt / fs and its
@@ -429,7 +456,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     tab$status[weak] <- "weak first stage"
   }
   g_ok <- g_min[g_min >= 2]
-  if (length(g_ok) && min(g_ok) < 50) {
+  if (length(g_ok) && min(g_ok) < 50 && !cr2) {
     warning(sprintf(paste0("cluster-robust standard errors rest on few clusters: as few as %d per side within ",
                            "the bandwidth at some evaluation points. Local cluster-robust errors are too small ",
                            "unless there are many clusters per side (Monte Carlo coverage of 95%% intervals: about ",
@@ -449,8 +476,9 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     ok <- is.finite(diag(cov))
     crit <- .uniform_critical_value(cov[ok, ok, drop = FALSE], level, repp, seed)
     if (cbands) {
-      tab$cb_lo <- tab$tau_bc - crit * tab$se_rb
-      tab$cb_hi <- tab$tau_bc + crit * tab$se_rb
+      cb <- .band_crit(crit, tab)
+      tab$cb_lo <- tab$tau_bc - cb * tab$se_rb
+      tab$cb_hi <- tab$tau_bc + cb * tab$se_rb
     }
   }
   structure(list(table = tab, p = p, q = q, kernel = kname, vce = vce, level = level,
@@ -552,19 +580,39 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 }
 
 # Robust standard error, confidence interval and p-value from the bias-corrected fit.
-.set_rb <- function(tab, j, se_q, z) {
+.set_rb <- function(tab, j, se_q, z, df = Inf) {
+  # with finite df (CR2 cluster errors) the interval and p-value use the t
+  # distribution with df degrees of freedom; z is the normal quantile
   tau_q <- tab$tau_bc[j]
+  fin <- is.finite(df) && df > 0
+  zq <- if (fin) stats::qt(stats::pnorm(z), df) else z
   tab$se_rb[j] <- se_q
-  tab$ci_lo[j] <- tau_q - z * se_q
-  tab$ci_hi[j] <- tau_q + z * se_q
-  tab$pvalue[j] <- if (isTRUE(se_q > 0)) 2 * stats::pnorm(-abs(tau_q / se_q)) else NA_real_
+  tab$ci_lo[j] <- tau_q - zq * se_q
+  tab$ci_hi[j] <- tau_q + zq * se_q
+  tab$pvalue[j] <- if (isTRUE(se_q > 0)) {
+    if (fin) 2 * stats::pt(-abs(tau_q / se_q), df) else 2 * stats::pnorm(-abs(tau_q / se_q))
+  } else {
+    NA_real_
+  }
   tab
+}
+
+# Per-point uniform-band critical values: the normal sup-quantile crit, mapped
+# to each point's t distribution (same tail probability) when the table has CR2
+# degrees of freedom (df).
+.band_crit <- function(crit, tab) {
+  out <- rep(crit, nrow(tab))
+  if (!is.null(tab$df)) {
+    fin <- is.finite(tab$df) & tab$df > 0
+    out[fin] <- stats::qt(stats::pnorm(crit), tab$df[fin])
+  }
+  out
 }
 
 # J x J covariance of the bias-corrected estimates, NA where a point was not
 # estimated. Its diagonal reproduces the pointwise variances exactly; for
 # clustering the small-sample factor uses each point's own local sample.
-.joint_covariance <- function(psi_store, coords, vce, cluster, J) {
+.joint_covariance <- function(psi_store, coords, vce, cluster, J, cr2 = FALSE) {
   keys <- vapply(psi_store, `[[`, 0L, "j")
   union <- sort(unique(unlist(lapply(psi_store, `[[`, "idx"))))
   pos <- integer(coords$n_obs)
@@ -575,6 +623,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     G <- rowsum(Psi, cluster[union])
     f <- vapply(psi_store, function(ps) {
       g <- length(unique(cluster[ps$idx]))
+      if (cr2) return(1)
       sqrt((if (g > 1) g / (g - 1) else 1) * .cluster_dof(length(ps$idx), ps$k, cluster[ps$idx]))
     }, numeric(1))
     V <- crossprod(G) * outer(f, f)
@@ -641,19 +690,24 @@ wbate <- function(x, weights = NULL) {
   }
   if (!all(is.finite(w))) stop("WBATE weights must be finite", call. = FALSE)
   if (sum(w) == 0) stop("WBATE weights must have a nonzero sum", call. = FALSE)
-  ok <- x$table$status %in% c("ok", "weak first stage")
+  ok <- x$table$status == "ok" | (x$table$status == "weak first stage" & is.finite(x$table$tau_bc))
   bad <- which(!ok & w != 0)
   if (length(bad)) {
     stop(sprintf("WBATE puts weight on evaluation points that were not estimated: %s; give them weight 0",
                  paste(bad, collapse = ", ")), call. = FALSE)
   }
-  w <- (w / sum(w))[ok]
+  w <- w / sum(w)
+  ok <- ok & w != 0 # points with weight 0 do not enter (their covariance rows may be missing)
+  w <- w[ok]
   t <- x$table[ok, , drop = FALSE]
   tau_q <- sum(w * t$tau_bc)
   se <- sqrt(max(drop(w %*% x$cov[ok, ok, drop = FALSE] %*% w), 0))
   z <- stats::qnorm(0.5 + x$level / 200)
-  c(tau = sum(w * t$tau), tau_bc = tau_q, se_rb = se, ci_lo = tau_q - z * se,
-    ci_hi = tau_q + z * se, pvalue = if (se > 0) 2 * stats::pnorm(-abs(tau_q / se)) else NA_real_)
+  # CR2 cluster errors: t with the smallest degrees of freedom among the weighted points
+  df <- if (!is.null(t$df)) min(t$df) else Inf
+  r <- .set_rb(data.frame(tau_bc = tau_q, se_rb = NA_real_, ci_lo = NA_real_, ci_hi = NA_real_,
+                          pvalue = NA_real_), 1, se, z, df)
+  c(tau = sum(w * t$tau), tau_bc = tau_q, se_rb = se, ci_lo = r$ci_lo, ci_hi = r$ci_hi, pvalue = r$pvalue)
 }
 
 #' @rdname wbate
@@ -664,8 +718,9 @@ lbate <- function(x, kind = c("max", "min", "absmax")) {
   ok <- x$table$status == "ok"
   if (!any(ok) || is.null(x$crit)) stop("LBATE needs at least one estimated evaluation point", call. = FALSE)
   t <- x$table[ok, , drop = FALSE]
-  lo <- t$tau_bc - x$crit * t$se_rb
-  hi <- t$tau_bc + x$crit * t$se_rb
+  cb <- .band_crit(x$crit, t)
+  lo <- t$tau_bc - cb * t$se_rb
+  hi <- t$tau_bc + cb * t$se_rb
   v <- switch(kind,
     max = c(max(t$tau), max(t$tau_bc), max(lo), max(hi)),
     min = c(min(t$tau), min(t$tau_bc), min(lo), min(hi)),

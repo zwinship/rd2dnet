@@ -213,7 +213,8 @@ density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL
     stop("normalize must be 'euclidean', 'none' or 'network'", call. = FALSE)
   }
   .warn_if_on_network(coords)
-  q <- if (is.null(q)) p + 1 else as.integer(q)
+  p <- .as_int(p, "p")
+  q <- if (is.null(q)) p + 1L else .as_int(q, "q")
   if (p < 1 || q < p) stop("need 1 <= p <= q", call. = FALSE)
   if (!bwselect %in% c("common", "each")) stop("bwselect must be 'common' or 'each'", call. = FALSE)
   kfun <- get_kernel(kernel)

@@ -313,13 +313,44 @@ class NetworkGraph:
                  else [(u, v, None, d) for u, v, d in self.graph.edges(data=True)])
         iu = np.fromiter((self.node_index[e[0]] for e in edges), dtype=np.int64, count=len(edges))
         iv = np.fromiter((self.node_index[e[1]] for e in edges), dtype=np.int64, count=len(edges))
-        cand = np.flatnonzero(~on[iu] & ~on[iv] & (T[iu] != T[iv]))
-        if cand.size and not self.metric.supports_edge_splitting:
-            warnings.warn(f"{cand.size} edges cross the boundary between their end nodes, and {self.metric!r} cannot "
+        # Every edge that meets the boundary line between its ends is split at each
+        # crossing (an edge can cross twice with both ends on one side, or more).
+        # Geometries run from u to v (stored ones may run v -> u).
+        geoms = []
+        for (u, v, _, data), a, b in zip(edges, iu, iv):
+            g = data.get("geometry")
+            if g is None:
+                g = LineString([self.coords[a], self.coords[b]])
+            elif Point(self.coords[a]).distance(shapely.get_point(g, 0)) > Point(self.coords[a]).distance(
+                    shapely.get_point(g, -1)):
+                g = shapely.reverse(g)
+            geoms.append(g)
+        geoms = np.asarray(geoms, dtype=object)
+        hits = shapely.STRtree(geoms).query(boundary.line, predicate="intersects") if len(geoms) else np.array([], int)
+        cuts: dict[int, list[tuple[float, Point]]] = {}
+        for k in np.sort(hits):
+            geom = geoms[k]
+            L = geom.length
+            if L <= 0:
+                continue
+            pts = []
+            for q in shapely.get_parts(geom.intersection(boundary.line)):
+                if q.geom_type == "Point":
+                    pts.append(q)
+                elif not q.is_empty:  # a stretch along the boundary: its two ends
+                    pts += [shapely.get_point(q, 0), shapely.get_point(q, -1)]
+            ts = sorted({round(geom.project(q) / L, 12): q for q in pts}.items())
+            # interior crossings only: an end node on the boundary is already a boundary node
+            ts = [(t, q) for t, q in ts if t * L > boundary.tol and (1 - t) * L > boundary.tol]
+            if ts:
+                cuts[int(k)] = ts
+        n_cand = len(cuts)
+        if n_cand and not self.metric.supports_edge_splitting:
+            warnings.warn(f"{n_cand} edges cross the boundary between their end nodes, and {self.metric!r} cannot "
                           "split edges: paths along them skip the boundary. Add nodes on the boundary to the graph "
                           "(and to the distance matrix)", stacklevel=3)
             return self
-        if cand.size == 0:  # nothing to split: reuse this network (and its compiled engine)
+        if n_cand == 0:  # nothing to split: reuse this network (and its compiled engine)
             self.n_crossings_inserted = 0
             self._split = (boundary, extensive, self)
             return self
@@ -327,44 +358,39 @@ class NetworkGraph:
         crossing_ids: dict[tuple[float, float], Hashable] = {}
         next_cross = 0
         n_split = 0
-        for k in cand:
+        for k, ts in cuts.items():
             u, v, key, data = edges[k]
-            iu_k, iv_k = iu[k], iv[k]
-            geom = data.get("geometry")
-            if geom is None:
-                geom = LineString([self.coords[iu_k], self.coords[iv_k]])
-            hit = geom.intersection(boundary.line)
-            if hit.is_empty:
-                continue  # crosses the side partition away from this boundary line
-            parts = [p for p in shapely.get_parts(hit) if p.geom_type == "Point"] or [
-                Point(shapely.get_coordinates(hit)[0])
-            ]
-            point = min(parts, key=lambda p: geom.project(p))
-            t = geom.project(point) / geom.length if geom.length > 0 else 0.5
-            key_xy = (round(point.x, 6), round(point.y, 6))
-            if key_xy not in crossing_ids:
-                cid = _fresh_label(G, "rdnet_crossing", next_cross)
-                next_cross = int(cid.rsplit("_", 1)[1]) + 1
-                G.add_node(cid, **{**_between(self.graph.nodes[u], self.graph.nodes[v], t),
-                                   self.x_attr: point.x, self.y_attr: point.y, "rdnet_crossing": True})
-                crossing_ids[key_xy] = cid
-            cid = crossing_ids[key_xy]
-            first, second = dict(data), dict(data)
-            for a in extensive:
-                if a in data:
-                    first[a] = float(data[a]) * t
-                    second[a] = float(data[a]) * (1 - t)
-            if "geometry" in data:
-                first["geometry"] = substring(geom, 0, t, normalized=True)
-                second["geometry"] = substring(geom, t, 1, normalized=True)
+            geom = geoms[k]
+            ids = []
+            for t, point in ts:
+                key_xy = (round(point.x, 6), round(point.y, 6))
+                if key_xy not in crossing_ids:
+                    cid = _fresh_label(G, "rdnet_crossing", next_cross)
+                    next_cross = int(cid.rsplit("_", 1)[1]) + 1
+                    G.add_node(cid, **{**_between(self.graph.nodes[u], self.graph.nodes[v], t),
+                                       self.x_attr: point.x, self.y_attr: point.y, "rdnet_crossing": True})
+                    crossing_ids[key_xy] = cid
+                ids.append(crossing_ids[key_xy])
+            chain = [u, *ids, v]
+            cut = [0.0, *[t for t, _ in ts], 1.0]
+            pieces = []
+            for a in range(len(chain) - 1):
+                piece = dict(data)
+                share = cut[a + 1] - cut[a]
+                for attr in extensive:
+                    if attr in data and data[attr] is not None:
+                        piece[attr] = float(data[attr]) * share
+                if "geometry" in data:
+                    piece["geometry"] = substring(geom, cut[a], cut[a + 1], normalized=True)
+                pieces.append(piece)
             if multi:
                 G.remove_edge(u, v, key)
             else:
                 G.remove_edge(u, v)
-            G.add_edge(u, cid, **first)
-            G.add_edge(cid, v, **second)
+            for a, piece in enumerate(pieces):
+                G.add_edge(chain[a], chain[a + 1], **piece)
             if n_split == 0:
-                _check_split_cost(self.metric, u, v, data, [first, second])
+                _check_split_cost(self.metric, u, v, data, pieces)
             n_split += 1
         out = self._replace_graph(G)
         out.n_crossings_inserted = n_split
