@@ -315,3 +315,78 @@ def test_conley_covariance_is_made_positive_semidefinite():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert _psd(W) is W
+
+
+def test_edges_whose_geometry_runs_backwards_are_split_at_the_right_place():
+    G = nx.Graph()
+    for n, (x, y) in {"u": (0, 0), "v": (0, 100), "w": (20, 30)}.items():
+        G.add_node(n, x=float(x), y=float(y))
+    G.add_edge("w", "u", length=float(np.hypot(20, 30)))
+    G.add_edge("u", "v", length=100.0, geometry=LineString([(0, 100), (0, 0)]))  # stored v -> u
+    bnd = rd2dnet.Boundary([(-50, 30), (50, 30)], treated_side="left")  # treated: y > 30
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bnd, np.array([[1.0, 90.0], [1.0, 10.0]]),
+                                    treated=[1, 0], eval_points=[[0, 30]])
+    np.testing.assert_allclose(c.s, [61.0, -21.0], atol=1e-9)
+
+
+def test_an_edge_crossing_the_boundary_twice_is_split_at_both_crossings():
+    line = [(-10, 50), (40, 50), (40, 40), (60, 40), (60, 50), (110, 50)]  # a notch
+    bnd = rd2dnet.Boundary(line, treated_side="left")
+    G = nx.Graph()
+    for n, (x, y) in {"a": (20, 45), "b": (80, 45), "c": (0, 0), "d": (0, 100)}.items():
+        G.add_node(n, x=float(x), y=float(y))
+    G.add_edge("a", "b", length=60.0)  # both ends on the control side, through the notch
+    G.add_edge("c", "d", length=100.0)
+    G.add_edge("a", "c", length=float(np.hypot(20, 45)))
+    c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bnd, np.array([[45.0, 46.0], [30.0, 46.0]]),
+                                    eval_points=[[40, 45]])
+    np.testing.assert_allclose(c.s, [6.0, -11.0], atol=1e-9)
+
+
+def test_evaluation_points_on_a_ring_that_follows_streets_stay_in_place():
+    from shapely.geometry import Polygon
+
+    G = nx.Graph()
+    xs = np.arange(0, 201, 25.0)
+    for x in xs:
+        for y in xs:
+            G.add_node((x, y), x=x, y=y)
+            if x + 25 <= 200:
+                G.add_edge((x, y), (x + 25, y), length=25.0)
+            if y + 25 <= 200:
+                G.add_edge((x, y), (x, y + 25), length=25.0)
+    ev = np.array([[100, 150], [150, 100], [50, 100], [140, 50], [60, 50]])
+    pts = np.random.default_rng(1).uniform(5, 195, (500, 2))
+    for start in (50.0, 62.5):
+        bnd = rd2dnet.Boundary.from_region(Polygon([(start, 50), (150, 50), (150, 150), (50, 150), (50, 50)]))
+        c = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G), bnd, pts, eval_points=ev)
+        np.testing.assert_allclose(c.eval_node_arc, bnd.project(ev), atol=1e-9)
+
+
+def test_nodes_on_the_extension_of_the_boundary_line_do_not_depend_on_its_direction():
+    for side in ("left", "right"):
+        b = rd2dnet.Boundary([(0, 0), (100, 0)], treated_side=side)
+        assert b.is_treated(np.array([[150.0, 0.0], [-50.0, 0.0]])).all()
+
+
+def test_transition_cost_accepts_an_edge_cost_metric():
+    G = _path_network(5, 100.0)
+    for u, v in G.edges:
+        G.edges[u, v]["speed_kph"] = 36.0
+    tc = rd2dnet.NetworkGraph(G, rd2dnet.TransitionCost(rd2dnet.travel_time()))
+    tt = rd2dnet.NetworkGraph(G, rd2dnet.travel_time())
+    assert tc.node_distance(0, 4) == pytest.approx(tt.node_distance(0, 4))
+
+
+def test_lon_lat_columns_are_read_in_the_right_order():
+    from rd2dnet.coordinates import _points_array
+
+    df = pd.DataFrame({"lat": [40.0, 41.0], "lon": [-73.0, -74.0]})
+    np.testing.assert_allclose(_points_array(df), [[-73.0, 40.0], [-74.0, 41.0]])
+
+
+def test_density_rejects_bad_p_and_bwselect(coords):
+    with pytest.raises(ValueError, match="p must be an integer"):
+        rd2dnet.density(coords, p=1.5)
+    with pytest.raises(ValueError, match="bwselect"):
+        rd2dnet.density(coords, h=100.0, bwselect="bogus")

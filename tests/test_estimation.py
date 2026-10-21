@@ -435,7 +435,7 @@ def test_plot_accepts_a_scalar_or_callable_truth(coords, city):
 def test_few_clusters_within_the_bandwidth_warn(coords, city):
     blocks = (city.obs["x"] // 700).to_numpy()  # a handful of wide blocks
     with pytest.warns(UserWarning, match="few clusters"):
-        rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cluster=blocks, seed=0)
+        rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, cluster=blocks, cluster_vce="cr1", seed=0)
 
 
 def test_selector_treats_badly_conditioned_local_designs_as_singular():
@@ -551,3 +551,72 @@ def test_rdbwnet_reproduces_the_bandwidths_rdnet_selects_with_cluster_and_conley
     r = rd2dnet.rdnet(y, coords, conley_cutoff=150.0, cbands=False)
     bw = rd2dnet.rdbwnet(y, coords, vce="conley", scaleregul=3)
     np.testing.assert_allclose(r.table["h0"], bw["h0"], rtol=1e-12)
+
+
+def _cr2_dense(X, w, c, y, cl):
+    """Bell-McCaffrey CR2 and its degrees of freedom from the dense n x n matrices."""
+    n = len(y)
+    Ginv = np.linalg.inv((X.T * w) @ X)
+    B = Ginv @ (X.T * w)
+    M = np.eye(n) - X @ B
+    a = c @ B
+    e = M @ y
+    R = np.empty(n)
+    for g in np.unique(cl):
+        m = np.flatnonzero(cl == g)
+        ev, U = np.linalg.eigh((M @ M.T)[np.ix_(m, m)])
+        ev = np.where(ev > 1e-10 * ev.max(), 1 / np.sqrt(np.clip(ev, 1e-300, None)), 0.0)
+        R[m] = (U * ev) @ (U.T @ a[m])
+    labels = np.unique(cl)
+    Rb = np.zeros((n, len(labels)))
+    for j, g in enumerate(labels):
+        Rb[cl == g, j] = R[cl == g]
+    S = Rb.T @ e
+    P = Rb.T @ M @ M.T @ Rb
+    return float(np.sqrt(S @ S)), float(np.trace(P) ** 2 / np.sum(P * P))
+
+
+def test_cr2_matches_the_dense_formulas():
+    from rd2dnet._wls import wls
+
+    rng = np.random.default_rng(4)
+    n = 120
+    X = np.c_[np.ones(n), rng.normal(size=(n, 2))]
+    w = rng.uniform(0.2, 2.0, n)
+    y = rng.normal(size=n)
+    cl = rng.integers(0, 9, n)
+    c = np.array([1.0, 0.3, 0.0])
+    f = wls(X, y, w)
+    R, df = f.cr2(c, cl)
+    _, codes = np.unique(cl, return_inverse=True)
+    se = np.sqrt(np.sum(np.bincount(codes, weights=R * f.resid) ** 2))
+    se_ref, df_ref = _cr2_dense(X, w, c, y, cl)
+    np.testing.assert_allclose([se, df], [se_ref, df_ref], rtol=1e-10)
+
+
+def test_cluster_errors_default_to_cr2_with_t_intervals(city, coords):
+    from scipy import stats
+
+    blocks = (city.obs["x"] // 300).to_numpy() * 100 + (city.obs["y"] // 300).to_numpy()
+    y = city.obs["outcome"]
+    r2 = rd2dnet.rdnet(y, coords, h=600.0, cluster=blocks, seed=0)
+    r1 = rd2dnet.rdnet(y, coords, h=600.0, cluster=blocks, cluster_vce="cr1", seed=0)
+    t2, t1 = r2.table, r1.table
+    ok = t2["status"] == "ok"
+    assert "df" in t2 and "df" not in t1
+    np.testing.assert_allclose(t2.loc[ok, "tau_bc"], t1.loc[ok, "tau_bc"], rtol=1e-12)
+    q = stats.t.ppf(0.975, t2.loc[ok, "df"])
+    np.testing.assert_allclose(t2.loc[ok, "ci_hi"] - t2.loc[ok, "tau_bc"], q * t2.loc[ok, "se_rb"], rtol=1e-10)
+    np.testing.assert_allclose(np.sqrt(np.diag(r2.cov)[ok.to_numpy()]), t2.loc[ok, "se_rb"], rtol=1e-10)
+    assert (t2.loc[ok, "se_rb"] > t1.loc[ok, "se_rb"]).mean() > 0.5  # CR1 is biased down
+    assert np.isfinite(r2.wbate()["ci_lo"]) and np.isfinite(r2.lbate()["ci_hi"])
+    with pytest.raises(ValueError, match="cluster_vce"):
+        rd2dnet.rdnet(y, coords, h=600.0, cluster=blocks, cluster_vce="cr3")
+
+
+def test_wbate_ignores_points_whose_first_stage_is_exactly_zero(city, coords):
+    d = np.where(city.obs["x"].to_numpy() < 1200, 0.0, (city.obs["treated"].to_numpy() > 0).astype(float))
+    r = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0, fuzzy=d, cbands=False)
+    assert r.table["tau_bc"].isna().any()
+    out = r.wbate()
+    assert np.isfinite(out["tau_bc"]) and np.isfinite(out["se_rb"])

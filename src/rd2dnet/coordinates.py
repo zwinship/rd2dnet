@@ -40,6 +40,10 @@ def _points_array(points, crs=None) -> np.ndarray:
     if isinstance(points, pd.DataFrame):
         if {"x", "y"} <= set(points.columns):
             return points[["x", "y"]].to_numpy(dtype=float)
+        low = {str(c).lower(): c for c in points.columns}
+        for xs, ys in (("lon", "lat"), ("lng", "lat"), ("longitude", "latitude"), ("long", "lat")):
+            if xs in low and ys in low:  # longitude first, whatever the column order
+                return points[[low[xs], low[ys]]].to_numpy(dtype=float)
         if points.shape[1] == 2:
             return points.to_numpy(dtype=float)
         raise ValueError("a DataFrame of points needs x and y columns (or exactly two columns)")
@@ -706,7 +710,11 @@ def _on_along(network, boundary, node_on, u, v) -> np.ndarray:
 def _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc) -> Snap:
     """Place evaluation points on boundary street segments (or boundary nodes)."""
     k = len(eval_arc)
-    nearest = boundary_nodes[np.abs(bnode_arc[None, :] - eval_arc[:, None]).argmin(axis=1)]
+    L = boundary.length
+    gap = np.abs(bnode_arc[None, :] - eval_arc[:, None])
+    if boundary.closed:  # the shorter way round the ring
+        gap = np.minimum(gap, L - gap)
+    nearest = boundary_nodes[gap.argmin(axis=1)]
     out = Snap(nearest, nearest.copy(), np.zeros(k), np.zeros(k), np.zeros(k))
     if not network.metric.supports_edge_snapping:
         return out
@@ -718,13 +726,21 @@ def _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnod
     E = E[along]
     au = boundary.project(network.coords[E["u"].to_numpy()])
     av = boundary.project(network.coords[E["v"].to_numpy()])
-    lo, hi = np.minimum(au, av), np.maximum(au, av)
+    # signed arc length from u to v; on a ring the shorter way, so a street
+    # across the ring's start (arcs near 0 and near L) spans the seam, not the ring
+    span = av - au
+    if boundary.closed:
+        span = (span + L / 2) % L - L / 2
     for j, a in enumerate(eval_arc):
-        inside = np.flatnonzero((lo <= a) & (a <= hi) & (hi > lo))
+        along_u = a - au
+        if boundary.closed:  # position past u in the street's direction, wrapped
+            along_u = np.where(span >= 0, along_u % L, -((-along_u) % L))
+        frac_all = np.divide(along_u, span, out=np.full(len(span), -1.0), where=span != 0)
+        inside = np.flatnonzero((frac_all >= 0) & (frac_all <= 1) & (span != 0))
         if inside.size == 0:
             continue
         r = inside[0]
-        frac = (a - au[r]) / (av[r] - au[r])
+        frac = frac_all[r]
         cost = float(E["cost"].iloc[r])
         out.u[j], out.v[j] = E["u"].iloc[r], E["v"].iloc[r]
         out.cost_u[j], out.cost_v[j] = frac * cost, (1 - frac) * cost

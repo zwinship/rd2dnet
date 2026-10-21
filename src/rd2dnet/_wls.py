@@ -75,6 +75,50 @@ class Fit:
         return (self.X @ self._row(coef)) * self.w * e
 
 
+    def cr2(self, coef, cluster) -> tuple[np.ndarray, float]:
+        """Bias-reduced cluster adjustment (CR2) and Bell-McCaffrey degrees of freedom.
+
+        Returns ``R`` with ``psi_i = R_i * resid_i`` (the CR2 influence; the
+        variance is the sum over clusters of the squared cluster sums, with no
+        small-sample factor) and the Satterthwaite degrees of freedom of that
+        variance. ``R_g = D_g^(-1/2) a_g`` with ``a`` the loadings and
+        ``D_g = ((I - H)(I - H)')_gg`` the cluster's block, ``H = X B`` and
+        ``B = (X'WX)^(-1) X'W`` (Bell and McCaffrey 2002, Pustejovsky and
+        Tipton 2018, working model the identity). ``D_g - I = U M U'`` with
+        ``U = [X_g, W_g X_g]``, so ``D_g^(-1/2)`` comes from a small
+        eigenproblem; directions with eigenvalue 0 (leverage one) get weight 0.
+        """
+        X, w, Gi = self.X, self.w, self.Ginv
+        k = X.shape[1]
+        a = self.loadings(coef)
+        _, codes = np.unique(cluster, return_inverse=True)
+        G = codes.max() + 1
+        Q = Gi @ ((X.T * w**2) @ X) @ Gi  # B B'
+        M = np.block([[Q, -Gi], [-Gi, np.zeros((k, k))]])
+        order = np.argsort(codes, kind="stable")
+        bounds = np.r_[0, np.cumsum(np.bincount(codes, minlength=G))]
+        R = np.empty_like(a)
+        for g in range(G):
+            m = order[bounds[g]:bounds[g + 1]]
+            U = np.hstack([X[m], X[m] * w[m, None]])
+            Uo, Rm = np.linalg.qr(U)
+            lam, V = np.linalg.eigh(Rm @ M @ Rm.T)
+            ev = 1.0 + lam  # eigenvalues of D_g on span(U); 1 elsewhere
+            f = np.where(ev > 1e-10 * max(ev.max(), 1.0), 1.0 / np.sqrt(np.clip(ev, 1e-300, None)), 0.0) - 1.0
+            am = a[m]
+            R[m] = am + Uo @ (V @ (f * (V.T @ (Uo.T @ am))))
+        # Bell-McCaffrey: P = Rb' (I - H)(I - H)' Rb with Rb the n x G block matrix of R
+        Xr = np.zeros((G, k))
+        np.add.at(Xr, codes, X * R[:, None])
+        Br = np.zeros((G, k))
+        np.add.at(Br, codes, X * (R * w)[:, None])
+        Br = Br @ Gi
+        P = np.diag(np.bincount(codes, weights=R * R, minlength=G)) - Xr @ Br.T - Br @ Xr.T + Xr @ Q @ Xr.T
+        den = float(np.sum(P * P))
+        df = float(np.trace(P) ** 2 / den) if den > 0 else np.inf
+        return R, df
+
+
 def wls(X: np.ndarray, y: np.ndarray, w: np.ndarray) -> Fit:
     XtW = X.T * w
     G = XtW @ X
