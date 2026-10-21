@@ -39,6 +39,9 @@
 ## Fixes from cross-language testing
 * **Default `vce` is now `"hc3"`** in `rdnet()` and `rdbwnet()` (was `"hc1"`): HC3 kept Monte
   Carlo coverage near 0.95 where HC1 under-covered with high-leverage local samples.
+* Default `wbate()` weights are equal per distinct place of the estimated points;
+  `lbate(kind = "min" | "absmax")`; `rdnet(seed = 0)` by default; points on the boundary
+  line count as treated with `treated_side`, as with `treated_region`.
 * Local fits keep their identifiable terms (in degree order, dropping columns that are
   aliased or determined by a single observation) instead of switching the whole fit to
   `s` alone. A singular bias-correction fit no longer changes the main estimate.

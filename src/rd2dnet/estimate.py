@@ -61,12 +61,15 @@ class RDNetResult:
         """Weighted boundary average treatment effect ``w' tau`` (rd2d's WBATE).
 
         ``weights`` has one entry per evaluation point and is normalised to sum
-        to one; by default every estimated point gets equal weight. Points that
-        were not estimated (masked, insufficient, ...) must get weight 0. The standard error is ``sqrt(w' cov w)``, so it accounts
-        for the correlation between nearby evaluation points.
+        to one. By default every distinct place where an estimated point lies
+        gets equal weight: evaluation points that snapped to the same place
+        (``node_arc``) repeat one estimate and share its weight. Points that
+        were not estimated (masked, insufficient, ...) must get weight 0. The
+        standard error is ``sqrt(w' cov w)``, so it accounts for the
+        correlation between nearby evaluation points.
         """
         J = len(self.table)
-        w = self._ok().astype(float) if weights is None else np.asarray(weights, dtype=float)
+        w = _place_weights(self.table, self._ok()) if weights is None else np.asarray(weights, dtype=float)
         if w.shape != (J,):
             raise ValueError(f"WBATE weights must have one entry per evaluation point ({J})")
         if not np.all(np.isfinite(w)):
@@ -87,21 +90,36 @@ class RDNetResult:
                               ci_lo=tau_q - z * se, ci_hi=tau_q + z * se,
                               pvalue=2 * stats.norm.sf(abs(tau_q / se)) if se > 0 else np.nan), name="WBATE")
 
-    def lbate(self) -> pd.Series:
+    def lbate(self, kind: str = "max") -> pd.Series:
         """Largest boundary average treatment effect ``max_j tau(b_j)`` (rd2d's LBATE).
 
         The confidence interval is ``[max_j (tau_bc - crit * se_rb), max_j (tau_bc + crit * se_rb)]``
         over the estimated points, with ``crit`` the uniform critical value, so
         it inherits the uniform band's joint coverage.
+
+        ``kind="min"`` gives the smallest effect (for effects expected to be
+        negative): ``[min_j lo_j, min_j hi_j]``. ``kind="absmax"`` gives the
+        largest absolute effect: the interval for ``max_j |tau_j|`` implied by
+        the band, ``[max_j dist(0, [lo_j, hi_j]), max_j max(|lo_j|, |hi_j|)]``.
         """
         ok = self._ok()
         if not ok.any() or self.crit is None:
             raise ValueError("LBATE needs at least one estimated evaluation point")
         t = self.table.loc[ok]
-        lo = t["tau_bc"] - self.crit * t["se_rb"]
-        hi = t["tau_bc"] + self.crit * t["se_rb"]
-        return pd.Series(dict(tau=t["tau"].max(), tau_bc=t["tau_bc"].max(), se_rb=np.nan,
-                              ci_lo=lo.max(), ci_hi=hi.max(), pvalue=np.nan), name="LBATE")
+        lo = (t["tau_bc"] - self.crit * t["se_rb"]).to_numpy()
+        hi = (t["tau_bc"] + self.crit * t["se_rb"]).to_numpy()
+        tau, tbc = t["tau"].to_numpy(), t["tau_bc"].to_numpy()
+        if kind == "max":
+            vals = (tau.max(), tbc.max(), lo.max(), hi.max())
+        elif kind == "min":
+            vals = (tau.min(), tbc.min(), lo.min(), hi.min())
+        elif kind == "absmax":
+            vals = (np.abs(tau).max(), np.abs(tbc).max(), np.maximum.reduce([np.zeros_like(lo), lo, -hi]).max(),
+                    np.maximum(np.abs(lo), np.abs(hi)).max())
+        else:
+            raise ValueError("kind must be 'max', 'min' or 'absmax'")
+        return pd.Series(dict(tau=float(vals[0]), tau_bc=float(vals[1]), se_rb=np.nan, ci_lo=float(vals[2]),
+                              ci_hi=float(vals[3]), pvalue=np.nan), name="LBATE" if kind == "max" else f"LBATE ({kind})")
 
     def summary(self, *, wbate=None, lbate: bool = False) -> str:
         """Text table of the pointwise estimates, optionally with WBATE/LBATE rows."""
@@ -152,6 +170,17 @@ class RDNetResult:
         ax.set_ylabel("treatment effect")
         ax.legend(frameon=False)
         return ax
+
+
+def _place_weights(table: pd.DataFrame, ok: np.ndarray) -> np.ndarray:
+    """Equal weight per distinct place among the estimated points, shared by repeats."""
+    w = np.zeros(len(table))
+    if not ok.any():
+        return w
+    place = np.round(table["node_arc"].to_numpy(dtype=float), 9)
+    keys, inv, cnt = np.unique(place[ok], return_inverse=True, return_counts=True)
+    w[ok] = 1.0 / cnt[inv]
+    return w
 
 
 def _bandwidth_matrix(h, J: int) -> np.ndarray:
@@ -256,7 +285,7 @@ def rdnet(
     min_obs: int | None = None,
     scaleregul: float = 3.0,
     scalebiascrct: float = 1.0,
-    seed: int | None = None,
+    seed: int | None = 0,
 ) -> RDNetResult:
     """Estimate the network BATEC curve along the boundary.
 
@@ -333,7 +362,8 @@ def rdnet(
         Bandwidth-selection regularisation and higher-order bias weights,
         passed to :func:`rdbwnet` when ``h`` is selected.
     seed
-        Seed for the critical-value simulation (for reproducible bands and LBATE).
+        Seed for the critical-value simulation (default 0, so bands and LBATE are
+        reproducible; ``None`` draws a fresh seed).
 
     Notes
     -----

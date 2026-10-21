@@ -99,6 +99,14 @@ program define t_hc1
     rdn_expect r(se_rb) 0.35252971060533 1e-8 "WBATE se"
     estat lbate
     rdn_expect (r(ci_lo)<=r(tau_bc)&r(tau_bc)<=r(ci_hi)) 1 0 "LBATE interval contains max tau_bc"
+    estat lbate, min
+    rdn_expect r(tau_bc) -0.09516753502656217 1e-8 "LBATE min tau_bc"
+    estat lbate, absmax
+    rdn_expect r(tau_bc) 2.6714197044901438 1e-8 "LBATE absmax tau_bc"
+    * equal WBATE weights per distinct place: the two highway-node points share one
+    rdnet outcome, h(2000) vce(hc1) seed(0)
+    estat wbate, weights(equal)
+    rdn_expect r(tau_bc) 1.3634853836089482 1e-8 "WBATE equal weights per place"
     lincom eval3 - eval4
 end
 

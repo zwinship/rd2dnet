@@ -192,7 +192,9 @@ class Boundary:
         t = b - a
         rel = xy - foot
         left = t[:, 0] * rel[:, 1] - t[:, 1] * rel[:, 0] > 0
-        return left if self.treated_side == "left" else ~left
+        # points on the line (within tol) count as treated, as with a treated_region
+        on = np.hypot(rel[:, 0], rel[:, 1]) <= self.tol
+        return (left if self.treated_side == "left" else ~left) | on
 
     def is_masked(self, arc) -> np.ndarray:
         """Whether each arc-length position falls in a masked stretch of the boundary."""

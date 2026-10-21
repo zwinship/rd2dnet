@@ -603,7 +603,7 @@ real matrix rdn_binterp(struct rdn_bnd scalar B, real colvector arc)
 
 real colvector rdn_btreated(struct rdn_bnd scalar B, real matrix xy)
 {
-    real colvector arc, left, d
+    real colvector arc, left, d, on
     real matrix a, z, foot
     real scalar eps
     if (B.hasregion) {
@@ -616,8 +616,10 @@ real colvector rdn_btreated(struct rdn_bnd scalar B, real matrix xy)
     z = rdn_binterp(B, rowmax((rowmin((arc :+ eps, J(rows(arc), 1, B.blen))), J(rows(arc), 1, 0))))
     foot = rdn_binterp(B, arc)
     left = ((z[., 1] - a[., 1]) :* (xy[., 2] - foot[., 2]) - (z[., 2] - a[., 2]) :* (xy[., 1] - foot[., 1])) :> 0
-    if (B.side == "left") return(left)
-    return(1 :- left)
+    // points on the line (within tol) count as treated, as with a treated region
+    on = sqrt((xy[., 1] - foot[., 1]) :^ 2 + (xy[., 2] - foot[., 2]) :^ 2) :<= B.tol
+    if (B.side == "left") return(left :| on)
+    return((1 :- left) :| on)
 }
 
 real colvector rdn_bmasked(struct rdn_bnd scalar B, real colvector arc)
@@ -3591,16 +3593,55 @@ void rdn_wbate_entry()
 void rdn_lbate_entry()
 {
     real matrix R
-    real colvector okw
+    real colvector okw, lo, hi, tp, tq
     real scalar crit
+    string scalar kind
     R = st_matrix("e(results)")
     crit = st_numscalar("e(crit)")
+    kind = st_local("kind")
     okw = selectindex(R[., 15] :== 0)
     if (rows(okw) == 0 | crit >= .) _error(498, "LBATE needs at least one estimated evaluation point")
-    st_numscalar("r(tau)", max(R[okw, 8]))
-    st_numscalar("r(tau_bc)", max(R[okw, 10]))
-    st_numscalar("r(ci_lo)", max(R[okw, 10] - crit :* R[okw, 11]))
-    st_numscalar("r(ci_hi)", max(R[okw, 10] + crit :* R[okw, 11]))
+    tp = R[okw, 8]
+    tq = R[okw, 10]
+    lo = tq - crit :* R[okw, 11]
+    hi = tq + crit :* R[okw, 11]
+    if (kind == "min") {
+        st_numscalar("r(tau)", min(tp))
+        st_numscalar("r(tau_bc)", min(tq))
+        st_numscalar("r(ci_lo)", min(lo))
+        st_numscalar("r(ci_hi)", min(hi))
+    }
+    else if (kind == "absmax") {
+        // the interval for max_j |tau_j| implied by the uniform band
+        st_numscalar("r(tau)", max(abs(tp)))
+        st_numscalar("r(tau_bc)", max(abs(tq)))
+        st_numscalar("r(ci_lo)", max(rowmax((J(rows(lo), 1, 0), lo, -hi))))
+        st_numscalar("r(ci_hi)", max(rowmax((abs(lo), abs(hi)))))
+    }
+    else {
+        st_numscalar("r(tau)", max(tp))
+        st_numscalar("r(tau_bc)", max(tq))
+        st_numscalar("r(ci_lo)", max(lo))
+        st_numscalar("r(ci_hi)", max(hi))
+    }
+}
+
+// Equal weight per distinct place (node_arc, column 3) among the estimated
+// points (status 0, column 15); points at the same place share its weight.
+real colvector rdn_place_weights(real matrix R)
+{
+    real colvector w, ok, place
+    real scalar j, k, c
+    w = J(rows(R), 1, 0)
+    ok = (R[., 15] :== 0)
+    place = round(R[., 3], 1e-9)
+    for (j = 1; j <= rows(R); j++) {
+        if (!ok[j]) continue
+        c = 0
+        for (k = 1; k <= rows(R); k++) c = c + (ok[k] & place[k] == place[j])
+        w[j] = 1 / c
+    }
+    return(w)
 }
 
 end

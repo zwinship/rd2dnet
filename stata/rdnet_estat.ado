@@ -27,10 +27,10 @@ program define Wbate, rclass
         matrix `wmat' = `weights'
     }
     else if lower("`weights'") == "equal" {
-        matrix `wmat' = J(`J', 1, 0)
-        forvalues j = 1/`J' {
-            if `R'[`j', 15] == 0 matrix `wmat'[`j', 1] = 1
-        }
+        * equal weight per distinct place (node_arc) among the estimated points;
+        * points that snapped to the same place share its weight
+        rd2dnet_mata
+        mata: st_matrix(st_local("wmat"), rdn_place_weights(st_matrix(st_local("R"))))
     }
     else {
         capture numlist "`weights'"
@@ -61,13 +61,20 @@ program define Wbate, rclass
 end
 
 program define Lbate, rclass
-    syntax
+    syntax [, MIN ABSmax]
+    if "`min'" != "" & "`absmax'" != "" {
+        di as err "give min or absmax, not both"
+        exit 198
+    }
+    local kind = cond("`min'" != "", "min", cond("`absmax'" != "", "absmax", "max"))
     rd2dnet_mata
     mata: rdn_lbate_entry()
     di
-    di as txt "Largest boundary average treatment effect (LBATE)"
-    di as txt "  max tau (order p) = " as res %9.4f r(tau)
-    di as txt "  max tau_bc        = " as res %9.4f r(tau_bc)
-    di as txt "  uniform CI        = [" as res %9.4f r(ci_lo) as txt ", " as res %9.4f r(ci_hi) as txt "]"
+    local what = cond("`kind'" == "min", "Smallest", cond("`kind'" == "absmax", "Largest absolute", "Largest"))
+    local f = cond("`kind'" == "min", "min", cond("`kind'" == "absmax", "max|.|", "max"))
+    di as txt "`what' boundary average treatment effect (LBATE)"
+    di as txt "  `f' tau (order p)" _col(22) "= " as res %9.4f r(tau)
+    di as txt "  `f' tau_bc" _col(22) "= " as res %9.4f r(tau_bc)
+    di as txt "  uniform CI" _col(22) "= [" as res %9.4f r(ci_lo) as txt ", " as res %9.4f r(ci_hi) as txt "]"
     return add
 end

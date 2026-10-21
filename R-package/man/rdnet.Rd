@@ -30,7 +30,7 @@ rdnet(
   min_obs = NULL,
   scaleregul = 3,
   scalebiascrct = 1,
-  seed = NULL
+  seed = 0
 )
 }
 \arguments{
@@ -113,8 +113,9 @@ number of order-\code{q} terms); points with fewer are reported as
 \item{scaleregul, scalebiascrct}{Bandwidth-selection regularisation and
 higher-order bias weights, passed to \code{\link[=rdbwnet]{rdbwnet()}} when \code{h} is selected.}
 
-\item{seed}{Seed for the critical-value simulation (reproducible bands and
-LBATE). The global random number stream is left untouched.}
+\item{seed}{Seed for the critical-value simulation (default 0, so bands and
+LBATE are reproducible; \code{NULL} draws from the current stream). The global
+random number stream is left untouched.}
 }
 \value{
 An object of class \code{rdnet}, a list with
