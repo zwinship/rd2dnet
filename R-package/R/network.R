@@ -447,7 +447,29 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   E <- net$edges
   iu <- E$from
   iv <- E$to
-  cand <- which(!on[iu] & !on[iv] & (Tn[iu] != Tn[iv]))
+  # Every edge that meets the boundary line between its ends is split at each
+  # crossing (an edge can cross twice with both ends on one side, or more).
+  # Geometries run from u to v (stored ones may run v -> u).
+  has_geom <- "geometry" %in% names(E)
+  geoms <- lapply(seq_len(nrow(E)), function(k) {
+    g <- if (has_geom) E$geometry[[k]] else NULL
+    if (is.null(g)) return(rbind(net$coords[iu[k], ], net$coords[iv[k], ], deparse.level = 0))
+    pu <- net$coords[iu[k], ]
+    if (sum((g[1, ] - pu)^2) > sum((g[nrow(g), ] - pu)^2)) g <- g[rev(seq_len(nrow(g))), , drop = FALSE]
+    g
+  })
+  glen <- vapply(geoms, function(g) sum(sqrt(rowSums(diff(g)^2))), numeric(1))
+  # an edge can touch the line only if its ends' distances to it add up to at most its length
+  db <- boundary_distance(b, net$coords)
+  maybe <- which(db[iu] + db[iv] <= glen + b$tol & glen > 0)
+  cuts <- list()
+  for (k in maybe) {
+    hit <- .all_crossings(geoms[[k]], b$line)
+    # interior crossings only: an end node on the boundary is already a boundary node
+    hit <- hit[hit[, "t"] * glen[k] > b$tol & (1 - hit[, "t"]) * glen[k] > b$tol, , drop = FALSE]
+    if (nrow(hit)) cuts[[as.character(k)]] <- hit
+  }
+  cand <- as.integer(names(cuts))
   if (length(cand) && !isTRUE(net$metric$supports_edge_splitting)) {
     warning(sprintf(paste0("%d edges cross the boundary between their end nodes, and %s cannot split edges: ",
                            "paths along them skip the boundary. Add nodes on the boundary to the graph (and to ",
@@ -462,42 +484,38 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
     return(net)
   }
   nodes <- net$nodes
-  has_geom <- "geometry" %in% names(E)
   new_nodes <- list()
   crossing_ids <- character()
-  free_cross <- .fresh_labels(as.character(nodes$name), "rdnet_crossing", length(cand))
+  free_cross <- .fresh_labels(as.character(nodes$name), "rdnet_crossing", sum(vapply(cuts, nrow, 1L)))
   new_edges <- list()
   drop <- integer()
+  first_n <- 0L
   for (k in cand) {
-    geom <- if (has_geom) E$geometry[[k]] else NULL
-    if (is.null(geom)) geom <- rbind(net$coords[iu[k], ], net$coords[iv[k], ], deparse.level = 0)
-    hit <- .first_crossing(geom, b$line)
-    if (is.null(hit)) next # crosses the side partition away from this boundary line
-    pt <- hit$point
-    t <- hit$t
-    key <- sprintf("%.6f %.6f", round(pt[1], 6), round(pt[2], 6))
-    if (!key %in% names(crossing_ids)) {
-      cid <- free_cross[length(crossing_ids) + 1]
-      crossing_ids[key] <- cid
-      new_nodes[[length(new_nodes) + 1]] <- data.frame(name = cid, x = pt[1], y = pt[2], from = iu[k], to = iv[k],
-                                                       t = t)
+    geom <- geoms[[k]]
+    hit <- cuts[[as.character(k)]]
+    ids <- integer(nrow(hit))
+    for (r in seq_len(nrow(hit))) {
+      key <- sprintf("%.6f %.6f", round(hit[r, "x"], 6), round(hit[r, "y"], 6))
+      if (!key %in% names(crossing_ids)) {
+        cid <- free_cross[length(crossing_ids) + 1]
+        crossing_ids[key] <- cid
+        new_nodes[[length(new_nodes) + 1]] <- data.frame(name = cid, x = hit[r, "x"], y = hit[r, "y"],
+                                                         from = iu[k], to = iv[k], t = hit[r, "t"])
+      }
+      ids[r] <- -match(crossing_ids[[key]], crossing_ids)
     }
-    cid <- crossing_ids[[key]]
-    first <- E[k, , drop = FALSE]
-    second <- E[k, , drop = FALSE]
-    for (a in intersect(extensive, names(E))) {
-      val <- .first_value(E[[a]][k])
-      first[[a]] <- val * t
-      second[[a]] <- val * (1 - t)
+    chain <- c(iu[k], ids, iv[k])
+    cut <- c(0, hit[, "t"], 1)
+    for (a in seq_len(length(chain) - 1)) {
+      piece <- E[k, , drop = FALSE]
+      share <- cut[a + 1] - cut[a]
+      for (col in intersect(extensive, names(E))) piece[[col]] <- .first_value(E[[col]][k]) * share
+      if (has_geom && !is.null(E$geometry[[k]])) piece$geometry <- list(.line_substring(geom, cut[a], cut[a + 1]))
+      piece$from <- chain[a]
+      piece$to <- chain[a + 1]
+      new_edges[[length(new_edges) + 1]] <- piece
     }
-    if (has_geom && !is.null(E$geometry[[k]])) {
-      first$geometry <- list(.line_substring(geom, 0, t))
-      second$geometry <- list(.line_substring(geom, t, 1))
-    }
-    first$to <- -match(cid, crossing_ids)
-    second$from <- -match(cid, crossing_ids)
-    new_edges[[length(new_edges) + 1]] <- first
-    new_edges[[length(new_edges) + 1]] <- second
+    if (!length(drop)) first_n <- length(new_edges)
     drop <- c(drop, k)
   }
   if (!length(drop)) {
@@ -507,7 +525,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
     net$cache$split_net <- net
     return(net)
   }
-  .check_split_cost(net, E[drop[1], , drop = FALSE], rbind(new_edges[[1]], new_edges[[2]]))
+  .check_split_cost(net, E[drop[1], , drop = FALSE], do.call(rbind, new_edges[seq_len(first_n)]))
   added <- do.call(rbind, new_nodes)
   ids <- nodes$name
   if (!is.character(ids)) ids <- as.character(ids)

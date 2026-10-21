@@ -333,7 +333,12 @@ class NetworkGraph:
             L = geom.length
             if L <= 0:
                 continue
-            pts = [q for q in shapely.get_parts(geom.intersection(boundary.line)) if q.geom_type == "Point"]
+            pts = []
+            for q in shapely.get_parts(geom.intersection(boundary.line)):
+                if q.geom_type == "Point":
+                    pts.append(q)
+                elif not q.is_empty:  # a stretch along the boundary: its two ends
+                    pts += [shapely.get_point(q, 0), shapely.get_point(q, -1)]
             ts = sorted({round(geom.project(q) / L, 12): q for q in pts}.items())
             # interior crossings only: an end node on the boundary is already a boundary node
             ts = [(t, q) for t, q in ts if t * L > boundary.tol and (1 - t) * L > boundary.tol]

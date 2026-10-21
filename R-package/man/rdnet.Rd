@@ -17,6 +17,7 @@ rdnet(
   bwselect = "mserd",
   vce = "hc3",
   cluster = NULL,
+  cluster_vce = "cr2",
   conley_cutoff = NULL,
   conley_distance = "network",
   conley_resid_scale = 3,
@@ -73,12 +74,20 @@ the selected bandwidths are stored in the \code{bandwidths} element.}
 HC1; HC3 is the default here because local samples on networks often contain
 high-leverage points (few distinct offsets), where HC1 understates the variance.}
 
-\item{cluster}{Cluster labels, one per observation; implies \code{vce = "cluster"}
-(CR1 with rd2d's \code{(n - 1)/(n - k) * g/(g - 1)} factor). Points with fewer
-than two clusters on a side get status \code{"few clusters"}. With repeated
-measurements (panels), clusters much smaller than the bandwidth, such as
-the unit itself, can still understate the variance of spatially
-correlated shocks; \code{conley_cutoff} is the safer choice.}
+\item{cluster}{Cluster labels, one per observation; implies \code{vce = "cluster"}.
+Points with fewer than two clusters on a side get status \code{"few clusters"}.
+With repeated measurements (panels), clusters much smaller than the
+bandwidth, such as the unit itself, can still understate the variance of
+spatially correlated shocks; \code{conley_cutoff} is the safer choice.}
+
+\item{cluster_vce}{\code{"cr2"} (default): the bias-reduced cluster variance of
+Bell and McCaffrey (2002) with their Satterthwaite degrees of freedom;
+intervals, p-values, the uniform band and WBATE use t critical values (the
+\code{df} column). \code{"cr1"}: rd2d's cluster variance with the factor
+\code{(n - 1)/(n - k) * G/(G - 1)} and normal critical values. A local fit puts
+most of its weight on a few clusters near the point, whose residuals absorb
+their own cluster effect: in Monte Carlo runs CR1 covered 0.66-0.91 (6 to
+100 clusters per side), CR2 0.955-0.97.}
 
 \item{conley_cutoff, conley_distance}{Spatial HAC with Bartlett weights over
 \code{"network"} (default) or \code{"euclidean"} distance, used for pointwise
