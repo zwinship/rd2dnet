@@ -132,7 +132,7 @@
 #' The test has power against sorting that offsets along the boundary, which a
 #' density test of the distance to the boundary cannot detect; against sorting in
 #' one direction everywhere, [density()] is more powerful. It is not valid for
-#' observations that lie on the network itself (stations along a river, points
+#' observations that lie on or next to the network (stations along a river, points
 #' on streets).
 #'
 #' @param coords Output of [network_coordinates()].

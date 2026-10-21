@@ -51,8 +51,10 @@ straight boundary, and rejects 34-100% of the time at round or wavy zone
 outlines. Masked stretches of the boundary are always excluded.
 
 {pstd}
-No density test holds its size everywhere when the observations lie on the
-network itself (points on streets); a warning is shown then. For sorting that
+No density test holds its size everywhere when the observations lie on or
+next to the network itself (points on streets, GPS fixes); a warning is shown
+when the locations' median distance to the nearest street is below 0.6 times
+that of points spread evenly over the same area. For sorting that
 offsets along the boundary, see {helpb rdnetmanip}.
 
 {pstd}

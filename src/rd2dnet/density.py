@@ -267,7 +267,7 @@ def density(
         street; valid only when observations lie on the streets of a straight
         boundary, and it rejects 34-100% of the time at round or wavy zone
         outlines. No density test holds its size everywhere when the
-        observations lie on the network itself (points on streets): see
+        observations lie on or next to the network (points on streets): see
         :func:`manipulation_test` and the README.
     weights
         Optional non-negative observation weights (e.g. floor area).

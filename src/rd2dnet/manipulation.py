@@ -199,7 +199,7 @@ def manipulation_test(
     Notes
     -----
     Designed for units located in the plane (parcels, households, firms). It is
-    not valid for observations that lie on the network itself (stations along a
+    not valid for observations that lie on or next to the network (stations along a
     river, points on streets): where a line crosses the boundary at an angle,
     position along the boundary sorts the nearest points by side, and in Monte
     Carlo runs the test rejected up to 94% of the time without sorting. It has

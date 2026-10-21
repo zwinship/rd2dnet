@@ -170,7 +170,7 @@
 #'   distance `s`; its density jumps at curved or irregular boundaries without any
 #'   sorting. `"network"`: observations per metre of street; valid only when
 #'   observations lie on the streets of a straight boundary. No density test holds
-#'   its size everywhere when the observations lie on the network itself.
+#'   its size everywhere when the observations lie on or next to the network.
 #' @param kernel Kernel name or function (see [get_kernel()]).
 #' @param weights Optional non-negative observation weights.
 #' @param bwselect `"common"` (one bandwidth, the smaller of the two side-wise

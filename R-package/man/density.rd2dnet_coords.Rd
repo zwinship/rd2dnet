@@ -42,7 +42,7 @@ with the most power against one-sided sorting. \code{"none"}: the signed network
 distance \code{s}; its density jumps at curved or irregular boundaries without any
 sorting. \code{"network"}: observations per metre of street; valid only when
 observations lie on the streets of a straight boundary. No density test holds
-its size everywhere when the observations lie on the network itself.}
+its size everywhere when the observations lie on or next to the network.}
 
 \item{kernel}{Kernel name or function (see \code{\link[=get_kernel]{get_kernel()}}).}
 
