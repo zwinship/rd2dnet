@@ -241,7 +241,7 @@ def rdnet(
     covs=None,
     kernel="triangular",
     bwselect: str = "mserd",
-    vce: str = "hc1",
+    vce: str = "hc3",
     cluster=None,
     conley_cutoff: float | None = None,
     conley_distance: str = "network",
@@ -291,8 +291,11 @@ def rdnet(
     kernel
         ``"triangular"``, ``"epanechnikov"``, ``"uniform"``, ``"gaussian"`` or a callable.
     vce
-        ``"hc0"``-``"hc3"``; ``"cluster"`` (with ``cluster``) or ``"conley"`` (with
-        ``conley_cutoff``) are implied when those are given.
+        ``"hc0"``-``"hc3"`` (default ``"hc3"``); ``"cluster"`` (with ``cluster``) or
+        ``"conley"`` (with ``conley_cutoff``) are implied when those are given.
+        rd2d uses HC1; HC3 is the default here because local samples on
+        networks often contain high-leverage points (few distinct offsets), where
+        HC1 understates the variance (Monte Carlo coverage: see the README).
     conley_cutoff, conley_distance
         Spatial HAC with Bartlett weights over network (default) or Euclidean
         distance. Used for pointwise errors and for the uniform band.

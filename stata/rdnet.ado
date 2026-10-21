@@ -38,7 +38,7 @@ program define rdnet, eclass
     }
 
     * vce(hc0|hc1|hc2|hc3 | cluster clustvar | conley # [network|euclidean])
-    local vcetype hc1
+    local vcetype hc3
     local cutoff
     local euclid 0
     local clorig

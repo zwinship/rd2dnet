@@ -9,7 +9,7 @@ test_that("coordinates match the Python package", {
 test_that("estimates and standard errors match the Python package", {
   y <- mock_city()$obs$outcome
   cc <- mock_coords()
-  res <- rdnet(y, cc, h = 600, seed = 0)
+  res <- rdnet(y, cc, h = 600, vce = "hc1", seed = 0)
   ok <- which(res$table$status == "ok")[1:4]
   expect_equal(ok, 3:6)
   t <- res$table[ok, ]

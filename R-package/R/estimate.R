@@ -41,8 +41,10 @@
 #'   [rdbwnet()]. Selection uses `scaleregul = 3`, as rd2d does for
 #'   estimation, so it differs from a call to [rdbwnet()] with its defaults;
 #'   the selected bandwidths are stored in the `bandwidths` element.
-#' @param vce `"hc0"`-`"hc3"`; `"cluster"` (with `cluster`) and `"conley"`
-#'   (with `conley_cutoff`) are implied when those are given.
+#' @param vce `"hc0"`-`"hc3"` (default `"hc3"`); `"cluster"` (with `cluster`) and
+#'   `"conley"` (with `conley_cutoff`) are implied when those are given. rd2d uses
+#'   HC1; HC3 is the default here because local samples on networks often contain
+#'   high-leverage points (few distinct offsets), where HC1 understates the variance.
 #' @param cluster Cluster labels, one per observation; implies `vce = "cluster"`
 #'   (CR1 with rd2d's `(n - 1)/(n - k) * g/(g - 1)` factor). Points with fewer
 #'   than two clusters on a side get status `"few clusters"`. With repeated
@@ -121,7 +123,7 @@
 #' plot(res)
 #' @export
 rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec = NULL,
-                  covs = NULL, kernel = "triangular", bwselect = "mserd", vce = "hc1",
+                  covs = NULL, kernel = "triangular", bwselect = "mserd", vce = "hc3",
                   cluster = NULL, conley_cutoff = NULL, conley_distance = "network",
                   conley_resid_scale = 3, conley_resid_order = NULL, fuzzy = NULL,
                   weights = NULL, pooled = FALSE, level = 95, cbands = TRUE, repp = 2000,

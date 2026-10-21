@@ -280,7 +280,7 @@ def rdbwnet(
     covs=None,
     kernel="triangular",
     bwselect: str = "mserd",
-    vce: str = "hc1",
+    vce: str = "hc3",
     cluster=None,
     fuzzy=None,
     weights=None,

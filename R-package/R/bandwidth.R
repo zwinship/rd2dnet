@@ -244,7 +244,7 @@
 #' bw[, c("arc", "h0", "h1", "n0", "n1", "status")]
 #' @export
 rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NULL,
-                    kernel = "triangular", bwselect = "mserd", vce = "hc1", cluster = NULL,
+                    kernel = "triangular", bwselect = "mserd", vce = "hc3", cluster = NULL,
                     fuzzy = NULL, weights = NULL, bwcheck = NULL, scaleregul = 1,
                     scalebiascrct = 1) {
   .check_coords(coords)
