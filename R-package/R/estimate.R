@@ -276,7 +276,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       }
     }
 
-    fit_dim <- function(dim) {
+    fit_all <- function() {
+      dim <- 2
       aux <- NULL
       if (conley) {
         hs <- hside * conley_resid_scale
@@ -285,7 +286,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
                       if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim)
         Xi <- .design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, FALSE, dim)
-        aux <- list(Xa = Xa, wa = wk[m], m = m, Xi = Xi)
+        ka <- .identifiable(Xa, wk[m])
+        aux <- list(Xa = Xa[, ka, drop = FALSE], wa = wk[m], m = m, Xi = Xi[, ka, drop = FALSE])
       }
       out <- list()
       ks <- c()
@@ -300,6 +302,18 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
           cvec[seq_len(k)] <- dv$vec / H[j, 2]^dv$order
           cvec[k + seq_len(k)] <- -dv$vec / H[j, 1]^dv$order
         }
+        # keep the identifiable columns (few boundary crossings leave too little
+        # variation in the offset o for its higher powers, or any)
+        keep <- .identifiable(X, w[idx])
+        if (any(cvec[!keep] != 0)) stop(.singular())
+        if (order == p) {
+          ex <- .poly_exponents(order)
+          oexp <- if (pooled) ex[-1, "c"] else rep(ex[, "c"], 2)
+          first <- if (pooled) 2 else 0
+          has_o <- any(keep[first + seq_along(oexp)][oexp > 0])
+        }
+        X <- X[, keep, drop = FALSE]
+        cvec <- cvec[keep]
         jumps <- numeric(0)
         psis <- list()
         for (target in targets) {
@@ -330,20 +344,13 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         out[[as.character(order)]] <- list(tau = tau, se = sqrt(max(local_var(idx, psi, ncol(X)), 0)),
                                            psi = psi, extra = extra)
       }
-      list(out = out, ks = ks, basis = if (dim == 2) "s,o" else "s")
+      # "s" when no term in the offset o is identified (a river, rail line or
+      # highway crossing the border at one point): the fit is in s alone
+      list(out = out, ks = ks, basis = if (has_o) "s,o" else "s")
     }
 
-    # Few boundary crossings near this point (a river, rail line or highway
-    # crossing the border) leave no variation in the offset o; the fit is then
-    # a polynomial in s alone.
-    dims <- if (is.na(bases[j])) c(2, 1) else if (bases[j] == "s") 1 else 2
-    if (deriv[2] > 0 || !is.null(tang)) dims <- 2
-    fit <- "singular"
-    for (dim in dims) {
-      fit <- tryCatch(fit_dim(dim), rd2dnet_singular = function(e) "singular",
-                      rd2dnet_weak = function(e) "weak first stage")
-      if (!identical(fit, "singular")) break
-    }
+    fit <- tryCatch(fit_all(), rd2dnet_singular = function(e) "singular",
+                    rd2dnet_weak = function(e) "weak first stage")
     if (is.character(fit)) {
       tab$status[j] <- fit
       next
@@ -452,6 +459,35 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 }
 
 # Joint local design: side-specific polynomials (or pooled slopes) plus common covariates.
+# Columns of X kept for the weighted fit: the largest identifiable sub-basis.
+# Columns are taken in order (lower degree first; s before o within a degree);
+# a column is dropped when its weighted residual after projecting on the columns
+# already kept is below tol times its norm (as lm() drops aliased terms), or when
+# it would give some observation leverage 1 (a coefficient determined by that
+# observation alone).
+.identifiable <- function(X, w, tol = 1e-4) {
+  A <- X * sqrt(w)
+  Q <- matrix(0, nrow(A), 0)
+  keep <- logical(ncol(A))
+  lev <- numeric(nrow(A))
+  for (j in seq_len(ncol(A))) {
+    v <- A[, j]
+    n0 <- sqrt(sum(v * v))
+    if (n0 == 0) next
+    for (rep in 1:2) { # Gram-Schmidt, repeated for accuracy
+      for (k in seq_len(ncol(Q))) v <- v - sum(Q[, k] * v) * Q[, k]
+    }
+    n1 <- sqrt(sum(v * v))
+    if (n1 <= tol * n0) next
+    u <- v / n1
+    if (max(lev + u * u) > 1 - 1e-8) next
+    keep[j] <- TRUE
+    Q <- cbind(Q, u)
+    lev <- lev + u * u
+  }
+  keep
+}
+
 .design <- function(us, uo, Ti, order, Zi, pooled, dim = 2) {
   R <- .poly_basis(us, uo, order, dim)
   X <- if (pooled) cbind(1, Ti, R[, -1, drop = FALSE]) else cbind(R * Ti, R * (1 - Ti))

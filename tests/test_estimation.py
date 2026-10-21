@@ -445,3 +445,29 @@ def test_selector_treats_badly_conditioned_local_designs_as_singular():
     with pytest.raises(np.linalg.LinAlgError):
         _inv_gram(A)
     np.testing.assert_allclose(_inv_gram(np.diag([1.0, 1e-6])), np.diag([1.0, 1e6]))
+
+
+def test_identifiable_basis_drops_aliased_and_leverage_one_columns():
+    from rd2dnet.estimate import _identifiable
+
+    rng = np.random.default_rng(0)
+    s = rng.uniform(0, 1, 40)
+    o = np.r_[np.zeros(20), np.ones(20)]  # two crossings: o identified, o^2 aliased with o
+    X = np.column_stack([np.ones(40), s, o, s * s, s * o, o * o])
+    assert _identifiable(X, np.ones(40)).tolist() == [True, True, True, True, True, False]
+    o3 = np.r_[np.zeros(20), np.ones(19), 2.0]  # a third crossing with one observation
+    X3 = np.column_stack([np.ones(40), s, o3, s * s, s * o3, o3 * o3])
+    keep = _identifiable(X3, np.ones(40))
+    assert not keep[5]  # o^2 would be determined by that single observation (leverage 1)
+
+
+def test_singular_bias_correction_fit_does_not_change_the_main_estimate(city):
+    # noise-free quadratic design; at the boundary's end only 4 crossings are reachable on
+    # the treated side, so the order-3 fit cannot identify every o term
+    c = rd2dnet.network_coordinates(city.network("length"), city.boundary, city.obs[["x", "y"]], n_eval=15)
+    T, s, arc = c.treated, c.s, c.crossing_arc
+    y = 1 + 2.5 * T + 0.004 * s + 3e-6 * s**2 - 2e-6 * T * s**2 - 0.0015 * arc + 1e-6 * arc**2
+    t = rd2dnet.rdnet(y, c, h=500.0, p=2, q=3, cbands=False).table
+    ok = t["status"] == "ok"
+    np.testing.assert_allclose(t.loc[ok, "tau"], 2.5, atol=1e-8)
+    np.testing.assert_allclose(t.loc[ok, "tau_bc"], 2.5, atol=1e-6)

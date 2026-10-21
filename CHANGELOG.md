@@ -52,6 +52,15 @@ Fixes:
 - `from_igraph` uses `length` when there is no `weight` attribute.
 
 Fixes from cross-language and invariance testing:
+- Local fits keep their identifiable terms instead of switching the whole fit to `s`
+  alone (Python, R, Stata). Columns of the (s, o) basis are taken in degree order and
+  a column is dropped when it is (nearly) a linear combination of those kept, or when it
+  would be determined by a single observation (leverage 1). One crossing near a point
+  still gives a fit in `s` alone (`basis = "s"`); two or three crossings now keep the
+  terms in `o` they identify. Before, a singular bias-correction fit (order `q`)
+  silently refitted the main estimate in `s` alone, biasing it (a noise-free design
+  gave tau 2.83 instead of 2.5), and fits with one observation pinning an `o` term had
+  collapsed HC1 standard errors (Monte Carlo coverage 0.37; sd of tau_bc 1.67, now 0.44).
 
 - Directed networks: a location partway along a one-way edge was reached through
   either end node, as if the edge ran both ways, so `s` and kernel distances were too

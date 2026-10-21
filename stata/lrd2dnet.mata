@@ -2089,6 +2089,39 @@ real matrix rdn_design(real colvector us, real colvector uo, real colvector Ti, 
     return(X)
 }
 
+// Columns of X kept for the weighted fit: the largest identifiable sub-basis.
+// Columns are taken in order (lower degree first; s before o within a degree);
+// a column is dropped when its weighted residual after projecting on the
+// columns already kept is below 1e-4 times its norm (as lm() drops aliased
+// terms), or when it would give some observation leverage 1 (a coefficient
+// determined by that observation alone).
+real colvector rdn_identifiable(real matrix X, real colvector w)
+{
+    real matrix A, Q
+    real colvector keep, v, u, lev
+    real scalar j, k, rep, n0, n1
+    A = X :* sqrt(w)
+    Q = J(rows(A), 0, .)
+    keep = J(cols(A), 1, 0)
+    lev = J(rows(A), 1, 0)
+    for (j = 1; j <= cols(A); j++) {
+        v = A[., j]
+        n0 = sqrt(v' * v)
+        if (n0 == 0) continue
+        for (rep = 1; rep <= 2; rep++) {
+            for (k = 1; k <= cols(Q); k++) v = v - (Q[., k]' * v) :* Q[., k]
+        }
+        n1 = sqrt(v' * v)
+        if (n1 <= 1e-4 * n0) continue
+        u = v :/ n1
+        if (max(lev + u :* u) > 1 - 1e-8) continue
+        keep[j] = 1
+        Q = Q, u
+        lev = lev + u :* u
+    }
+    return(keep)
+}
+
 // Target vector over the order-`order` basis and the derivative order it picks.
 real colvector rdn_deriv_vector(real scalar ordr, real rowvector deriv, real rowvector tang,
     real scalar vord)
@@ -2190,7 +2223,9 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     real rowvector tj
     real scalar nJ, z, j, conley, hasD, hasZ, hascl, nord, oi, ordr, k, vord, ti, tau, itt, fs
     real scalar basevce_is, status, kk, nc, cc, gg, fail, auxorder, haveband, dimi, gside, gmin
-    real colvector dimlist, bwbasis
+    real colvector dimlist, bwbasis, keep, oexp, ka
+    real matrix ex
+    real scalar haso, ofirst, oo
     string scalar basevce
     struct rdn_fit scalar F, Fa
     transmorphic store, hstore
@@ -2279,13 +2314,9 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
                 continue
             }
         }
-        // the (s, o) basis, or s alone where it is singular (few crossings)
-        if (deriv[2] > 0 | rows(tang)) dimlist = 2
-        else if (bwbasis[j] == 1) dimlist = 2
-        else if (bwbasis[j] == 2) dimlist = 1
-        else dimlist = (2 \ 1)
-        for (dimi = 1; dimi <= rows(dimlist); dimi++) {
-        rdn_set_dim(dimlist[dimi])
+        // the (s, o) basis, keeping its identifiable columns (rdn_identifiable)
+        rdn_set_dim(2)
+        haso = 0
         if (conley) {
             hs = hside :* rscale
             wk = rdn_kernel(d :/ hs, kcode) :/ (hs :^ 2) :* editmissing(om, 0)
@@ -2293,6 +2324,9 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             Xa = rdn_design(s[m] :/ hs[m], o[m] :/ hs[m], Tf[m], auxorder,
                 (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0)
             Xi = rdn_design(s[idx] :/ hs[idx], o[idx] :/ hs[idx], Tf[idx], auxorder, Zi, 0)
+            ka = rdn_identifiable(Xa, wk[m])
+            Xa = select(Xa, ka')
+            Xi = select(Xi, ka')
         }
         status = 0
         outp = J(2, 5, .)     // rows: order p, order q; cols: tau, se, k, itt, fs
@@ -2312,6 +2346,23 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
                 cvec[(1::kk)] = vtgt :/ (H[j, 2] ^ vord)
                 cvec[((kk + 1)::(2 * kk))] = -vtgt :/ (H[j, 1] ^ vord)
             }
+            // keep the identifiable columns (few boundary crossings leave too
+            // little variation in the offset o for its higher powers, or any)
+            keep = rdn_identifiable(X, w[idx])
+            if (any(select(cvec, !keep) :!= 0)) {
+                status = 3
+                break
+            }
+            if (ordr == p) {
+                ex = rdn_poly_exp(ordr)
+                oexp = (pooled ? ex[(2::rows(ex)), 2] : (ex[., 2] \ ex[., 2]))
+                ofirst = (pooled ? 2 : 0)
+                for (oo = 1; oo <= rows(oexp); oo++) {
+                    if (oexp[oo] > 0 & keep[ofirst + oo]) haso = 1
+                }
+            }
+            X = select(X, keep')
+            cvec = select(cvec, keep)
             jumps = J(0, 1, .)
             psi1 = J(0, 1, .)
             psi2 = J(0, 1, .)
@@ -2374,14 +2425,12 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
                 psiq = psi
             }
         }
-        if (status != 3) break
-        }
-        rdn_set_dim(2)
         if (status) {
             R[j, 15] = status
             continue
         }
-        R[j, 22] = (dimlist[dimi] == 2 ? 1 : 2)
+        // basis 2: no term in the offset o is identified (one crossing): s alone
+        R[j, 22] = (haso ? 1 : 2)
         if (hasD) {
             R[j, 19] = outp[1, 4]
             R[j, 20] = outp[1, 5]

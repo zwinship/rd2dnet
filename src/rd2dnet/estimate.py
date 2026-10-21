@@ -183,6 +183,42 @@ def _deriv_vector(order: int, deriv, tangvec_j, dim: int = 2):
     return vec, a + c
 
 
+def _identifiable(X: np.ndarray, w: np.ndarray, tol: float = 1e-4) -> np.ndarray:
+    """Columns of ``X`` kept for the weighted fit: the largest identifiable sub-basis.
+
+    Columns are taken in order (lower degree first; s before o within a degree)
+    and a column is dropped when its weighted residual after projecting on the
+    columns already kept is below ``tol`` times its norm, as lm() drops aliased
+    terms, or when it would give some observation leverage 1 (a coefficient
+    determined by that observation alone). Few boundary crossings near a point leave too little variation in
+    the offset o for its higher powers, or for any of them.
+    """
+    A = X * np.sqrt(w)[:, None]
+    basis: list[np.ndarray] = []
+    keep = np.zeros(A.shape[1], dtype=bool)
+    lev = np.zeros(A.shape[0])  # leverages of the kept columns
+    for jcol in range(A.shape[1]):
+        v = A[:, jcol].copy()
+        n0 = float(np.sqrt(v @ v))
+        if n0 == 0:
+            continue
+        for _ in range(2):  # Gram-Schmidt, repeated for accuracy
+            for b in basis:
+                v -= (b @ v) * b
+        n1 = float(np.sqrt(v @ v))
+        if n1 <= tol * n0:
+            continue
+        u = v / n1
+        if np.max(lev + u * u) > 1 - 1e-8:
+            # a coefficient pinned by a single observation (leverage 1): its
+            # residual is zero and its variance cannot be estimated
+            continue
+        keep[jcol] = True
+        basis.append(u)
+        lev += u * u
+    return keep
+
+
 def _design(us, uo, Ti, order, Zi, pooled, dim=2):
     """Joint local design: side-specific polynomials (or pooled slopes) plus common covariates."""
     R = poly_basis(us, uo, order, dim)
@@ -450,26 +486,39 @@ def rdnet(
                 rec["status"] = "few clusters"
                 continue
 
-        def fit(dim):
+        def fit():
             aux = None
             if vce == "conley":
                 hs = hside * conley_resid_scale
                 wk = kfun(d / hs) / hs**2 * intensity
                 m = np.flatnonzero((wk > 0) & base)
                 Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
-                             None if zcols is None else Z[m][:, zcols], False, dim)
-                Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False, dim)
-                aux = (Xa, wk[m], m, Xi)
-            out, ks = {}, {}
+                             None if zcols is None else Z[m][:, zcols], False)
+                ka = _identifiable(Xa, wk[m])
+                Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False)
+                aux = (Xa[:, ka], wk[m], m, Xi[:, ka])
+            out, ks, offset = {}, {}, {}
             for order in (p, q):
-                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled, dim)
+                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
                 c = np.zeros(X.shape[1])
                 if pooled:
                     c[1] = 1.0
                 else:
-                    vec, v = _deriv_vector(order, deriv, None if tang is None else tang[j], dim)
+                    vec, v = _deriv_vector(order, deriv, None if tang is None else tang[j])
                     k = len(vec)
                     c[:k], c[k:2 * k] = vec / H[j, 1] ** v, -vec / H[j, 0] ** v
+                # keep the identifiable columns (few boundary crossings leave too
+                # little variation in the offset o for its higher powers, or any)
+                keep = _identifiable(X, w[idx])
+                if np.any(c[~keep] != 0):
+                    raise np.linalg.LinAlgError("the target is not identified")
+                X, c = X[:, keep], c[keep]
+                if order == p:
+                    ex = poly_exponents(order)
+                    # exponent of o for each polynomial column of the design
+                    oexp = [e[1] for e in ex[1:]] if pooled else [e[1] for e in ex] * 2
+                    first = 2 if pooled else 0
+                    offset[order] = any(keep[first + i] for i, oe in enumerate(oexp) if oe > 0)
                 jumps, psis = [], []
                 for target in targets:
                     f = wls(X, target[idx], w[idx])
@@ -491,23 +540,17 @@ def rdnet(
                     extra = {"itt": itt, "fs": fs, "_psi_fs": psis[1]}
                 ks[order] = X.shape[1]
                 out[order] = (tau, np.sqrt(max(local_var(idx, psi, ks[order]), 0.0)), psi, extra)
-            return out, ks
+            return out, ks, offset[p]
 
-        # Few boundary crossings near this point (a river, rail line or highway
-        # crossing the border) leave no variation in the offset o; the fit is
-        # then a polynomial in s alone.
-        dims = {"s,o": (2,), "s": (1,)}.get(bases[j], (2, 1))
-        if deriv[1] > 0 or tang is not None:
-            dims = (2,)
         out = None
         try:
-            for dim in dims:
-                try:
-                    out, ks = fit(dim)
-                    rec["basis"] = "s,o" if dim == 2 else "s"
-                    break
-                except np.linalg.LinAlgError:
-                    continue
+            try:
+                out, ks, has_o = fit()
+                # "s" when no term in the offset o is identified (a river, rail line or
+                # highway crossing the border at one point): the fit is in s alone
+                rec["basis"] = "s,o" if has_o else "s"
+            except np.linalg.LinAlgError:
+                out = None
         except ZeroDivisionError:
             rec["status"] = "weak first stage"
             continue
