@@ -869,7 +869,9 @@ network_graph_from_place <- function(query = NULL, bbox = NULL, network_type = "
   old <- tryCatch(osmdata::get_overpass_url(), error = function(e) NULL)
   if (!is.null(old)) on.exit(try(osmdata::set_overpass_url(old), silent = TRUE), add = TRUE)
   urls <- c(if (is.null(old)) NA_character_ else old, setdiff(mirrors, old))
+  urls <- c(urls, urls) # a second round after a pause
   for (k in seq_along(urls)) {
+    if (k > 1) Sys.sleep(min(5 * (k - 1), 20))
     if (!is.na(urls[k])) osmdata::set_overpass_url(urls[k])
     res <- tryCatch(download(), error = function(e) e)
     busy <- inherits(res, "error") && grepl("HTTP 5[0-9][0-9]|[Tt]imeout|timed out|too busy", conditionMessage(res))
