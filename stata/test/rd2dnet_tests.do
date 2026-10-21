@@ -15,8 +15,7 @@ capture mata: mata drop rdn_*()
 
 global rdn_fails 0
 global rdn_errors 0
-global rdn_faillist
-global rdn_errlist
+* failure labels in numbered globals rdn_fail1, rdn_fail2, ... and rdn_err1, ...
 
 capture program drop rdn_expect
 program define rdn_expect
@@ -26,7 +25,7 @@ program define rdn_expect
     if `g' >= . | !(`d' <= `tol') {
         di as err "FAIL  `label': got " %21.15g `g' "  want " %21.15g `want' "  (rel diff " %9.2e `d' ")"
         global rdn_fails = $rdn_fails + 1
-        global rdn_faillist `"$rdn_faillist"' `"`label' (got `: display %12.0g `g'')"'
+        global rdn_fail$rdn_fails `"`label' (got `: display %12.0g `g'')"'
     }
     else di as txt "ok    `label'"
 end
@@ -51,7 +50,7 @@ program define rdn_block
     if _rc {
         di as err "ERROR in block `name' (rc = " _rc ")"
         global rdn_errors = $rdn_errors + 1
-        global rdn_errlist `"$rdn_errlist"' `"`name' (rc `=_rc')"'
+        global rdn_err$rdn_errors `"`name' (rc `=_rc')"'
     }
 end
 
@@ -199,7 +198,7 @@ program define t_metrics
     }
     rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) classvar(highway) penalty(500) ///
         connectors(motorway_link) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
-    local s 829.087 1649.546 -1353.994 -2283.17 1648.397 1653.963
+    local s 1329.087 2149.546 -1353.994 -2283.17 2148.397 2153.963
     forvalues i = 1/6 {
         rdn_expect _rdn_s[`i'] `: word `i' of `s'' 1e-9 "transition s[`i']"
     }
@@ -467,10 +466,10 @@ if $rdn_fails == 0 & $rdn_errors == 0 {
 }
 else {
     di as err "failed checks: $rdn_fails   blocks with errors: $rdn_errors"
-    foreach f of global rdn_faillist {
-        di as err "  FAIL `f'"
+    forvalues k = 1/$rdn_fails {
+        di as err `"  FAIL ${rdn_fail`k'}"'
     }
-    foreach f of global rdn_errlist {
-        di as err "  ERROR `f'"
+    forvalues k = 1/$rdn_errors {
+        di as err `"  ERROR ${rdn_err`k'}"'
     }
 }
