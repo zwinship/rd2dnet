@@ -7,7 +7,7 @@
   worst difference to Python 5.8e-9). The only stale references were the transition-cost
   values, which predate the own-edge penalty fix (PR #10).
 - **The open questions are decided, tested and merged** (PRs #11, #12, #15, #18). See
-  `DECISIONS-overnight.md` items 19-30.
+  `DECISIONS-overnight.md` items 19-40.
   - Sorting tests: straight-line density by default, plus the Bugni-Crippa-Restrepo
     manipulation test.
   - An identifiable local basis instead of the `s`-only fallback.
@@ -15,34 +15,42 @@
   - Off-network distance charged at the street's cost rate.
   - `direction="flow"` for rivers.
   - WBATE weights per place; `lbate` min/absmax; seed 0; `from_place` fails loudly.
-- **CI:** all green on the merged result (pytest on 3.10-3.13 and Windows, notebook,
-  R CMD check on 5 platforms, Python-R parity, live OSM).
-- **Stata, still to run:** the AppStream session expired during a pause at about 03:20.
-  Stata code merged after that is written and reviewed but not run in Stata: snap cost,
-  place weights / lbate kinds / seed, `rdnetmanip` and normalize(euclidean), and
-  direction(flow). The commands below run all of it, including the parity check against
-  regenerated cases.
-- **Second-round bug hunt:** a statistical code review, a use-case tester and an
-  adversarial tester ran on the merged code. Their findings and fixes are below, under
-  "Night 2 bug hunt".
+- **CI:** all green on the merged result: pytest on 3.10-3.13 and Windows, the notebook,
+  R CMD check on 5 platforms, Python-R parity, and live OSM. R's live-OSM job had kept
+  failing on Overpass 502/504 errors; R now retries on mirrors.
+- **Stata still to run.** The AppStream session expired during a pause at about 03:20 and
+  needs your sign-in. Stata code merged after that is written, and three static reviews
+  checked it against Python (all findings fixed), but it has not been run in Stata. That
+  covers:
+  - snap cost; place weights, lbate kinds and seed;
+  - `rdnetmanip` and normalize(euclidean); direction(flow);
+  - everything from the bug hunt below, including CR2.
+
+  The commands below run all of it, including parity against regenerated cases.
+- **Bug hunt (PRs #20, #21, #22):** three rounds of review and testing found 13 sources of
+  wrong numbers, all fixed in all three languages (details below). The biggest change:
+  **cluster-robust errors now default to CR2 with Bell-McCaffrey degrees of freedom**.
+  rd2d's CR1 covered only 0.66-0.91 in Monte Carlo runs; CR2 covers 0.955-0.97. CR1
+  remains as an option. See DECISIONS item 38; it departs from rd2d on purpose, so please
+  check you agree.
 
 ## Status by language
 
 | | status |
 |---|---|
-| **Stata** | First run in Stata 19 SE (AppStream). `rd2dnet_tests.do`: ALL TESTS PASSED at 253b969. `install_check.do` (net install, then every help example from an empty folder): INSTALL CHECK PASSED. Help files render, and nothing is left behind except the documented objects. **The Mata changes in PR #5 have not been run in Stata.** The AppStream session expired and now needs your sign-in. Please run `rd2dnet_tests.do` (new block `t_pointnodes`) and `parity/run_stata.do` first thing. |
+| **Stata** | Run in Stata 19 at the start of night 2: ALL TESTS PASSED, INSTALL CHECK PASSED, PARITY PASSED. **Everything merged after about 03:20 on 10/21 is unrun in Stata** (sign-in needed); new test blocks `t_round2` and `t_round3`. |
 | **Python** | Full test suite green, locally and in CI (3.10-3.13, Windows, notebook). |
-| **R** | Can't be built locally (no Rtools). In CI, R CMD check --as-cran is green on five platforms, including the new regression tests. |
+| **R** | Can't be built locally (no Rtools). In CI, R CMD check --as-cran is green on five platforms, with regression tests for every fix; CR2 matches Python's reference values to 1e-9. |
 | **Parity** | New `parity/` harness: 40 random designs covering grids, rivers, rings, directed networks, transition and travel-time costs, fuzzy designs, covariates, clusters, Conley, every bwselect and every kernel. Python vs R runs in CI (`parity` job). Before the fixes, 6 of 40 cases disagreed. |
 
 ## First thing this morning: run Stata on the merged code
 
-All PRs (#4-#18) are merged into `main` (1dc01e9). In Stata 19 (AppStream), run these, typing
+All PRs (#4-#22) are merged into `main` (5983390). In Stata 19 (AppStream), run these, typing
 each line in the Command window:
 
 ```stata
 clear all
-do https://raw.githubusercontent.com/zwinship/rd2dnet/1dc01e934fc4958456fdd1806b7433e3df0a72fe/stata/test/fetch.do 1dc01e934fc4958456fdd1806b7433e3df0a72fe
+do https://raw.githubusercontent.com/zwinship/rd2dnet/598339034dd59f96299fbef058e26cce7b7d1adb/stata/test/fetch.do 598339034dd59f96299fbef058e26cce7b7d1adb
 cd test
 do rd2dnet_tests.do
 ```
@@ -51,8 +59,8 @@ The test suite must end with `ALL TESTS PASSED`. Failures are listed at the end.
 run the install check and the Stata side of the parity harness:
 
 ```stata
-do https://raw.githubusercontent.com/zwinship/rd2dnet/1dc01e934fc4958456fdd1806b7433e3df0a72fe/stata/test/install_check.do 1dc01e934fc4958456fdd1806b7433e3df0a72fe
-do https://raw.githubusercontent.com/zwinship/rd2dnet/5e4294fd248054c5bbe574754b5da9f92f31cbf1/parity/fetch_stata.do 5e4294fd248054c5bbe574754b5da9f92f31cbf1
+do https://raw.githubusercontent.com/zwinship/rd2dnet/598339034dd59f96299fbef058e26cce7b7d1adb/stata/test/install_check.do 598339034dd59f96299fbef058e26cce7b7d1adb
+do https://raw.githubusercontent.com/zwinship/rd2dnet/0f82a4a7566675d74fb97ff95fde068d135e14c7/parity/fetch_stata.do 0f82a4a7566675d74fb97ff95fde068d135e14c7
 do parity/run_stata.do
 ```
 
@@ -114,35 +122,113 @@ command. It is not for merging; delete it whenever you like.
     - `plot(true_tau=<scalar>)` crashed.
     - README examples used undefined names.
 
-## Found, not yet fixed (ranked)
+## Night 2 bug hunt (PRs #20, #21, #22)
 
-**Statistical:**
+Three rounds of testing ran on the merged code:
+- a statistical code review;
+- use-case and adversarial testers;
+- a brute-force checker (its own Dijkstra on random networks);
+- a Monte Carlo study of cluster-robust errors;
+- static reviews of every Mata change.
 
-- **The density test is badly mis-sized on curved boundaries.** On a round zone with
-  `normalize="network"` it rejects 98-100% of the time at 5%; on a wavy school zone, 44%.
-  `"none"` gives 10-20%. Street-length normalisation is only valid when observations sit
-  on the streets. The README now warns about this; the method needs your decision.
-- **Near-singular q-fits are reported as "ok".**
-  - The tutorial's placebo point gives tau_bc 92.7 while tau is -0.02.
-  - HC1 SEs collapse on a one-way grid (coverage 0.37).
-  - A singular q-fit also silently switches the p-fit to the `s` basis.
-- **Clustering by spatial block with 5-6 clusters per side fails**: 0.70-0.74 pointwise,
-  about 0.2 for the uniform band. The README now says so. Consider a status or warning
-  when few clusters fall within the bandwidth.
+Every fix is in all three languages unless noted, with regression tests in Python and R and
+a Stata test block (`t_round2`, `t_round3`).
 
-**Usability:**
+**Wrong numbers, fixed (most severe first):**
 
-- Forgetting `lonlat=True` goes through silently (snap depth about 4,700 km).
-- Off-network distance is free with travel-time metrics (`snap_scale` 0).
-- Evaluation points that snap to the same place get double weight in the default WBATE.
-  The warning only fires below 75% distinct places.
-- Feet layers combined with mph speeds give travel times 5.2x off, with no warning.
-- `from_place` quietly falls back to the mock city after a 111 s timeout.
-- Several malformed inputs raise raw numpy or GEOS errors
-  (`C:\Users\zwins\agent_robust\repro_all.py`). Collinear covariates now give a warning
-  naming the cause (PR #7).
-- `Boundary.from_region(GeoSeries)` raises a pandas error.
-- The column names in the `rdbwnet` docstring are out of date.
+1. **Cluster-robust standard errors were far too small.** rd2d's CR1 covered 0.66-0.91 in
+   Monte Carlo runs with 6 to 100 clusters per side. The default is now CR2 (Bell-McCaffrey)
+   with Satterthwaite degrees of freedom and t critical values (new `df` column), which
+   covers 0.955-0.97. `cluster_vce="cr1"` (Stata: `cr1`) gives rd2d's behaviour.
+   DECISIONS item 38 has the mechanism and the table.
+2. **Boundary splits.** Two errors, both fixed by splitting every edge that meets the
+   boundary at each crossing:
+   - Edges whose stored geometry runs v -> u were split at the mirror-image point. This
+     covers every `from_lines` layer with lines drawn "backwards" and OSM graphs made
+     undirected. In the mock city, s was off by up to 39 m for 1,870 of 3,000 points.
+   - An edge crossing the boundary twice with both ends on one side (a notch) was not split
+     at all.
+3. **A road with both ends on the boundary** (a loop into one side) counted as running along
+   it, so its locations got s = 0.
+4. **Closed rings that follow streets:** evaluation points were moved to the street at the
+   ring's start (e.g. requested arc 250 -> node arc 383).
+5. **Transition penalties with `direction="in"`/`"flow"`** were charged in reverse order.
+6. **Pooled fits with h0 != h1** scaled the common slopes differently on each side, so a
+   noiseless plane was not fitted exactly.
+7. **Covariates in large units** (dollars) made every point "singular".
+8. **Directed and transition-cost networks:** point nodes sat on the chord between the end
+   nodes, not on the street (Python, R).
+9. **Callable metrics** on attributes such as minutes copied the full cost to each piece of
+   a split edge. They now warn, pointing to `extensive=`. Separately, the split cache ignored
+   `extensive`.
+10. **`density(eval_index, window)`** did not wrap around rings.
+11. **Nodes on the boundary line's extension** changed side when `b` was reversed, so
+    `rd2dnet()` estimates depended on the order of `b`.
+12. **Conley covariances** could be non-PSD on networks. They are now projected to PSD,
+    with a warning.
+13. **`rdbwnet(vce="cluster"/"conley")`** did not reproduce `rdnet`'s bandwidths
+    (Python, R).
+
+**New statuses and warnings** (thresholds from Monte Carlo runs):
+- `"weak first stage"` when |fs| < 2 fs_se. These points are left out of the default
+  WBATE and of LBATE.
+- HC errors with repeated locations (panels).
+- Sorting tests on points on or near streets: a ratio of median snap distances, which
+  catches GPS noise up to about 15 m. Before, only points exactly on streets were caught.
+- `from_lines` layers whose ends mostly do not join.
+- `travel_time(default_kph)` covering most edges.
+- `vce="conley"` with a cutoff above the bandwidth.
+
+**Crashes and bad inputs fixed:**
+- Tuple node labels with directed networks (Python).
+- `TransitionCost(travel_time())` (Python).
+- `wbate()` returning NaN when any point had no estimate.
+- Non-integer `p`/`q`/`deriv`/`repp`/`k_max`, `repp=0`, `k_max=0`, malformed `tangvec`.
+- NaN coordinates in `rd2dnet()`.
+- `lat`/`lon` columns given in that order.
+
+**Docs:** the tutorial now says HC3 and `"euclidean"` and shows the manipulation test. Also
+fixed: the `network_coordinates` direction notes, `NetworkGraph(crs=)`, the multi-q
+printout, and the common-bandwidth clipping.
+
+**Also:** R's OpenStreetMap download now retries on Overpass mirrors. The live-OSM CI job
+had failed on 502/504 errors from overpass-api.de.
+
+**Checked and correct** (no change needed):
+- s, d, o, pairwise distances and the HAC against brute-force Dijkstra for undirected,
+  out/in/flow, travel time with snap cost, and transition costs with connectors.
+- Invariance to translation, rotation, reflection, relabelling, row order, y scale and
+  shift, weights, duplicated rows, and splitting an edge into collinear pieces.
+- 192 vce/cluster/Conley/fuzzy/covs/pooled/deriv combinations.
+- Hand-computed HC0-3 and CR1.
+- The k-means DP and the LCG.
+- Identical results with 1 and 8 threads.
+
+## Known limitations (not fixed)
+
+- **Parallel edges between the same two nodes** (dual carriageways, OSM `MultiGraph` keys):
+  only the cheapest geometry is kept for snapping. A location on the other twin snaps to
+  it, about 50 m off in the test case.
+- **Exact ties on perfectly regular grids:** a location exactly equidistant from two
+  crossings can switch crossings with 1e-12 noise. Mass points are detected by exact
+  coordinate equality.
+- **Parameter choices:** `manipulation_test` with `k_max=q` is O(q^3) (24 s at q = 1000).
+  `h=[a, b]` means one value per point when J = 2.
+- **Clustering with very few clusters:** CR2 intervals are honest but wide. With 6 blocks
+  per side the degrees of freedom are about 2.
+- **Untested in Stata:** everything after 03:20 on 10/21. The Mata code had three static
+  reviews against Python; all findings are fixed.
+
+## Night 1 open items, now resolved
+
+All the night-1 "found, not yet fixed" items are settled. See DECISIONS items 19-40:
+- the density test on curved boundaries;
+- near-singular q-fits;
+- few clusters;
+- forgotten `lonlat`;
+- free off-network distance;
+- WBATE double weights;
+- the `from_place` fallback.
 
 ## Monte Carlo summary (`C:\Users\zwins\agent_mc`, 1000 replications per cell)
 
