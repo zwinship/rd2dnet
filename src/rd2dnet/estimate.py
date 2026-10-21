@@ -453,6 +453,14 @@ def rdnet(
     else:
         bases = [None] * J
         H = _bandwidth_matrix(h, J)
+    if vce == "conley":
+        hfin = H[np.all(np.isfinite(H) & (H > 0), axis=1)]
+        if len(hfin) and conley_cutoff > hfin.min():
+            warnings.warn(f"conley_cutoff ({conley_cutoff:g}) exceeds the bandwidth at some evaluation points "
+                          f"(smallest {hfin.min():.4g}): the HAC form is built from the local fits' own "
+                          "residuals, and as the cutoff approaches the extent of the local sample it stops "
+                          "measuring the variance (Monte Carlo coverage fell to 0.8 at cutoffs of several "
+                          "bandwidths). Use a cutoff below the bandwidth", stacklevel=2)
 
     z = stats.norm.ppf(0.5 + level / 200)
     T = coords.treated
@@ -532,7 +540,10 @@ def rdnet(
                 aux = (Xa[:, ka], wk[m], m, Xi[:, ka])
             out, ks, offset = {}, {}, {}
             for order in (p, q):
-                X = _design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled)
+                # the pooled model's slopes are common to both sides, so its basis uses
+                # one scale; the side-specific model scales each side by its own h
+                hb = np.full(len(idx), max(H[j, 0], H[j, 1])) if pooled else hside[idx]
+                X = _design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled)
                 c = np.zeros(X.shape[1])
                 if pooled:
                     c[1] = 1.0

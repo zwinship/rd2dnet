@@ -74,19 +74,14 @@ class Fit:
             e = e / np.clip(1 - self.leverage, 1e-8, None)
         return (self.X @ self._row(coef)) * self.w * e
 
-    def coef_cov(self, vce: str = "hc1") -> np.ndarray:
-        """Sandwich covariance of all coefficients (heteroskedasticity-robust)."""
-        e = self.resid
-        if vce == "hc1":
-            e = e * np.sqrt(self.n / max(self.n - self.k, 1))
-        S = self.X * (self.w * e)[:, None]
-        return self.Ginv @ (S.T @ S) @ self.Ginv
-
 
 def wls(X: np.ndarray, y: np.ndarray, w: np.ndarray) -> Fit:
     XtW = X.T * w
     G = XtW @ X
-    if np.linalg.cond(G) > 1e12:
+    # conditioning of the column-equilibrated Gram matrix: covariates in their own
+    # units (income in dollars) must not make a well-posed fit look singular
+    dg = np.sqrt(np.clip(np.diag(G), 1e-300, None))
+    if not np.all(np.isfinite(G)) or np.linalg.cond(G / np.outer(dg, dg)) > 1e12:
         raise np.linalg.LinAlgError("local design matrix is singular")
     Ginv = np.linalg.inv(G)
     Ginv = (Ginv + Ginv.T) / 2

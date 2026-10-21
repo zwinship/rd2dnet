@@ -510,3 +510,28 @@ test_that("points on the line are treated with either side rule", {
   expect_true(boundary_is_treated(boundary(L, treated_side = "left"), on))
   expect_true(boundary_is_treated(boundary(L, treated_side = "right"), on))
 })
+
+test_that("a pooled fit with side bandwidths is exact without noise", {
+  cc <- mock_coords()
+  y <- 2 * cc$treated + 0.004 * cc$s
+  t <- rdnet(y, cc, h = c(400, 700), pooled = TRUE, cbands = FALSE)$table
+  ok <- t$status == "ok"
+  expect_equal(t$tau[ok], rep(2, sum(ok)), tolerance = 1e-9)
+})
+
+test_that("covariate units do not change the fit", {
+  cc <- mock_coords()
+  set.seed(0)
+  z <- mock_city()$obs$far + rnorm(cc$n_obs)
+  y <- mock_city()$obs$outcome
+  a <- rdnet(y, cc, h = 600, covs = z, cbands = FALSE)$table
+  b <- rdnet(y, cc, h = 600, covs = z * 1e7, cbands = FALSE)$table
+  expect_equal(b$status, a$status)
+  ok <- a$status == "ok"
+  expect_equal(b$tau[ok], a$tau[ok], tolerance = 1e-8)
+})
+
+test_that("a Conley cutoff above the bandwidth warns", {
+  expect_warning(rdnet(mock_city()$obs$outcome, mock_coords(), h = 400, conley_cutoff = 1500, cbands = FALSE),
+                 "exceeds the bandwidth")
+})

@@ -189,8 +189,12 @@ real colvector rdn_lstsq(real matrix A, real colvector b)
 real matrix rdn_inv_checked(real matrix G)
 {
     real matrix Gi
+    real colvector dg
     if (hasmissing(G)) return(J(rows(G), cols(G), .))
-    if (!(cond(G) <= 1e12)) return(J(rows(G), cols(G), .))
+    // conditioning of the column-equilibrated matrix: covariates in their own
+    // units (income in dollars) must not make a well-posed fit look singular
+    dg = sqrt(rowmax((diagonal(G), J(rows(G), 1, 1e-300))))
+    if (!(cond(G :/ (dg * dg')) <= 1e12)) return(J(rows(G), cols(G), .))
     Gi = luinv(G)
     return((Gi + Gi') / 2)
 }
@@ -2322,7 +2326,8 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     real rowvector tj
     real scalar nJ, z, j, conley, hasD, hasZ, hascl, nord, oi, ordr, k, vord, ti, tau, itt, fs
     real scalar basevce_is, status, kk, nc, cc, gg, fail, auxorder, haveband, dimi, gside, gmin
-    real colvector dimlist, bwbasis, keep, oexp, ka
+    real colvector dimlist, bwbasis, keep, oexp, ka, hb
+    real matrix hfin
     real matrix ex
     real scalar haso, ofirst, oo
     string scalar basevce
@@ -2347,6 +2352,16 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         bwbasis = bw[., 24]
     }
     else H = Hin
+    if (conley) {
+        hfin = select(H, rowmin((H :< .) :& (H :> 0)))
+        if (rows(hfin)) {
+            if (cutoff > min(hfin)) {
+                printf("{txt}warning: the Conley cutoff (%g) exceeds the bandwidth at some evaluation points (smallest %g);\n", cutoff, min(hfin))
+                printf("{txt}         HAC errors are built from the local fits' residuals and stop measuring the variance as the\n")
+                printf("{txt}         cutoff approaches the extent of the local sample; use a cutoff below the bandwidth\n")
+            }
+        }
+    }
     z = invnormal(0.5 + level / 200)
     T = C.treated
     Tf = T
@@ -2434,7 +2449,10 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         psifs = J(0, 1, .)
         for (oi = 1; oi <= rows(orders); oi++) {
             ordr = orders[oi]
-            X = rdn_design(s[idx] :/ hside[idx], o[idx] :/ hside[idx], Tf[idx], ordr, Zi, pooled)
+            // the pooled model's slopes are common to both sides, so its basis
+            // uses one scale; the side-specific model scales each side by its own h
+            hb = (pooled ? J(rows(idx), 1, max(H[j, .])) : hside[idx])
+            X = rdn_design(s[idx] :/ hb, o[idx] :/ hb, Tf[idx], ordr, Zi, pooled)
             cvec = J(cols(X), 1, 0)
             if (pooled) cvec[2] = 1
             else {

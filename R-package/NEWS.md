@@ -37,6 +37,11 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* `pooled = TRUE` with different bandwidths on the two sides now scales the common
+  slopes the same way on both sides (a linear surface is fitted exactly).
+* Covariates in large units no longer make local fits singular: conditioning is judged on
+  the column-equilibrated Gram matrix.
+* `vce = "conley"` warns when `conley_cutoff` exceeds the bandwidth.
 * `density()` uses the signed straight-line distance to the boundary by default
   (`normalize = "euclidean"`); the old default (`"network"`) over-rejected badly at curved
   boundaries. New `manipulation_test()` (Bugni, Crippa and Restrepo, 2026).
