@@ -83,6 +83,8 @@ class ManipulationTestResult:
             f"rd2dnet manipulation test (Bugni, Crippa and Restrepo): q={self.q} locations within "
             f"{self.distance:.4g} of the boundary, {self.n_treated} treated; S={self.statistic:.3f}, "
             f"p={self.pvalue:.4f} (critical value {self.crit:.3f} at {self.level:g}%, {self.reps} draws)"
+            + ("" if self.path is None or len(self.path) < 2 else
+               "\n" + self.path[["q", "statistic", "pvalue", "n_treated", "distance"]].to_string(index=False))
         )
 
 

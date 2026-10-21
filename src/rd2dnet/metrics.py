@@ -23,6 +23,7 @@ All costs must be non-negative; ``inf`` marks an untraversable edge.
 from __future__ import annotations
 
 import inspect
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Hashable, Mapping, Sequence
 
@@ -548,7 +549,29 @@ def travel_time(speed_attr: str = "speed_kph", length_attr: str = "length", defa
         return np.inf if speed <= 0 else float(_scalar(data[length_attr])) / (speed / 3.6)
 
     _cost.__name__ = "travel_time"
-    return EdgeCost(_cost, name="travel_time")
+    return _TravelTime(_cost, name="travel_time", speed_attr=speed_attr, default_kph=default_kph)
+
+
+class _TravelTime(EdgeCost):
+    """:func:`travel_time`, warning when most edges fall back to ``default_kph``."""
+
+    def __init__(self, cost, *, name, speed_attr, default_kph):
+        super().__init__(cost, name=name)
+        self._speed_attr, self._default_kph = speed_attr, default_kph
+        self._warned = False
+
+    def edge_costs(self, u_labels, v_labels, datas) -> np.ndarray:
+        c = super().edge_costs(u_labels, v_labels, datas)
+        if self._default_kph is not None and len(datas) and not self._warned:
+            sp = [_scalar(d.get(self._speed_attr)) for d in datas]
+            miss = np.mean([x is None or (isinstance(x, float) and np.isnan(x)) for x in sp])
+            if miss > 0.5:
+                warnings.warn(f"{miss:.0%} of edges have no {self._speed_attr!r} and use default_kph="
+                              f"{self._default_kph:g}: travel times are then mostly length / one speed. OpenStreetMap "
+                              "downloads carry speeds only where mapped (osmnx.add_edge_speeds imputes them by road "
+                              "class)", stacklevel=2)
+                self._warned = True
+        return c
 
 
 def node_contrast(attr: str, weight: float, base: str = "length", snap_scale: float | None = None) -> EdgeCost:

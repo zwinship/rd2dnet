@@ -63,6 +63,10 @@ class NetworkGraph:
         metric's own default: 1 for length, and otherwise the snapped edge's
         cost per unit length (so with travel time the walk to the street is
         charged at that street's seconds per metre); 0 for a precomputed matrix.
+    crs
+        Coordinate reference system of the node coordinates (anything pyproj
+        accepts). Taken from ``graph.graph["crs"]`` when not given; needed to
+        project longitude/latitude points (``lonlat=True``) onto the network.
     """
 
     def __init__(
@@ -298,12 +302,6 @@ class NetworkGraph:
         proportion to the split, as is the attribute the metric reads (for
         example ``"weight"``); all others are copied.
         """
-        if not self.metric.supports_edge_splitting:
-            warnings.warn(
-                f"{self.metric!r} cannot split edges; make sure boundary nodes exist in the graph",
-                stacklevel=2,
-            )
-            return self
         if self._split is not None and self._split[0] is boundary:
             return self._split[1]
         # the metric's own cost attribute is always split in proportion
@@ -316,6 +314,11 @@ class NetworkGraph:
         iu = np.fromiter((self.node_index[e[0]] for e in edges), dtype=np.int64, count=len(edges))
         iv = np.fromiter((self.node_index[e[1]] for e in edges), dtype=np.int64, count=len(edges))
         cand = np.flatnonzero(~on[iu] & ~on[iv] & (T[iu] != T[iv]))
+        if cand.size and not self.metric.supports_edge_splitting:
+            warnings.warn(f"{cand.size} edges cross the boundary between their end nodes, and {self.metric!r} cannot "
+                          "split edges: paths along them skip the boundary. Add nodes on the boundary to the graph "
+                          "(and to the distance matrix)", stacklevel=3)
+            return self
         if cand.size == 0:  # nothing to split: reuse this network (and its compiled engine)
             self.n_crossings_inserted = 0
             self._split = (boundary, self)
@@ -658,6 +661,7 @@ class NetworkGraph:
             data.setdefault("length", float(lengths[k]))
             data["geometry"] = geoms[k]
             G.add_edge(int(label[k]), int(label[m + k]), **data)
+        _warn_unjoined(G, lengths, tol, split_at_intersections)
         return cls(G, metric, crs=crs, **kwargs)
 
     @classmethod
@@ -754,6 +758,30 @@ def _between(a: dict, b: dict, t: float) -> dict:
         if isinstance(x, (int, float, np.number)) and isinstance(y, (int, float, np.number))                 and not isinstance(x, bool) and not isinstance(y, bool):
             out[k] = float(x) + (float(y) - float(x)) * t
     return out
+
+
+def _warn_unjoined(G, lengths, tol, split) -> None:
+    """Warn when most line ends join no other line (ends that miss by more than ``tol``, or unsplit layers)."""
+    n = G.number_of_nodes()
+    if n < 10:
+        return
+    nodes = list(G.nodes)
+    deg = np.array([G.degree(v) for v in nodes])
+    dangle = deg == 1
+    if dangle.mean() <= 0.5:
+        return
+    from scipy.spatial import cKDTree
+
+    xy = np.array([(G.nodes[v]["x"], G.nodes[v]["y"]) for v in nodes])
+    gap = cKDTree(xy).query(xy[dangle], k=2)[0][:, 1]
+    g = float(np.median(gap))
+    hint = []
+    if g < 0.1 * float(np.median(lengths)):
+        hint.append(f"increase tol (ends miss each other by a median {g:.3g}; tol={2 * g:.2g} would join them)")
+    if not split:
+        hint.append("use split_at_intersections=True if lines cross without ending at junctions")
+    warnings.warn(f"{int(dangle.sum())} of {n} line ends are not joined to any other line (tol={tol:g}), so the network "
+                  f"is mostly disconnected: " + "; or ".join(hint or ["check the layer"]), stacklevel=3)
 
 
 def _check_split_cost(metric, u, v, data, pieces) -> None:

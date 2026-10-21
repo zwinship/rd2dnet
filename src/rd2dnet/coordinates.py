@@ -441,11 +441,13 @@ def network_coordinates(
 
     Notes
     -----
-    On a directed network (``direction="out"``), distances run from the
-    boundary to each location, following edge directions: on a river drawn
-    downstream, locations upstream of the boundary cannot be reached. Use
-    ``direction="in"`` for distances from each location to the boundary, or
-    ``"both"`` to ignore direction.
+    Edge directions are set on the network: ``NetworkGraph(G, direction=...)``.
+    With ``direction="out"`` distances run from the boundary to each location,
+    following edge directions (on a river drawn downstream, locations upstream
+    of the boundary cannot be reached); ``"in"`` measures distances from each
+    location to the boundary; ``"flow"`` takes the shorter of the two directed
+    paths, so both sides of a river are measured along the flow; ``"both"``
+    (the default) ignores direction.
     """
     if eval_points is None and (int(n_eval) != n_eval or n_eval < 1):
         raise ValueError(f"n_eval must be a positive integer, got {n_eval!r}")
