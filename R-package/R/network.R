@@ -858,8 +858,25 @@ network_graph_from_place <- function(query = NULL, bbox = NULL, network_type = "
   for (p in c("dodgr", "sf")) {
     if (!requireNamespace(p, quietly = TRUE)) stop(sprintf("package '%s' is needed", p), call. = FALSE)
   }
-  streets <- dodgr::dodgr_streetnet(bbox, expand = 0, quiet = TRUE)
+  streets <- .overpass_retry(function() dodgr::dodgr_streetnet(bbox, expand = 0, quiet = TRUE))
   dodgr::weight_streetnet(streets, wt_profile = profile)
+}
+
+# Overpass servers are often busy (HTTP 502/504, timeouts): retry the download
+# on public mirrors before giving up. The user's Overpass URL is restored.
+.overpass_retry <- function(download) {
+  mirrors <- c("https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter")
+  old <- tryCatch(osmdata::get_overpass_url(), error = function(e) NULL)
+  if (!is.null(old)) on.exit(try(osmdata::set_overpass_url(old), silent = TRUE), add = TRUE)
+  urls <- c(if (is.null(old)) NA_character_ else old, setdiff(mirrors, old))
+  for (k in seq_along(urls)) {
+    if (!is.na(urls[k])) osmdata::set_overpass_url(urls[k])
+    res <- tryCatch(download(), error = function(e) e)
+    busy <- inherits(res, "error") && grepl("HTTP 5[0-9][0-9]|[Tt]imeout|timed out|too busy", conditionMessage(res))
+    if (!busy || k == length(urls)) break
+  }
+  if (inherits(res, "error")) stop(res)
+  res
 }
 
 .network_from_dodgr <- function(graph, metric = "length", ...) {
