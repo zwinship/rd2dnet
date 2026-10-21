@@ -24,6 +24,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
+import shapely
 
 from .boundary import Boundary
 from ._parallel import n_threads
@@ -440,11 +441,13 @@ def network_coordinates(
 
     Notes
     -----
-    On a directed network (``direction="out"``), distances run from the
-    boundary to each location, following edge directions: on a river drawn
-    downstream, locations upstream of the boundary cannot be reached. Use
-    ``direction="in"`` for distances from each location to the boundary, or
-    ``"both"`` to ignore direction.
+    Edge directions are set on the network: ``NetworkGraph(G, direction=...)``.
+    With ``direction="out"`` distances run from the boundary to each location,
+    following edge directions (on a river drawn downstream, locations upstream
+    of the boundary cannot be reached); ``"in"`` measures distances from each
+    location to the boundary; ``"flow"`` takes the shorter of the two directed
+    paths, so both sides of a river are measured along the flow; ``"both"``
+    (the default) ignores direction.
     """
     if eval_points is None and (int(n_eval) != n_eval or n_eval < 1):
         raise ValueError(f"n_eval must be a positive integer, got {n_eval!r}")
@@ -541,7 +544,7 @@ def network_coordinates(
         pc = np.r_[cu, eval_snap.cost_u]
         tot = pc + np.r_[cv, eval_snap.cost_v]
         frac = np.divide(pc, tot, out=np.zeros_like(pc), where=tot > 0)
-        on_edge_ends = node_on[pu] & node_on[pv]
+        on_edge_ends = _on_along(network, boundary, node_on, pu, pv)
         network, pnode = network._with_point_nodes(pu, pv, frac, extensive)
         on_new = boundary.distance(network.coords) <= boundary.tol
         on_new[pnode[on_edge_ends]] = True
@@ -560,7 +563,7 @@ def network_coordinates(
     dist = depth_cost + np.minimum(via_u, via_v)
     crossing = np.where(via_u <= via_v, node_src[u], node_src[v])
     # A point snapped onto a segment that runs along the boundary is already there.
-    on_edge = node_on[u] & node_on[v] & (u != v)
+    on_edge = _on_along(network, boundary, node_on, u, v)
     dist = np.where(on_edge, depth_cost, dist)
     crossing = np.where(on_edge, np.where(cu <= cv, u, v), crossing)
     unreachable = ~np.isfinite(dist) | (crossing < 0)
@@ -668,6 +671,38 @@ def _unique_locations(xy: np.ndarray, T: np.ndarray | None):
     return rank[loc], first[srt]
 
 
+def _along_boundary(network, boundary, node_on) -> np.ndarray:
+    """Edge-frame mask of street segments that run along the boundary.
+
+    Both ends on the boundary is not enough: a road that leaves the boundary
+    and comes back (a crescent, a loop into one side) has both ends there but
+    is not on it. Its quarter points must lie within ``boundary.tol`` too.
+    """
+    E = network.edge_frame()
+    u, v = E["u"].to_numpy(), E["v"].to_numpy()
+    out = node_on[u] & node_on[v] & (u != v)
+    if out.any():
+        g = E["geometry"].to_numpy()[out]
+        ok = np.ones(len(g), bool)
+        for f in (0.25, 0.5, 0.75):
+            pts = shapely.get_coordinates(shapely.line_interpolate_point(g, f, normalized=True))
+            ok &= boundary.distance(pts) <= boundary.tol
+        out[out] = ok
+    return out
+
+
+def _on_along(network, boundary, node_on, u, v) -> np.ndarray:
+    """Whether points snapped between nodes ``u`` and ``v`` lie on a segment along the boundary."""
+    on = node_on[u] & node_on[v] & (u != v)
+    if not on.any():
+        return on
+    E = network.edge_frame()
+    eu, ev = E["u"].to_numpy(), E["v"].to_numpy()
+    n = network.n_nodes
+    keys = (np.minimum(eu, ev) * n + np.maximum(eu, ev))[_along_boundary(network, boundary, node_on)]
+    return on & np.isin(np.minimum(u, v) * n + np.maximum(u, v), keys)
+
+
 def _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnode_arc) -> Snap:
     """Place evaluation points on boundary street segments (or boundary nodes)."""
     k = len(eval_arc)
@@ -677,7 +712,7 @@ def _snap_eval_points(network, boundary, eval_arc, node_on, boundary_nodes, bnod
         return out
     E = network.edge_frame()
     u, v = E["u"].to_numpy(), E["v"].to_numpy()
-    along = node_on[u] & node_on[v] & np.isfinite(E["cost"].to_numpy())
+    along = _along_boundary(network, boundary, node_on) & np.isfinite(E["cost"].to_numpy())
     if not along.any():
         return out
     E = E[along]

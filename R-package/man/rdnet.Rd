@@ -128,7 +128,11 @@ bias-corrected \code{tau_bc} with robust \code{se_rb}, the robust interval
 \code{"insufficient"} (fewer than \code{min_obs} observations on a side),
 \code{"few clusters"}, \code{"singular"}, \code{"weak first stage"}, \code{"no bandwidth"}), the local \code{basis} (\code{"s,o"} or \code{"s"}, see Details), and
 optionally the uniform band \code{cb_lo}/\code{cb_hi}. Fuzzy designs add \code{itt},
-\code{fs} and \code{fs_se}.}
+\code{fs} and \code{fs_se}; a point whose first stage is within two standard
+errors of zero (\code{|fs| < 2 fs_se}) is \code{"weak first stage"}: its
+estimates are reported, but the delta-method interval for \code{itt / fs}
+is unreliable and it is left out of the default \code{\link[=wbate]{wbate()}} and of
+\code{\link[=lbate]{lbate()}}.}
 \item{\code{cov}}{the \verb{J x J} covariance of \code{tau_bc} across evaluation
 points (rd2d's \code{params_cov}), \code{NA} for points not estimated; its
 diagonal is \code{se_rb^2}.}

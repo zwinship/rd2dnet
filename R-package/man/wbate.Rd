@@ -27,8 +27,9 @@ p-value; \code{se_rb} and \code{pvalue} are \code{NA} for LBATE).
 (rd2d's WBATE): \code{weights} has one entry per evaluation point and is
 normalised to sum to one. By default every distinct place where an estimated
 point lies gets equal weight: evaluation points that snapped to the same place
-(\code{node_arc}) repeat one estimate and share its weight. Points that were not
-estimated must get weight 0. Its standard error \verb{sqrt(w' Sigma w)} uses the
+(\code{node_arc}) repeat one estimate and share its weight. Points with a weak
+first stage are left out by default but may be given weight. Points that were
+not estimated must get weight 0. Its standard error \verb{sqrt(w' Sigma w)} uses the
 joint covariance \code{x$cov}, so it accounts for the correlation between nearby points.
 }
 \details{

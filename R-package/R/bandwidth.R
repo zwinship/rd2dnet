@@ -215,9 +215,13 @@
 #' @param bwselect `"mserd"` (one MSE-optimal bandwidth for both sides),
 #'   `"msetwo"` (one per side), `"imserd"`/`"imsetwo"` (one bandwidth for all
 #'   evaluation points), or the coverage-error-optimal `"cerrd"`, `"certwo"`,
-#'   `"icerrd"`, `"icertwo"`.
+#'   `"icerrd"`, `"icertwo"`. Every bandwidth is kept between the `bwcheck`
+#'   floor and the distance to the farthest observation at its own point, so a
+#'   common bandwidth is raised (or lowered) at points where it would fall
+#'   outside that range.
 #' @param vce `"hc0"`-`"hc3"` variance used inside the selector
-#'   (`"cluster"` and `"conley"` select with `"hc1"`).
+#'   (`"cluster"` and `"conley"` select with `"hc0"` residuals, cluster-robust
+#'   when `cluster` is given, as [rdnet()] does with those standard errors).
 #' @param bwcheck Every bandwidth is at least the distance to the
 #'   `bwcheck`-th nearest observation on each side (default `20 +` the number
 #'   of order-`p + 1` terms).
@@ -253,10 +257,10 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
     stop(sprintf("bwselect must be one of %s", paste(.BWSELECT, collapse = ", ")), call. = FALSE)
   }
   if (!vce %in% .VCE_TYPES) {
-    stop("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc1')",
+    stop("vce must be one of 'hc0', 'hc1', 'hc2', 'hc3' (or 'cluster'/'conley', which select with 'hc0')",
          call. = FALSE)
   }
-  if (!vce %in% c("hc0", "hc1", "hc2", "hc3")) vce <- "hc1"
+  if (!vce %in% c("hc0", "hc1", "hc2", "hc3")) vce <- "hc0"
   y <- .check_obs(y, coords$n_obs, "y")
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "triangular"
@@ -276,10 +280,7 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   # Effective sample sizes count distinct locations (mass points count once), as in rd2d.
   n_eff <- length(unique(coords$loc[fin]))
   n_eff_side <- c(length(unique(coords$loc[fin & !T])), length(unique(coords$loc[fin & T])))
-  deriv <- as.integer(deriv)
-  if (length(deriv) != 2 || min(deriv) < 0 || sum(deriv) > p) {
-    stop("deriv must be c(a, c) with a, c >= 0 and a + c <= p", call. = FALSE)
-  }
+  deriv <- .check_deriv(deriv, p)
   J <- coords$n_eval
   tang <- if (is.null(tangvec)) NULL else .tangent_matrix(tangvec, J)
   v_ord <- if (!is.null(tang)) 1 else sum(deriv)
@@ -444,10 +445,31 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
 
 # Directions (t_s, t_o) as a J x 2 matrix (one shared direction or one per point).
 .tangent_matrix <- function(tangvec, J) {
+  if (!is.numeric(tangvec)) stop("tangvec must be numeric: c(t_s, t_o) or a J x 2 matrix", call. = FALSE)
   tv <- as.matrix(tangvec)
   if (length(tangvec) == 2 && is.null(dim(tangvec))) tv <- matrix(as.numeric(tangvec), 1, 2)
   if (ncol(tv) != 2 || !(nrow(tv) %in% c(1, J))) {
     stop("tangvec must be c(t_s, t_o) or a J x 2 matrix", call. = FALSE)
   }
+  if (!all(is.finite(tv))) stop("tangvec must be finite", call. = FALSE)
+  if (any(tv[, 1] == 0 & tv[, 2] == 0)) stop("tangvec must not be c(0, 0)", call. = FALSE)
   tv[rep_len(seq_len(nrow(tv)), J), , drop = FALSE]
+}
+
+# An integer option: integer-valued (1 is fine, 2.7 is an error) and at least `lo`.
+.as_int <- function(x, name, lo = NULL) {
+  if (!is.numeric(x) || length(x) != 1 || !is.finite(x) || x != round(x)) {
+    stop(sprintf("%s must be an integer (got %s)", name, paste(format(x), collapse = ", ")), call. = FALSE)
+  }
+  if (!is.null(lo) && x < lo) stop(sprintf("%s must be at least %d (got %s)", name, lo, format(x)), call. = FALSE)
+  as.integer(x)
+}
+
+.check_deriv <- function(deriv, p) {
+  if (!is.numeric(deriv) || length(deriv) != 2) {
+    stop("deriv must be c(a, c) with a, c >= 0 and a + c <= p", call. = FALSE)
+  }
+  out <- c(.as_int(deriv[1], "deriv", 0L), .as_int(deriv[2], "deriv", 0L))
+  if (sum(out) > p) stop("deriv must be c(a, c) with a, c >= 0 and a + c <= p", call. = FALSE)
+  out
 }

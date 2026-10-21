@@ -78,15 +78,36 @@
   S
 }
 
-# Warn when most locations lie on the network itself (no sorting test is valid then).
+# Median snap distance of the locations relative to points spread evenly (a
+# 45 x 45 lattice) over their extent: about 1 when units are spread over the
+# plane, near 0 when they sit on or next to the streets.
+.street_closeness <- function(coords, n_ref = 45L) {
+  first <- !duplicated(coords$loc)
+  depth <- coords$snap$depth[first]
+  xy <- coords$xy[first, , drop = FALSE]
+  ok <- is.finite(depth) & is.finite(xy[, 1]) & is.finite(xy[, 2])
+  if (sum(ok) < 20) return(NA_real_)
+  lo <- apply(xy[ok, , drop = FALSE], 2, min)
+  hi <- apply(xy[ok, , drop = FALSE], 2, max)
+  g <- (seq_len(n_ref) - 0.5) / n_ref
+  ref <- as.matrix(expand.grid(x = lo[1] + g * (hi[1] - lo[1]), y = lo[2] + g * (hi[2] - lo[2])))
+  rd <- tryCatch(snap_points(coords$network, unname(ref))$depth, error = function(e) NULL)
+  if (is.null(rd)) return(NA_real_)
+  med <- stats::median(rd)
+  if (!(med > 0)) return(NA_real_)
+  stats::median(depth[ok]) / med
+}
+
+# Warn when most locations lie on or next to the network itself (no sorting test is valid then).
 .warn_if_on_network <- function(coords) {
-  depth <- coords$snap$depth[!duplicated(coords$loc)]
-  span <- apply(coords$network$coords, 2, function(z) diff(range(z)))
-  extent <- sqrt(sum(span^2))
-  if (length(depth) && mean(depth <= 1e-6 * max(extent, 1)) > 0.5) {
-    warning(paste0("most locations lie on the network itself (stations on a river, points on streets); ",
-                   "sorting tests assume units spread over the plane, and in Monte Carlo runs none of them ",
-                   "held its size for points on streets near a curved boundary"), call. = FALSE)
+  r <- .street_closeness(coords)
+  if (is.finite(r) && r < 0.6) {
+    where <- if (r < 1e-6) "on the network itself" else "on or next to the network"
+    warning(sprintf(paste0("most locations lie %s (stations on a river, GPS points on streets): their median ",
+                           "distance to the nearest street is %.2f times that of points spread over the same ",
+                           "area. Sorting tests assume units spread over the plane; in Monte Carlo runs none of ",
+                           "them held its size for points on or near streets (GPS noise up to 15 m)"), where, r),
+            call. = FALSE)
   }
 }
 
@@ -111,7 +132,7 @@
 #' The test has power against sorting that offsets along the boundary, which a
 #' density test of the distance to the boundary cannot detect; against sorting in
 #' one direction everywhere, [density()] is more powerful. It is not valid for
-#' observations that lie on the network itself (stations along a river, points
+#' observations that lie on or next to the network (stations along a river, points
 #' on streets).
 #'
 #' @param coords Output of [network_coordinates()].
@@ -152,10 +173,12 @@ manipulation_test <- function(coords, q = NULL, k_max = NULL, reps = 10000, leve
   n_use <- length(idx)
   qs <- if (is.null(q)) (if (n_use >= 2000) 200 else max(n_use %/% 10, 1)) else q
   rows <- list()
+  if (!is.null(k_max)) k_max <- .as_int(k_max, "k_max", 1L)
   for (qq in qs) {
-    qq <- as.integer(qq)
+    qq <- .as_int(qq, "q")
     if (qq < 2 || qq > n_use) {
-      stop(sprintf("q must be between 2 and the number of usable locations (%d), got %d", n_use, qq), call. = FALSE)
+      what <- if (is.null(q)) sprintf("the default q (%d, a tenth of the usable locations)", qq) else "q"
+      stop(sprintf("%s must be between 2 and the number of usable locations (%d)", what, n_use), call. = FALSE)
     }
     if (qq < 20) warning(sprintf("q = %d locations give a test with little power", qq), call. = FALSE)
     if (qq > 0.4 * n_use) {

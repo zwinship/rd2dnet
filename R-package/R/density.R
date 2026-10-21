@@ -86,6 +86,13 @@
 
 # Cumulative street length within distance a of the boundary, per side:
 # list(left, right) of functions.
+# Distance along the boundary between arc positions (the shorter way round a closed ring).
+.arc_gap <- function(b, arc, center) {
+  gap <- abs(arc - center)
+  if (isTRUE(b$closed)) gap <- pmin(gap, b$length - gap)
+  gap
+}
+
 .street_length_transform <- function(coords, center, window) {
   net <- coords$network
   E <- edge_frame(net)
@@ -103,7 +110,7 @@
   arc <- (boundary_project(coords$boundary, net$coords[su, , drop = FALSE]) +
             boundary_project(coords$boundary, net$coords[sv, , drop = FALSE])) / 2
   keep <- keep & !boundary_is_masked(coords$boundary, arc)
-  if (!is.null(center)) keep <- keep & abs(arc - center) <= window
+  if (!is.null(center)) keep <- keep & .arc_gap(coords$boundary, arc, center) <= window
   exact <- is.finite(cost)
   med <- if (any(is.finite(cost[keep]))) {
     stats::median(cost[keep], na.rm = TRUE)
@@ -163,7 +170,7 @@
 #'   distance `s`; its density jumps at curved or irregular boundaries without any
 #'   sorting. `"network"`: observations per metre of street; valid only when
 #'   observations lie on the streets of a straight boundary. No density test holds
-#'   its size everywhere when the observations lie on the network itself.
+#'   its size everywhere when the observations lie on or next to the network.
 #' @param kernel Kernel name or function (see [get_kernel()]).
 #' @param weights Optional non-negative observation weights.
 #' @param bwselect `"common"` (one bandwidth, the smaller of the two side-wise
@@ -239,7 +246,7 @@ density.rd2dnet_coords <- function(x, eval_index = NULL, window = NULL, h = NULL
   if (!is.null(eval_index)) {
     if (is.null(window)) stop("give a window (arc length) together with eval_index", call. = FALSE)
     center <- coords$eval_node_arc[eval_index]
-    sel <- sel & !is.na(arc) & abs(arc - center) <= window
+    sel <- sel & !is.na(arc) & .arc_gap(coords$boundary, arc, center) <= window
   }
   if (normalize == "network") {
     G <- .street_length_transform(coords, center, window)

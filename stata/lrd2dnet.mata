@@ -551,6 +551,15 @@ struct rdn_bnd scalar rdn_boundary(real matrix line, real matrix region, string 
     return(B)
 }
 
+// Distance along the boundary between arc positions (the shorter way round a closed ring).
+real colvector rdn_arc_gap(struct rdn_bnd scalar B, real colvector arc, real scalar center)
+{
+    real colvector gap
+    gap = abs(arc :- center)
+    if (rdn_bclosed(B)) gap = rowmin((gap, B.blen :- gap))
+    return(gap)
+}
+
 // Whether the boundary is a closed ring (first vertex = last vertex).
 real scalar rdn_bclosed(struct rdn_bnd scalar B)
 {
@@ -1098,6 +1107,8 @@ void rdn_compile(struct rdn_net scalar N)
         asarray(map, classes[a], a)
         for (b = 1; b <= C; b++) pen[a + 1, b + 1] = rdn_penalty(N, classes[a], classes[b])
     }
+    // arcs are reversed, so the search meets each turn from its far side
+    if (N.directed & N.direction == "in") pen = pen'
     cid = J(mm, 1, 1)
     for (k = 1; k <= rows(nc); k++) cid[nc[k]] = 1 + asarray(map, cls[nc[k]])
     ncstate = J(mm, 1, 0)
@@ -1634,6 +1645,49 @@ void rdn_unique_locations(real matrix xy, real colvector T, real scalar useT,
     firstl = firsts[srt]
 }
 
+// Street segments (rows of the edge frame) that run along the boundary. Both
+// ends on the boundary is not enough: a straight street between two points of
+// a curved boundary is a chord, not on it. Its quarter points must lie within
+// the boundary's tolerance too.
+real colvector rdn_along_bnd(struct rdn_coords scalar C)
+{
+    real colvector out, ei, f
+    real matrix a, b, q
+    real scalar k
+    out = C.nodeon[C.N.fu] :& C.nodeon[C.N.fv] :& (C.N.fu :!= C.N.fv)
+    ei = selectindex(out)
+    if (rows(ei) == 0) return(out)
+    a = C.N.xy[C.N.fu[ei], .]
+    b = C.N.xy[C.N.fv[ei], .]
+    f = (0.25 \ 0.5 \ 0.75)
+    for (k = 1; k <= 3; k++) {
+        q = a + (b - a) :* f[k]
+        out[ei] = out[ei] :& (rdn_bdistance(C.B, q) :<= C.B.tol)
+    }
+    return(out)
+}
+
+// Whether points snapped between nodes u and v lie on a segment along the boundary.
+real colvector rdn_on_along(struct rdn_coords scalar C, real colvector u, real colvector v)
+{
+    real colvector on, ei, al
+    real scalar i
+    transmorphic A
+    on = C.nodeon[u] :& C.nodeon[v] :& (u :!= v)
+    if (!any(on)) return(on)
+    al = rdn_along_bnd(C)
+    A = asarray_create("real", 2)
+    ei = selectindex(al)
+    for (i = 1; i <= rows(ei); i++) {
+        asarray(A, (min((C.N.fu[ei[i]], C.N.fv[ei[i]])), max((C.N.fu[ei[i]], C.N.fv[ei[i]]))), 1)
+    }
+    ei = selectindex(on)
+    for (i = 1; i <= rows(ei); i++) {
+        on[ei[i]] = asarray_contains(A, (min((u[ei[i]], v[ei[i]])), max((u[ei[i]], v[ei[i]]))))
+    }
+    return(on)
+}
+
 // Place evaluation points on boundary street segments (or boundary nodes).
 void rdn_snap_eval(struct rdn_coords scalar C, real colvector bnodes, real colvector bnarc)
 {
@@ -1645,7 +1699,7 @@ void rdn_snap_eval(struct rdn_coords scalar C, real colvector bnodes, real colve
     C.ev = C.eu
     C.ecu = J(k, 1, 0)
     C.ecv = J(k, 1, 0)
-    along = C.nodeon[C.N.fu] :& C.nodeon[C.N.fv] :& (C.N.fcost :< rdn_inf())
+    along = rdn_along_bnd(C) :& (C.N.fcost :< rdn_inf())
     ei = selectindex(along)
     if (rows(ei) == 0) return
     au = rdn_bproject(C.B, C.N.xy[C.N.fu[ei], .])
@@ -1746,7 +1800,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
         pc = cu \ C.ecu
         tot = pc + (cv \ C.ecv)
         frac = rdn_where(tot :> 0, pc :/ tot, J(rows(tot), 1, 0))
-        onends = C.nodeon[pu] :& C.nodeon[pv]
+        onends = rdn_on_along(C, pu, pv)
         NP = C.N
         pnode = rdn_point_nodes(NP, pu, pv, frac)
         rdn_edge_frame(NP)
@@ -1774,7 +1828,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     viav = cv + C.nodedist[v]
     dist = depc + rowmin((viau, viav))
     xnode = rdn_where(viau :<= viav, C.nodesrc[u], C.nodesrc[v])
-    onedge = C.nodeon[u] :& C.nodeon[v] :& (u :!= v)
+    onedge = rdn_on_along(C, u, v)
     dist = rdn_where(onedge, depc, dist)
     xnode = rdn_where(onedge, rdn_where(cu :<= cv, u, v), xnode)
     unreach = (dist :>= 1e299) :| (xnode :== 0)
@@ -2266,6 +2320,24 @@ real scalar rdn_uniform_crit(real matrix Sigma, real scalar level, real scalar r
     return(crit)
 }
 
+// Nearest positive semi-definite matrix when V is clearly not one. Bartlett
+// weights are positive definite on a line but not on a network or in the
+// plane, so a Conley covariance can have negative eigenvalues (and negative
+// variances). They are set to zero, with a note; a matrix that is positive
+// semi-definite up to rounding is returned unchanged.
+real matrix rdn_psd(real matrix V)
+{
+    real matrix X, out
+    real rowvector L
+    if (rows(V) == 0 | hasmissing(V)) return(V)
+    symeigensystem(V, X, L)
+    if (min(L) >= -1e-10 * max((max(L), 0))) return(V)
+    printf("{txt}note: the Conley covariance was not positive semi-definite (Bartlett weights need not be on a\n")
+    printf("{txt}      network); its negative eigenvalues were set to 0. A smaller cutoff avoids this.\n")
+    out = (X :* rowmax((L', J(cols(L), 1, 0)))') * X'
+    return((out + out') / 2)
+}
+
 // Columns of the rdnet results matrix.
 string rowvector rdn_result_names()
 {
@@ -2587,7 +2659,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             PsiC = asarray(hstore, cc)
             Psi[pos[PsiC[., 1]], cc] = PsiC[., 2]
         }
-        V = rdn_hac(C, uni, Psi, cutoff, euclid)
+        V = rdn_psd(rdn_hac(C, uni, Psi, cutoff, euclid))
         se_all = sqrt(rowmax((diagonal(V), J(rows(V), 1, 0))))
         for (cc = 1; cc <= rows(hj); cc++) {
             if (hname[cc] == 2) rdn_set_rb(R, hj[cc], se_all[cc], z)
@@ -2630,14 +2702,30 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             cov[keys, keys] = V
         }
     }
+    if (hasD) {
+        // a first stage indistinguishable from zero makes tau = itt / fs and its
+        // delta-method interval unreliable: flag it (the estimates are kept)
+        for (j = 1; j <= nJ; j++) {
+            if (R[j, 15] == 0 & R[j, 20] < . & R[j, 21] < .) {
+                if (abs(R[j, 20]) < 2 * R[j, 21]) R[j, 15] = 5
+            }
+        }
+    }
     R[., 16] = rdn_where(rdn_isclose(R[., 4], R[., 5]), R[., 4], .)
     if (rows(cov)) {
         ok = selectindex(diagonal(cov) :< .)
         if (rows(ok)) {
             crit = rdn_uniform_crit(cov[ok, ok], level, repp, seed)
-            if (hascl & gmin < 10) {
+            if (hascl & gmin < 50) {
                 printf("{txt}note: cluster-robust standard errors rest on few clusters (as few as %g per side within\n", gmin)
-                printf("{txt}      the bandwidth); with fewer than about 10 per side they are too small. Consider vce(conley #).\n")
+                printf("{txt}      the bandwidth). Local cluster-robust errors are too small unless there are many clusters\n")
+                printf("{txt}      per side (Monte Carlo coverage of 95%% intervals: about 0.7 with 5-6, 0.78 with 26, 0.88 with\n")
+                printf("{txt}      48, 0.94 with 190). Consider vce(conley #).\n")
+            }
+            else if (!hascl & !conley & C.nloc < 0.9 * C.nobs) {
+                printf("{txt}note: the %g observations sit at only %g distinct locations (a panel or repeated\n", C.nobs, C.nloc)
+                printf("{txt}      measurements?); %s standard errors treat them as independent and are too small when\n", strupper(vce))
+                printf("{txt}      observations at one place are correlated. Cluster by unit (vce(cluster ...)) or use vce(conley #).\n")
             }
             if (cbands) {
                 R[., 17] = R[., 10] :- crit :* R[., 11]
@@ -3205,7 +3293,7 @@ void rdn_street_length(struct rdn_coords scalar C, real scalar center, real scal
     sv = rdn_where(C.nodesrc[v] :== 0, 1, C.nodesrc[v])
     arc = (rdn_bproject(C.B, C.N.xy[su, .]) + rdn_bproject(C.B, C.N.xy[sv, .])) :/ 2
     keep = keep :& (!rdn_bmasked(C.B, arc))
-    if (center < .) keep = keep :& (abs(arc :- center) :<= window)
+    if (center < .) keep = keep :& (rdn_arc_gap(C.B, arc, center) :<= window)
     exact = (cost :< 1e299)
     fk = selectindex(keep)
     if (rows(fk) == 0) _error(2001, "no streets on either side of the boundary in this window")
@@ -3275,7 +3363,7 @@ real rowvector rdn_density(struct rdn_coords scalar C, real colvector sample, re
     if (evalindex < .) {
         if (window >= .) _error(198, "give window() together with evalindex()")
         center = C.enodearc[evalindex]
-        sel = sel :& (arc :< .) :& (abs(arc :- center) :<= window)
+        sel = sel :& (arc :< .) :& (rdn_arc_gap(C.B, arc, center) :<= window)
     }
     if (normalize == "network") {
         gl = .
@@ -3529,6 +3617,7 @@ void rdn_read_common(struct rdn_coords scalar C, string scalar touse, real colve
     else deriv = (0, 0)
     if (st_local("tangvec") != "") {
         tv = strtoreal(tokens(st_local("tangvec")))'
+        if (tv[1] == 0 & tv[2] == 0) _error(198, "tangvec() must not be (0, 0)")
         tang = J(C.neval, 1, 1) * tv'
     }
     else tang = J(0, 0, .)
@@ -3875,20 +3964,46 @@ void rdn_manip_entry()
     st_matrixcolstripe("r(path)", (J(7, 1, ""), ("q" \ "statistic" \ "pvalue" \ "crit" \ "n_treated" \ "distance" \ "k_max")))
 }
 
-// Note when most locations lie on the network itself (sorting tests assume
-// units spread over the plane).
+// Median snap distance of the locations relative to points spread evenly (a
+// 45 x 45 lattice) over their extent: about 1 when units are spread over the
+// plane, near 0 when they sit on or next to the streets.
+real scalar rdn_street_closeness(struct rdn_coords scalar C)
+{
+    struct rdn_snap scalar S
+    real colvector dep, ok, g, gx, gy
+    real matrix xy, ref
+    real rowvector lo, hi
+    real scalar med, nr, a, b
+    dep = C.depth[C.firstl]
+    xy = C.xy[C.firstl, .]
+    ok = (dep :< .) :& (rowmissing(xy) :== 0)
+    if (sum(ok) < 20) return(.)
+    lo = colmin(select(xy, ok))
+    hi = colmax(select(xy, ok))
+    nr = 45
+    g = ((1::nr) :- 0.5) :/ nr
+    gx = lo[1] :+ g :* (hi[1] - lo[1])
+    gy = lo[2] :+ g :* (hi[2] - lo[2])
+    ref = J(nr * nr, 2, .)
+    for (b = 1; b <= nr; b++) {
+        for (a = 1; a <= nr; a++) ref[(b - 1) * nr + a, .] = (gx[a], gy[b])
+    }
+    S = rdn_snap_points(C.N, ref, J(C.N.n, 1, 1), 0)
+    med = rdn_median(S.depth)
+    if (!(med > 0) | med >= .) return(.)
+    return(rdn_median(select(dep, ok)) / med)
+}
+
 void rdn_warn_on_network(struct rdn_coords scalar C)
 {
-    real colvector dep
-    real scalar ext
-    dep = C.depth[C.firstl]
-    ext = sqrt((max(C.N.xy[., 1]) - min(C.N.xy[., 1]))^2 + (max(C.N.xy[., 2]) - min(C.N.xy[., 2]))^2)
-    if (rows(dep)) {
-        if (mean(dep :<= 1e-6 * max((ext, 1))) > 0.5) {
-            printf("{txt}warning: most locations lie on the network itself (stations on a river, points on streets);\n")
-            printf("{txt}         sorting tests assume units spread over the plane, and in Monte Carlo runs none of\n")
-            printf("{txt}         them held its size for points on streets near a curved boundary\n")
-        }
+    real scalar r
+    r = rdn_street_closeness(C)
+    if (r < . & r < 0.6) {
+        printf("{txt}warning: most locations lie %s (stations on a river, GPS points on streets):\n",
+            (r < 1e-6 ? "on the network itself" : "on or next to the network"))
+        printf("{txt}         their median distance to the nearest street is %4.2f times that of points spread over\n", r)
+        printf("{txt}         the same area. Sorting tests assume units spread over the plane; in Monte Carlo runs none\n")
+        printf("{txt}         of them held its size for points on or near streets (GPS noise up to 15 m)\n")
     }
 }
 
@@ -3907,13 +4022,14 @@ void rdn_wbate_entry()
     if (rows(w) != nJ) _error(503, "WBATE weights must have one entry per evaluation point (" + strofreal(nJ) + ")")
     if (hasmissing(w)) _error(504, "WBATE weights must be finite")
     if (sum(w) == 0) _error(498, "WBATE weights must have a nonzero sum")
-    ok = (R[., 15] :== 0)
+    ok = (R[., 15] :== 0) :| (R[., 15] :== 5)
     bad = selectindex((!ok) :& (w :!= 0))
     if (rows(bad)) _error(498, "WBATE puts weight on evaluation points that were not estimated; give them weight 0")
     okw = selectindex(ok)
     w = w :/ sum(w)
     tq = w[okw]' * R[okw, 10]
-    se = sqrt(max((w[okw]' * cov[okw, okw] * w[okw], 0)))
+    se = w[okw]' * cov[okw, okw] * w[okw]
+    se = (se < . ? sqrt(max((se, 0))) : .)
     z = invnormal(0.5 + lev / 200)
     st_numscalar("r(tau)", w[okw]' * R[okw, 8])
     st_numscalar("r(tau_bc)", tq)

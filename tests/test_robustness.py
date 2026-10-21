@@ -267,3 +267,51 @@ def test_clear_errors_for_malformed_inputs():
     G2.add_edge("a", "b", length=1.0)
     with pytest.raises(ValueError, match="not in the precomputed"):
         rd2dnet.NetworkGraph(G2, Precomputed(np.zeros((2, 2)), ["a", "c"])).engine
+
+
+@pytest.mark.parametrize("kw, msg", [
+    (dict(deriv=(0.5, 0)), "deriv must be an integer"),
+    (dict(p=1.5), "p must be an integer"),
+    (dict(q=2.5), "q must be an integer"),
+    (dict(repp=0), "repp must be at least 1"),
+    (dict(tangvec=(1.0, 0.0, 0.0)), "tangvec must be"),
+    (dict(tangvec=(np.nan, 1.0)), "tangvec must be finite"),
+    (dict(tangvec=(0.0, 0.0)), r"tangvec must not be \(0, 0\)"),
+])
+def test_rdnet_rejects_malformed_options(city, coords, kw, msg):
+    with pytest.raises(ValueError, match=msg):
+        rd2dnet.rdnet(city.obs["outcome"], coords, h=600, **kw)
+
+
+def test_rdbwnet_rejects_fractional_deriv(city, coords):
+    with pytest.raises(ValueError, match="deriv must be an integer"):
+        rd2dnet.rdbwnet(city.obs["outcome"], coords, deriv=(0.5, 0))
+
+
+def test_manipulation_test_rejects_bad_q_and_k_max(coords):
+    with pytest.raises(ValueError, match="k_max must be at least 1"):
+        rd2dnet.manipulation_test(coords, k_max=0)
+    with pytest.raises(ValueError, match="q must be an integer"):
+        rd2dnet.manipulation_test(coords, q=50.5)
+
+
+def test_rd2dnet_with_missing_locations_says_so(city):
+    X = city.obs[["x", "y"]].to_numpy().copy()
+    X[3, 0] = np.nan
+    b = city.boundary.interpolate(city.boundary.grid(5, start=100, end=2900))
+    with pytest.raises(ValueError, match="X has missing"):
+        rd2dnet.rd2dnet(city.obs["outcome"], X, city.obs["treated"], b, city.network())
+
+
+def test_conley_covariance_is_made_positive_semidefinite():
+    from rd2dnet.estimate import _psd
+
+    V = np.array([[1.0, 2.0], [2.0, 1.0]])  # eigenvalues 3 and -1
+    with pytest.warns(UserWarning, match="not positive semi-definite"):
+        P = _psd(V)
+    assert np.linalg.eigvalsh(P).min() >= -1e-12
+    np.testing.assert_allclose(P, 1.5 * np.ones((2, 2)))
+    W = np.array([[2.0, 1.0], [1.0, 2.0]])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _psd(W) is W

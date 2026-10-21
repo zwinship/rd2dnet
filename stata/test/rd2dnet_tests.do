@@ -465,6 +465,61 @@ program define t_pointnodes
     rdn_expect _rdn_s[3] -500 1e-12 "transition, own edge class: s[3]"
 end
 
+capture program drop t_round2
+program define t_round2
+    * transition penalties with direction(in) follow the order of travel:
+    * L -> A residential, A -> B primary (crossing the boundary at x = 150)
+    capture frame drop r2_nodes
+    capture frame drop r2_edges
+    frame create r2_nodes
+    frame r2_nodes {
+        set obs 4
+        gen id = _n
+        gen x = 100 * (_n - 1)
+        gen y = 0
+    }
+    frame create r2_edges
+    frame r2_edges {
+        set obs 4
+        gen from = .
+        gen to = .
+        local k 0
+        foreach e in "1 2" "2 3" "4 3" "3 4" {
+            local ++k
+            replace from = real(word("`e'", 1)) in `k'
+            replace to = real(word("`e'", 2)) in `k'
+        }
+        gen str12 highway = cond(_n == 1, "residential", "primary")
+        gen double length = 100
+    }
+    matrix P = (0, 50 \ 0, 0)
+    matrix rownames P = residential primary
+    matrix colnames P = residential primary
+    clear
+    set obs 2
+    gen double x = cond(_n == 1, 10, 250)
+    gen double y = 0
+    matrix PL = (150, -100 \ 150, 100)
+    matrix PE = (100)
+    foreach d in in flow {
+        rdnetset x y, nodes(r2_nodes) edges(r2_edges) boundary(PL) treatedside(right) evalpoints(PE) ///
+            directed direction(`d') classvar(highway) penaltymatrix(P)
+        rdn_expect _rdn_s[1] -190 1e-12 "transition, direction(`d'): s[1]"
+    }
+    * fuzzy points with a first stage near zero get status 5 (weak first stage)
+    rdnetmock, clear
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
+    set seed 1
+    gen byte d = runiform() < 0.5
+    rdnet outcome, h(600) fuzzy(d)
+    mata: st_numscalar("r2_weak", sum(st_matrix("e(results)")[., 15] :== 5))
+    mata: st_numscalar("r2_bad", sum((st_matrix("e(results)")[., 15] :== 0) :& (abs(st_matrix("e(results)")[., 20]) :< 2 :* st_matrix("e(results)")[., 21])))
+    rdn_expect (scalar(r2_weak)>0) 1 0 "weak first stage flagged"
+    rdn_expect scalar(r2_bad) 0 0 "no ok point with |fs| < 2 fs_se"
+    rcof "noisily rdnet outcome, h(600) tangvec(0 0)" == 198
+    rcof "noisily rdnetmanip, kmax(0)" == 198
+end
+
 capture program drop t_errors
 program define t_errors
     rdnetmock, clear
@@ -497,6 +552,7 @@ rdn_block t_river
 rdn_block t_floor
 rdn_block t_pointnodes
 rdn_block t_errors
+rdn_block t_round2
 
 di _n "{hline 70}"
 if $rdn_fails == 0 & $rdn_errors == 0 {

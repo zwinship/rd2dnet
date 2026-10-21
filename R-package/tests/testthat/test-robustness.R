@@ -210,3 +210,48 @@ test_that("collinear covariates warn", {
   expect_warning(rdnet(mock_city()$obs$outcome, mock_coords(), h = 600, covs = cbind(z, 2 * z + 1), cbands = FALSE),
                  "collinear")
 })
+
+test_that("rdnet rejects malformed options", {
+  y <- mock_city()$obs$outcome
+  cc <- mock_coords()
+  expect_error(rdnet(y, cc, h = 600, deriv = c(0.5, 0)), "deriv must be an integer")
+  expect_error(rdnet(y, cc, h = 600, p = 1.5), "p must be an integer")
+  expect_error(rdnet(y, cc, h = 600, q = 2.5), "q must be an integer")
+  expect_error(rdnet(y, cc, h = 600, repp = 0), "repp must be at least 1")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(1, 0, 0)), "tangvec must be")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(NaN, 1)), "tangvec must be finite")
+  expect_error(rdnet(y, cc, h = 600, tangvec = c(0, 0)), "must not be c.0, 0.")
+  expect_error(rdbwnet(y, cc, deriv = c(0.5, 0)), "deriv must be an integer")
+})
+
+test_that("manipulation_test rejects bad q and k_max", {
+  expect_error(manipulation_test(mock_coords(), k_max = 0), "k_max must be at least 1")
+  expect_error(manipulation_test(mock_coords(), q = 50.5), "q must be an integer")
+})
+
+test_that("rd2dnet with missing locations says so", {
+  city <- mock_city()
+  X <- as.matrix(city$obs[c("x", "y")])
+  X[4, 1] <- NA
+  b <- boundary_interpolate(city$boundary, boundary_grid(city$boundary, 5, start = 100, end = 2900))
+  expect_error(rd2dnet(city$obs$outcome, X, city$obs$treated, b, city$network()), "X has missing")
+})
+
+test_that("the Conley covariance is made positive semi-definite", {
+  V <- matrix(c(1, 2, 2, 1), 2)
+  expect_warning(P <- .psd(V), "not positive semi-definite")
+  expect_true(min(eigen(P, symmetric = TRUE)$values) >= -1e-12)
+  expect_equal(P, matrix(1.5, 2, 2), tolerance = 1e-12)
+  W <- matrix(c(2, 1, 1, 2), 2)
+  expect_identical(expect_silent(.psd(W)), W)
+})
+
+test_that("from_lines warns when line ends miss each other", {
+  L <- list()
+  for (i in 0:5) for (j in 0:5) {
+    L[[length(L) + 1]] <- rbind(c(i * 100, j * 100), c(i * 100 + 99.7, j * 100))
+    L[[length(L) + 1]] <- rbind(c(i * 100, j * 100), c(i * 100, j * 100 + 99.7))
+  }
+  expect_warning(network_graph_from_lines(L), "not joined to any other line")
+  expect_silent(network_graph_from_lines(L, tol = 0.5))
+})
