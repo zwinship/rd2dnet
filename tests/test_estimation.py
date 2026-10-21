@@ -505,3 +505,25 @@ def test_points_on_the_line_are_treated_with_either_side_rule():
     for side in ("left", "right"):
         assert rd2dnet.Boundary(line, treated_side=side).is_treated(on)[0]
     assert rd2dnet.Boundary(line, treated_region=box(-10, 0, 110, 50)).is_treated(on)[0]
+
+
+def test_pooled_fit_with_side_bandwidths_is_exact_without_noise(coords):
+    y = 2.0 * coords.treated + 0.004 * coords.s
+    t = rd2dnet.rdnet(y, coords, h=(400.0, 700.0), pooled=True, cbands=False).table
+    ok = t["status"] == "ok"
+    np.testing.assert_allclose(t.loc[ok, "tau"], 2.0, atol=1e-9)
+
+
+def test_covariate_units_do_not_change_the_fit(coords, city):
+    z = city.obs["far"].to_numpy() + np.random.default_rng(0).normal(size=coords.n_obs)
+    y = city.obs["outcome"]
+    a = rd2dnet.rdnet(y, coords, h=600.0, covs=z, cbands=False).table
+    b = rd2dnet.rdnet(y, coords, h=600.0, covs=z * 1e7, cbands=False).table
+    assert (a["status"] == b["status"]).all() and (b["status"] == "ok").sum() > 5
+    ok = a["status"] == "ok"
+    np.testing.assert_allclose(b.loc[ok, "tau"], a.loc[ok, "tau"], rtol=1e-8)
+
+
+def test_conley_cutoff_above_the_bandwidth_warns(coords, city):
+    with pytest.warns(UserWarning, match="exceeds the bandwidth"):
+        rd2dnet.rdnet(city.obs["outcome"], coords, h=400.0, conley_cutoff=1500.0, cbands=False)

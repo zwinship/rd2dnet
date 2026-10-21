@@ -198,6 +198,16 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     H <- .bandwidth_matrix(h, J)
     bases <- rep(NA_character_, J)
   }
+  if (identical(vce, "conley")) {
+    hfin <- H[apply(is.finite(H) & H > 0, 1, all), , drop = FALSE]
+    if (nrow(hfin) && conley_cutoff > min(hfin)) {
+      warning(sprintf(paste0("conley_cutoff (%g) exceeds the bandwidth at some evaluation points (smallest %.4g): ",
+                             "the HAC form is built from the local fits' own residuals, and as the cutoff ",
+                             "approaches the extent of the local sample it stops measuring the variance ",
+                             "(Monte Carlo coverage fell to 0.8 at cutoffs of several bandwidths). Use a cutoff ",
+                             "below the bandwidth"), conley_cutoff, min(hfin)), call. = FALSE)
+    }
+  }
 
   z <- stats::qnorm(0.5 + level / 200)
   T <- coords$treated
@@ -295,7 +305,10 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       out <- list()
       ks <- c()
       for (order in unique(c(p, q))) {
-        X <- .design(s[idx] / hside[idx], o[idx] / hside[idx], Tf[idx], order, Zi, pooled, dim)
+        # the pooled model's slopes are common to both sides, so its basis uses one
+        # scale; the side-specific model scales each side by its own h
+        hb <- if (pooled) rep(max(H[j, ]), length(idx)) else hside[idx]
+        X <- .design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled, dim)
         cvec <- rep(0, ncol(X))
         if (pooled) {
           cvec[2] <- 1

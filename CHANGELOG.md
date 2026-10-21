@@ -26,6 +26,13 @@ New:
 
 Fixes:
 
+- `pooled=True` with different bandwidths on the two sides scaled the common slopes
+  differently on each side, so a linear surface was not fitted exactly. Both sides now use
+  one scale (all three languages).
+- Covariates in large units (for example 1e7) made local fits "singular": conditioning is
+  now judged on the column-equilibrated Gram matrix (all three).
+- `vce="conley"` warns when the cutoff exceeds the bandwidth; the HAC errors collapse
+  then (all three).
 - Closed-ring boundaries: offsets wrap the shorter way round, and the default evaluation
   grid no longer repeats the start point.
 - The density test kept control observations at `s = 0` on the treated side.
