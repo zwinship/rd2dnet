@@ -456,3 +456,27 @@ test_that("the selector treats badly conditioned local designs as singular", {
   expect_error(rd2dnet:::.inv_gram(diag(c(1, 1e-10))))
   expect_equal(rd2dnet:::.inv_gram(diag(c(1, 1e-6))), diag(c(1, 1e6)))
 })
+
+test_that("the identifiable basis drops aliased and leverage-one columns", {
+  set.seed(0)
+  s <- runif(40)
+  o <- c(rep(0, 20), rep(1, 20))
+  X <- cbind(1, s, o, s * s, s * o, o * o)
+  expect_equal(rd2dnet:::.identifiable(X, rep(1, 40)), c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE))
+  o3 <- c(rep(0, 20), rep(1, 19), 2)
+  X3 <- cbind(1, s, o3, s * s, s * o3, o3 * o3)
+  expect_false(rd2dnet:::.identifiable(X3, rep(1, 40))[6])
+})
+
+test_that("a singular bias-correction fit does not change the main estimate", {
+  city <- mock_city()
+  cc <- network_coordinates(city$network("length"), city$boundary, city$obs, n_eval = 15)
+  T <- cc$treated
+  s <- cc$s
+  arc <- cc$crossing_arc
+  y <- 1 + 2.5 * T + 0.004 * s + 3e-6 * s^2 - 2e-6 * T * s^2 - 0.0015 * arc + 1e-6 * arc^2
+  t <- rdnet(y, cc, h = 500, p = 2, q = 3, cbands = FALSE)$table
+  ok <- t$status == "ok"
+  expect_equal(t$tau[ok], rep(2.5, sum(ok)), tolerance = 1e-8)
+  expect_equal(t$tau_bc[ok], rep(2.5, sum(ok)), tolerance = 1e-6)
+})

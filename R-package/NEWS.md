@@ -37,6 +37,9 @@
 * `edge_frame()` keeps the cheapest of parallel edges, matching shortest paths.
 
 ## Fixes from cross-language testing
+* Local fits keep their identifiable terms (in degree order, dropping columns that are
+  aliased or determined by a single observation) instead of switching the whole fit to
+  `s` alone. A singular bias-correction fit no longer changes the main estimate.
 
 * Directed networks: locations partway along one-way edges were reached through either
   end node, as if the edge were two-way. Transition costs: the penalty for switching onto

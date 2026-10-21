@@ -156,9 +156,10 @@ program define t_bandwidth
     matrix R = e(results)
     rdn_expect_rows R 4  "645.51930767128 730.659206427927 560.790448573427 821.495489610758" 1e-6 "auto h"
     rdn_expect_rows R 10 "2.54273718655865 2.42473790752563 2.41529140108223 2.21032099845553" 1e-6 "auto tau_bc"
-    * eval 1 sits where few streets cross the boundary: fitted in s alone (0.2.0)
+    * eval 1 (the isolated highway node) is estimated; the crossings within its wide
+    * bandwidth identify the linear term in o, so the basis is (s, o), as in Python
     rdn_expect R[1,15] 0 0 "eval 1 estimated"
-    rdn_expect R[1,22] 2 0 "eval 1 basis = s alone"
+    rdn_expect R[1,22] 1 0 "eval 1 basis = (s, o)"
     rdbwnet outcome, bwselect(msetwo)
     matrix B = r(bws)
     rdn_expect_rows B 21 "1010.98975735317 750.620801408354 584.100691648631 866.851382283764" 1e-6 "msetwo h0"
