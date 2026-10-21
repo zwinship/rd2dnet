@@ -54,7 +54,8 @@ replaces both pieces:
 | inference | robust bias correction with `q = p + 1` | same, plus uniform bands |
 
 Points snap to the nearest street segment on their own side. The off-network
-"depth" is charged through `snap_scale`.
+"depth" is charged at the snapped street's own cost per metre by default (1 for
+length, the street's seconds per metre for travel time), or at a fixed `snap_scale`.
 
 ## Distance is a metric you choose
 
@@ -136,7 +137,10 @@ beyond the first and last points, or when you have the treated zone as a polygon
 
 Directed networks (one-way streets, rivers drawn downstream) take `directed=True` in
 `from_lines`/`from_frames` and `direction="out"` (distances run from the boundary to
-each location) or `"in"` (from each location to the boundary).
+each location), `"in"` (from each location to the boundary) or `"flow"` (whichever
+directed path exists: on a river drawn downstream, upstream locations reach the boundary
+and downstream locations are reached from it, so both sides can be compared; with
+`"out"` the upstream side is unreachable).
 
 **Boundaries:** `Boundary(line, treated_side="left")`, `Boundary(line, treated_region=zone)`,
 `Boundary.from_region(zone)` for a zone's outline (a school attendance zone, a city, a
@@ -168,7 +172,8 @@ For real data, use `rd2dnet.NetworkGraph.from_place("Manhattan, New York")`, whi
 `pip install "rd2dnet[osm]"`. The query's top geocoding match is used: its outline when it
 is an area of at least `min_area` (250,000 m² by default), otherwise (a neighbourhood
 mapped as a point, a single building) the streets within `dist` metres of it (1,000 by
-default). It falls back to the bundled mock network with a warning when offline.
+default). If the download fails it raises the error; `offline_fallback=True` returns the
+bundled mock network instead (for demos only).
 
 ### Features
 

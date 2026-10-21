@@ -14,7 +14,7 @@ program define rdnet, eclass
         COVs(varlist numeric) KERnel(string) BWSelect(string) vce(string)                 ///
         FUZzy(varname numeric) POOLed Level(cilevel) NOCBands REPP(integer 2000)          ///
         MINobs(integer -1) SCALEREGul(real 3) SCALEBIAScrct(real 1)                       ///
-        CONLEYRESIDScale(real 3) CONLEYRESIDOrder(integer -1) SEED(integer -1) ]
+        CONLEYRESIDScale(real 3) CONLEYRESIDOrder(integer -1) SEED(integer 0) ]
 
     capture confirm variable _rdn_id
     if _rc {

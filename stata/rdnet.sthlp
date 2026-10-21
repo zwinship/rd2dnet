@@ -46,7 +46,7 @@
 {synopt:{opt l:evel(#)}}confidence level; default {cmd:c(level)}{p_end}
 {synopt:{opt nocb:ands}}do not add the uniform band to {cmd:e(results)}{p_end}
 {synopt:{opt repp(#)}}draws for the uniform critical value; default 2000{p_end}
-{synopt:{opt seed(#)}}seed for those draws (the session's RNG state is restored){p_end}
+{synopt:{opt seed(#)}}seed for those draws; default 0, so bands are reproducible; a negative value draws from the session's stream (its RNG state is restored){p_end}
 {synoptline}
 {p 4 6 2}{cmd:rdnetset} must be run first. {cmd:aweight}s are intensity weights (e.g. floor area) multiplying the kernel weights.{p_end}
 
@@ -80,19 +80,22 @@ factor (n - 1)/(n - k) x g/(g - 1).
 {cmd:estat wbate}{cmd:,} {opt w:eights}({it:matname} | {it:numlist} | {cmd:equal})
 
 {p 8 16 2}
-{cmd:estat lbate}
+{cmd:estat lbate} [{cmd:,} {cmd:min} | {cmd:absmax}]
 
 {pstd}
 {cmd:estat wbate} reports the weighted boundary average treatment effect
 w'tau (rd2d's WBATE). Weights have one entry per evaluation point and are
 normalised to sum to one; points that were not estimated must get weight 0.
-{cmd:weights(equal)} averages the estimated points. The standard error
+{cmd:weights(equal)} gives every distinct place of the estimated points equal
+weight (points that snapped to the same place, {cmd:node_arc}, share it). The standard error
 sqrt(w' Sigma w) uses the joint covariance {cmd:e(cov)}.
 
 {pstd}
 {cmd:estat lbate} reports the largest effect max_j tau(b_j) (rd2d's LBATE)
 with the interval [max_j(tau_bc - c se), max_j(tau_bc + c se)], c the uniform
-critical value.
+critical value. With {cmd:min}, the smallest effect, [min_j lo_j, min_j hi_j];
+with {cmd:absmax}, the largest absolute effect,
+[max_j dist(0, [lo_j, hi_j]), max_j max(|lo_j|, |hi_j|)].
 
 {pstd}
 Because {cmd:e(b)} and {cmd:e(V)} hold the bias-corrected estimates and their

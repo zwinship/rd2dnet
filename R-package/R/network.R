@@ -20,7 +20,9 @@
 #' @param directed Whether edges are one-way (`from` -> `to`).
 #' @param direction For directed networks: `"both"` treats every edge as
 #'   two-way (pedestrian access, the default); `"out"` follows edge direction;
-#'   `"in"` reverses it.
+#'   `"in"` reverses it; `"flow"` follows edge direction in whichever order works
+#'   (the shorter of the directed paths a -> b and b -> a), so on a river drawn
+#'   downstream both sides of the boundary are measured along the flow.
 #' @param x,y Names of the coordinate columns in `nodes`.
 #' @param crs Coordinate reference system label of the projected coordinates
 #'   (used to project longitude/latitude points).
@@ -39,8 +41,8 @@
 #' @export
 network_graph <- function(edges, nodes, metric = "length", directed = FALSE, direction = "both",
                           x = "x", y = "y", crs = NULL, snap_scale = NULL) {
-  if (!direction %in% c("both", "out", "in")) {
-    stop("direction must be one of 'both', 'out', 'in'", call. = FALSE)
+  if (!direction %in% c("both", "out", "in", "flow")) {
+    stop("direction must be one of 'both', 'out', 'in', 'flow'", call. = FALSE)
   }
   nodes <- as.data.frame(nodes, stringsAsFactors = FALSE)
   edges <- as.data.frame(edges, stringsAsFactors = FALSE)
@@ -80,7 +82,8 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
     warning("the network is in longitude/latitude, so distances are in degrees; project it to a ",
             "metric CRS first (network_graph_from_lines() does this for sf layers)", call. = FALSE)
   }
-  if (!is.null(snap_scale) && (length(snap_scale) != 1 || !is.finite(snap_scale) || snap_scale < 0)) {
+  if (!is.null(snap_scale) && !(length(snap_scale) == 1 && is.na(snap_scale)) &&
+      (length(snap_scale) != 1 || !is.finite(snap_scale) || snap_scale < 0)) {
     stop("snap_scale must be finite and non-negative", call. = FALSE)
   }
   metric <- as_metric(metric)
@@ -161,7 +164,18 @@ print.rd2dnet_network <- function(x, ...) {
 # Shortest-path engine compiled from the metric (built on first use).
 .engine <- function(net) {
   if (is.null(net$cache$engine)) {
-    net$cache$engine <- .compile_metric(net$metric, net)
+    if (identical(net$direction, "flow") && isTRUE(net$directed)) {
+      # distances along directed paths in whichever order works: the shorter of
+      # a -> b (edges as drawn) and b -> a (edges reversed)
+      n_out <- net
+      n_out$direction <- "out"
+      n_in <- net
+      n_in$direction <- "in"
+      net$cache$engine <- list(type = "flow", out = .compile_metric(net$metric, n_out),
+                               inn = .compile_metric(net$metric, n_in))
+    } else {
+      net$cache$engine <- .compile_metric(net$metric, net)
+    }
   }
   net$cache$engine
 }
@@ -222,6 +236,36 @@ node_distance <- function(net, a, b) {
 #' city <- load_mock_midtown()
 #' head(edge_frame(city$network())[, c("u", "v", "length", "cost")])
 #' @export
+# Cost per unit of off-network distance for each snapped point: snap_scale when
+# it is a number, otherwise the snapped edge's cost divided by its length (for
+# points at a node, including those projecting onto an edge's end, the mean over
+# the node's edges).
+.snap_rates <- function(net, snap) {
+  n <- length(snap$u)
+  if (!is.na(net$snap_scale)) return(rep(net$snap_scale, n))
+  E <- edge_frame(net)
+  rate <- E$cost / E$length
+  good <- is.finite(rate) & E$length > 0
+  fallback <- if (any(good)) stats::median(rate[good]) else 0
+  rate[!good] <- fallback
+  key <- paste(pmin(E$u, E$v), pmax(E$u, E$v))
+  ends <- c(E$u, E$v)
+  rr <- c(rate, rate)
+  node_sum <- as.numeric(tapply(rr, factor(ends, levels = seq_len(net$n_nodes)), sum))
+  node_cnt <- tabulate(ends, nbins = net$n_nodes)
+  node_sum[is.na(node_sum)] <- 0
+  node_rate <- ifelse(node_cnt > 0, node_sum / pmax(node_cnt, 1), fallback)
+  out <- rate[match(paste(pmin(snap$u, snap$v), pmax(snap$u, snap$v)), key)]
+  # a point at an end node (snapped to a node, or projecting onto an edge's end)
+  # uses the node's rate: which of its edges it "snapped to" is arbitrary
+  tiny <- 1e-9 * (snap$cost_u + snap$cost_v) # projections onto an edge's end, up to rounding
+  at_v <- snap$u != snap$v & snap$cost_v <= tiny & snap$cost_u > tiny
+  at_u <- snap$u == snap$v | (snap$cost_u <= tiny & !at_v) | is.na(out)
+  out[at_u] <- node_rate[snap$u[at_u]]
+  out[at_v] <- node_rate[snap$v[at_v]]
+  out
+}
+
 edge_frame <- function(net) {
   .check_network(net)
   if (!is.null(net$cache$edges)) {
@@ -674,8 +718,9 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #'
 #' Downloads streets with \pkg{dodgr} (which uses \pkg{osmdata}) and projects
 #' them to the local UTM zone with \pkg{sf}. If a package is missing or the
-#' download fails and `offline_fallback` is `TRUE`, the bundled mock Midtown
-#' network is returned with a warning, so scripts keep working offline.
+#' download fails, the error is raised; with `offline_fallback = TRUE` the
+#' bundled mock Midtown network is returned instead, with a warning (for demos
+#' and tests without internet access, never for analysis).
 #'
 #' @param query Place name, e.g. `"Midtown Manhattan, New York"`.
 #' @param bbox Alternatively a bounding box `c(xmin, ymin, xmax, ymax)` in
@@ -683,7 +728,8 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #' @param network_type `"walk"`, `"bike"` or `"drive"` (or a \pkg{dodgr}
 #'   weighting profile).
 #' @param metric Metric specification, as in [network_graph()].
-#' @param offline_fallback Return the bundled mock network when the download fails.
+#' @param offline_fallback Return the bundled mock network when the download
+#'   fails (default `FALSE`: raise the error).
 #' @param dist,min_area `query` is geocoded with Nominatim and the bounding box
 #'   of its top match is downloaded. When that match is a point (many
 #'   neighbourhoods, such as Midtown Manhattan, are mapped as points) or covers
@@ -694,12 +740,12 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #'   `travel_time` (s) edge columns.
 #' @examples
 #' \donttest{
-#' net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York"))
+#' net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE))
 #' net
 #' }
 #' @export
 network_graph_from_place <- function(query = NULL, bbox = NULL, network_type = "walk",
-                                     metric = "length", offline_fallback = TRUE, dist = 1000,
+                                     metric = "length", offline_fallback = FALSE, dist = 1000,
                                      min_area = 250000, ...) {
   if (is.null(query) && is.null(bbox)) stop("give a place query or a bbox", call. = FALSE)
   profile <- switch(network_type, walk = "foot", bike = "bicycle", drive = "motorcar", network_type)

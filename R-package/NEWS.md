@@ -40,11 +40,21 @@
 * `density()` uses the signed straight-line distance to the boundary by default
   (`normalize = "euclidean"`); the old default (`"network"`) over-rejected badly at curved
   boundaries. New `manipulation_test()` (Bugni, Crippa and Restrepo, 2026).
+* `network_graph_from_place()` raises when the download fails; `offline_fallback = TRUE`
+  returns the mock city as before (for demos only).
+* `direction = "flow"` for directed networks: the shorter directed path either way, so both
+  sides of a river drawn downstream are measured along the flow.
 * **Default `vce` is now `"hc3"`** in `rdnet()` and `rdbwnet()` (was `"hc1"`): HC3 kept Monte
   Carlo coverage near 0.95 where HC1 under-covered with high-leverage local samples.
+* Default `wbate()` weights are equal per distinct place of the estimated points;
+  `lbate(kind = "min" | "absmax")`; `rdnet(seed = 0)` by default; points on the boundary
+  line count as treated with `treated_side`, as with `treated_region`.
 * Local fits keep their identifiable terms (in degree order, dropping columns that are
   aliased or determined by a single observation) instead of switching the whole fit to
   `s` alone. A singular bias-correction fit no longer changes the main estimate.
+* Off-network distance is charged at the snapped street's own cost per unit length by
+  default (travel time: that street's seconds per metre), instead of free for metrics
+  other than length.
 
 * Directed networks: locations partway along one-way edges were reached through either
   end node, as if the edge were two-way. Transition costs: the penalty for switching onto

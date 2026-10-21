@@ -61,11 +61,30 @@ Fixes from cross-language and invariance testing:
   design and the only one with power against sorting that offsets along the boundary.
   Both warn when the observations lie on the network itself, where no test held its size
   (Python, R, Stata).
+- `NetworkGraph.from_place` (R: `network_graph_from_place`) raises when the download fails
+  instead of returning the bundled mock city: a use-case tester's analysis of "Waltham,
+  Massachusetts" silently ran on the mock Manhattan streets after an Overpass timeout.
+  `offline_fallback=True` keeps the old behaviour for demos and tests.
+- `direction="flow"` for directed networks (Stata: `direction(flow)`): distances follow edge
+  directions in whichever order works (the shorter of the directed paths a -> b and
+  b -> a). On a river drawn downstream, `"out"` leaves the upstream side unreachable, so
+  nothing could be estimated; with `"flow"` upstream locations reach the boundary
+  downstream and downstream locations are reached from it (Python, R, Stata).
 - **Default `vce` is now `"hc3"`** in `rdnet` and `rdbwnet` (was `"hc1"`, rd2d's default), in
   Python, R and Stata. Local samples on networks often contain high-leverage points (few
   distinct offsets along the boundary), where HC1 understates the variance. In Monte Carlo
   runs HC3 gave pointwise coverage 0.945-0.951 in every design (HC1: 0.92-0.94) and 0.95
   in a high-leverage one-way-street design (HC1: 0.76). Pass `vce="hc1"` for rd2d's choice.
+- Default WBATE weights: equal per distinct place of the estimated points. Evaluation
+  points that snap to the same place (the ends of a ring, an isolated node) repeat one
+  estimate and now share its weight instead of counting twice (Python, R, Stata).
+- `lbate(kind="min" | "absmax")` (R: `lbate(x, kind = )`; Stata: `estat lbate, min` /
+  `absmax`): the smallest effect and the largest absolute effect, with the intervals the
+  uniform band implies.
+- The uniform band's simulation uses `seed=0` by default, so bands and LBATE are
+  reproducible run to run (`seed=None` / a negative Stata `seed()` restores fresh draws).
+- Points exactly on the boundary line (within `tol`) count as treated with
+  `treated_side` too, as they already did with `treated_region` (Python, R, Stata).
 - Local fits keep their identifiable terms instead of switching the whole fit to `s`
   alone (Python, R, Stata). Columns of the (s, o) basis are taken in degree order and
   a column is dropped when it is (nearly) a linear combination of those kept, or when it
@@ -75,6 +94,13 @@ Fixes from cross-language and invariance testing:
   silently refitted the main estimate in `s` alone, biasing it (a noise-free design
   gave tau 2.83 instead of 2.5), and fits with one observation pinning an `o` term had
   collapsed HC1 standard errors (Monte Carlo coverage 0.37; sd of tau_bc 1.67, now 0.44).
+- **Off-network distance is no longer free for non-length metrics.** By default the walk from
+  a location to its street is charged at the snapped street's own cost per unit length
+  (its cost divided by its length): unchanged for `"length"`, the street's seconds per
+  metre for travel time, the column's cost per metre for other cost columns. Before, it
+  cost 0, so with travel time a household 1.5 km from its street sat on the boundary
+  (`s = 0`). An explicit `snap_scale` still applies; `Precomputed` keeps 0 (Python, R,
+  Stata).
 
 - Directed networks: a location partway along a one-way edge was reached through
   either end node, as if the edge ran both ways, so `s` and kernel distances were too

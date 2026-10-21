@@ -171,6 +171,38 @@ class Engine:
 
 
 @dataclass
+class FlowEngine:
+    """Distances along directed paths in whichever order works: the shorter of
+    ``a -> b`` and ``b -> a`` (``direction="flow"``), from two engines over the
+    edges as drawn (``out``) and reversed (``in``)."""
+
+    out: Any
+    inn: Any
+
+    @property
+    def n_nodes(self) -> int:
+        return self.out.n_nodes
+
+    def distances(self, sources, limit: float = np.inf) -> np.ndarray:
+        return np.minimum(self.out.distances(sources, limit), self.inn.distances(sources, limit))
+
+    def nearest(self, sources):
+        d1, s1 = self.out.nearest(sources)
+        d2, s2 = self.inn.nearest(sources)
+        take2 = d2 < d1
+        return np.where(take2, d2, d1), np.where(take2, s2, s1)
+
+    def pairs_within(self, sources, limit: float):
+        i1, n1, d1 = self.out.pairs_within(sources, limit)
+        i2, n2, d2 = self.inn.pairs_within(sources, limit)
+        i, node, d = np.r_[i1, i2], np.r_[n1, n2], np.r_[d1, d2]
+        order = np.lexsort((d, node, i))
+        i, node, d = i[order], node[order], d[order]
+        first = np.r_[True, (i[1:] != i[:-1]) | (node[1:] != node[:-1])] if len(i) else np.zeros(0, bool)
+        return i[first], node[first], d[first]
+
+
+@dataclass
 class DenseEngine:
     """Engine backed by a full node-by-node distance matrix."""
 
@@ -223,8 +255,12 @@ class NetworkMetric:
         return np.array([self.edge_cost(u, v, d) for u, v, d in zip(u_labels, v_labels, datas)], dtype=float)
 
     @property
-    def default_snap_scale(self) -> float:
-        """Metric cost per unit of straight-line snapping distance."""
+    def default_snap_scale(self) -> float | None:
+        """Metric cost per unit of straight-line snapping distance.
+
+        ``None`` means: the cost per unit length of the edge a point is snapped
+        to (its cost divided by its length).
+        """
         return 0.0
 
 
@@ -238,8 +274,10 @@ class EdgeCost(NetworkMetric):
         also accepts a ``graph`` keyword receives the networkx graph, which
         gives access to node attributes (see :func:`node_contrast`).
     snap_scale
-        Cost per metre of off-network snapping distance. Defaults to 1 when the
-        cost is ``"length"`` and 0 otherwise.
+        Cost per metre of off-network snapping distance. By default the walk to
+        the street costs what the same distance along the snapped edge costs
+        (its cost divided by its length): 1 for ``"length"``, the street's
+        seconds per metre for travel time.
     """
 
     def __init__(self, cost: str | EdgeCostFn = "length", *, snap_scale: float | None = None, name: str | None = None):
@@ -253,10 +291,10 @@ class EdgeCost(NetworkMetric):
         return f"EdgeCost({self.name!r})"
 
     @property
-    def default_snap_scale(self) -> float:
+    def default_snap_scale(self) -> float | None:
         if self._snap_scale is not None:
             return float(self._snap_scale)
-        return 1.0 if self.cost == "length" else 0.0
+        return 1.0 if self.cost == "length" else None
 
     def edge_cost(self, u, v, data) -> float:
         if isinstance(self.cost, str):
@@ -330,7 +368,7 @@ class TransitionCost(NetworkMetric):
         return f"TransitionCost({self._base.name!r}, class_attr={self.class_attr!r})"
 
     @property
-    def default_snap_scale(self) -> float:
+    def default_snap_scale(self) -> float | None:
         return self._base.default_snap_scale
 
     def edge_cost(self, u, v, data) -> float:
@@ -523,4 +561,4 @@ def node_contrast(attr: str, weight: float, base: str = "length", snap_scale: fl
         return float(_scalar(data[base])) + weight * abs(a - b)
 
     _cost.__name__ = f"{base}+{weight}*|d{attr}|"
-    return EdgeCost(_cost, snap_scale=snap_scale if snap_scale is not None else (1.0 if base == "length" else 0.0))
+    return EdgeCost(_cost, snap_scale=snap_scale if snap_scale is not None else (1.0 if base == "length" else None))

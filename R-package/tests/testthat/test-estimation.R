@@ -480,3 +480,33 @@ test_that("a singular bias-correction fit does not change the main estimate", {
   expect_equal(t$tau[ok], rep(2.5, sum(ok)), tolerance = 1e-8)
   expect_equal(t$tau_bc[ok], rep(2.5, sum(ok)), tolerance = 1e-6)
 })
+
+test_that("lbate kinds and place-weighted wbate", {
+  r <- rdnet(mock_city()$obs$outcome, mock_coords(), h = 600, vce = "hc1")
+  t <- r$table[r$table$status == "ok", ]
+  lo <- t$tau_bc - r$crit * t$se_rb
+  hi <- t$tau_bc + r$crit * t$se_rb
+  mn <- lbate(r, "min")
+  ab <- lbate(r, "absmax")
+  expect_equal(unname(mn["tau_bc"]), min(t$tau_bc))
+  expect_equal(unname(mn["ci_hi"]), min(hi))
+  expect_equal(unname(ab["ci_lo"]), max(pmax(0, lo, -hi)))
+  expect_equal(unname(ab["ci_hi"]), max(pmax(abs(lo), abs(hi))))
+  r2 <- rdnet(mock_city()$obs$outcome, mock_coords(), h = 2000, vce = "hc1")
+  w <- as.numeric(r2$table$status == "ok")
+  w[2] <- 0 # the second copy of the highway place
+  expect_equal(unname(wbate(r2)["tau_bc"]), unname(wbate(r2, w)["tau_bc"]))
+})
+
+test_that("the default seed makes the band reproducible", {
+  a <- rdnet(mock_city()$obs$outcome, mock_coords(), h = 600)
+  b <- rdnet(mock_city()$obs$outcome, mock_coords(), h = 600)
+  expect_identical(a$crit, b$crit)
+})
+
+test_that("points on the line are treated with either side rule", {
+  L <- rbind(c(0, 0), c(100, 0))
+  on <- rbind(c(50, 0))
+  expect_true(boundary_is_treated(boundary(L, treated_side = "left"), on))
+  expect_true(boundary_is_treated(boundary(L, treated_side = "right"), on))
+})

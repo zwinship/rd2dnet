@@ -44,7 +44,7 @@
 {synopt:{opt cost(varname)}}edge cost that defines distance; default {cmd:length}{p_end}
 {synopt:{opt length(varname)}}geometric edge length; default {cmd:length}{p_end}
 {synopt:{opt dir:ected}}edges are one-way ({it:from} -> {it:to}){p_end}
-{synopt:{opt direction(both|out|in)}}how directed edges are traversed; default {cmd:both}{p_end}
+{synopt:{opt direction(both|out|in|flow)}}how directed edges are traversed; default {cmd:both}{p_end}
 
 {syntab:Road-class transition penalties}
 {synopt:{opt classvar(varname)}}edge class (e.g. OSM {cmd:highway}); turns penalties on{p_end}
@@ -59,7 +59,7 @@
 {synopt:{opt tol(#)}}distance (in coordinate units) at which a node lies on the boundary; default 1e-6. Increase it (e.g. 0.5 metres) when the boundary follows a street{p_end}
 
 {syntab:Snapping}
-{synopt:{opt snapscale(#)}}cost per unit of off-network snapping distance; default 1 if {cmd:cost(length)}, else 0{p_end}
+{synopt:{opt snapscale(#)}}cost per unit of off-network snapping distance; default 1 if {cmd:cost(length)}, otherwise the snapped street's cost per unit length (with travel time, that street's seconds per metre){p_end}
 {synopt:{opt snapnode}}snap observations to the nearest node instead of the nearest street{p_end}
 {synopt:{opt nosplit}}do not split edges where they cross the boundary{p_end}
 {synoptline}
@@ -117,7 +117,9 @@ junctions.
 distances run from the boundary to each observation along edge directions (on
 a river drawn downstream, observations upstream of the boundary cannot be
 reached); {opt direction(in)} measures distances from each observation to the
-boundary.
+boundary; {opt direction(flow)} follows edge directions in whichever order works
+(the shorter of the two directed paths), so on a river drawn downstream both
+sides of the boundary are measured along the flow.
 
 {pstd}
 {bf:Closed boundaries.} When the first and last vertices of {opt boundary()}

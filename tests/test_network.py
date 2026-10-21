@@ -84,14 +84,14 @@ def _fake_osmnx(monkeypatch, geom=None, *, fail=None):
 def test_from_place_offline_fallback(monkeypatch):
     _fake_osmnx(monkeypatch, fail=ConnectionError("no internet"))
     with pytest.warns(UserWarning, match="bundled mock"):
-        net = rd2dnet.NetworkGraph.from_place("Manhattan, New York")
+        net = rd2dnet.NetworkGraph.from_place("Manhattan, New York", offline_fallback=True)
     assert net.n_nodes == 450
 
 
 def test_from_place_raises_without_fallback(monkeypatch):
     _fake_osmnx(monkeypatch, fail=ConnectionError("down"))
     with pytest.raises(ConnectionError):
-        rd2dnet.NetworkGraph.from_place("Manhattan", offline_fallback=False)
+        rd2dnet.NetworkGraph.from_place("Manhattan")  # no silent fallback by default
 
 
 def test_from_place_uses_the_outline_of_a_large_area(monkeypatch):
@@ -130,3 +130,21 @@ def test_missing_coordinates_error():
 def test_osm_download_midtown():  # pragma: no cover - needs internet
     net = rd2dnet.NetworkGraph.from_place("Midtown Manhattan, New York", offline_fallback=False)
     assert net.n_nodes > 100
+
+
+def test_flow_direction_measures_both_sides_of_a_river():
+    # a river drawn downstream (west to east) crossing a border at x = 200
+    G = nx.DiGraph()
+    for k in range(5):
+        G.add_node(k, x=100.0 * k, y=0.0)
+    for k in range(4):
+        G.add_edge(k, k + 1, length=100.0)
+    G.add_node(9, x=200.0, y=300.0)  # a tributary joining downstream of the border
+    G.add_edge(9, 3, length=float(np.hypot(100, 300)))
+    bnd = rd2dnet.Boundary([(200, -500), (200, 500)], treated_side="right")  # treated: east (downstream)
+    pts = np.array([[50.0, 0.0], [350.0, 0.0]])
+    out = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, direction="out"), bnd, pts, eval_points=[500.0])
+    assert np.isnan(out.s[0])  # upstream cannot be reached from the border going downstream
+    flow = rd2dnet.network_coordinates(rd2dnet.NetworkGraph(G, direction="flow"), bnd, pts, eval_points=[500.0])
+    np.testing.assert_allclose(flow.s, [-150.0, 150.0])
+    np.testing.assert_allclose(flow.at(0)[0], [150.0, 150.0])

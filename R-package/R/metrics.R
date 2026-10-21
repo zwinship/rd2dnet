@@ -186,7 +186,7 @@ node_contrast <- function(attr, weight, base = "length", snap_scale = NULL) {
     j <- match(edges$to, nodes$name)
     .first_value(edges[[base]]) + weight * abs(a[i] - a[j])
   }
-  edge_cost(fn, snap_scale = snap_scale %||% (if (identical(base, "length")) 1 else 0),
+  edge_cost(fn, snap_scale = snap_scale %||% (if (identical(base, "length")) 1 else NULL),
             name = sprintf("%s+%s*|d%s|", base, format(weight), attr))
 }
 
@@ -239,7 +239,8 @@ as_metric <- function(spec) {
     if (!is.null(metric$snap_scale)) {
       return(as.numeric(metric$snap_scale))
     }
-    return(if (identical(metric$cost, "length")) 1 else 0)
+    # NA: the snapped edge's cost per unit length (see .snap_rates())
+    return(if (identical(metric$cost, "length")) 1 else NA_real_)
   }
   0
 }
@@ -422,6 +423,9 @@ as_metric <- function(spec) {
 
 .engine_distances <- function(eng, sources, limit = Inf) {
   sources <- as.integer(sources)
+  if (eng$type == "flow") {
+    return(pmin(.engine_distances(eng$out, sources, limit), .engine_distances(eng$inn, sources, limit)))
+  }
   if (eng$type == "dense") {
     out <- eng$D[sources, , drop = FALSE]
     out[out > limit] <- Inf
@@ -435,6 +439,12 @@ as_metric <- function(spec) {
 # For every node: distance to the nearest source and that source's node index (NA if none).
 .engine_nearest <- function(eng, sources) {
   sources <- as.integer(sources)
+  if (eng$type == "flow") {
+    a <- .engine_nearest(eng$out, sources)
+    b <- .engine_nearest(eng$inn, sources)
+    take_b <- b$dist < a$dist
+    return(list(dist = ifelse(take_b, b$dist, a$dist), src = ifelse(take_b, b$src, a$src)))
+  }
   if (eng$type == "dense") {
     sub <- eng$D[sources, , drop = FALSE]
     arg <- apply(sub, 2, which.min)
@@ -450,6 +460,17 @@ as_metric <- function(spec) {
 # (i, node, dist) for every node closer than `limit` to sources[i].
 .engine_pairs <- function(eng, sources, limit) {
   sources <- as.integer(sources)
+  if (eng$type == "flow") {
+    a <- .engine_pairs(eng$out, sources, limit)
+    b <- .engine_pairs(eng$inn, sources, limit)
+    i <- c(a$i, b$i)
+    node <- c(a$node, b$node)
+    dist <- c(a$dist, b$dist)
+    o <- order(i, node, dist)
+    keep <- o[!duplicated(cbind(i, node)[o, , drop = FALSE])]
+    keep <- keep[order(i[keep], node[keep])]
+    return(list(i = i[keep], node = node[keep], dist = dist[keep]))
+  }
   if (eng$type == "dense") {
     D <- eng$D[sources, , drop = FALSE]
     w <- which(D < limit, arr.ind = TRUE)

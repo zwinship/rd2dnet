@@ -74,8 +74,9 @@
 #'   `"insufficient"`.
 #' @param scaleregul,scalebiascrct Bandwidth-selection regularisation and
 #'   higher-order bias weights, passed to [rdbwnet()] when `h` is selected.
-#' @param seed Seed for the critical-value simulation (reproducible bands and
-#'   LBATE). The global random number stream is left untouched.
+#' @param seed Seed for the critical-value simulation (default 0, so bands and
+#'   LBATE are reproducible; `NULL` draws from the current stream). The global
+#'   random number stream is left untouched.
 #'
 #' @return An object of class `rdnet`, a list with
 #'   \describe{
@@ -127,7 +128,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
                   cluster = NULL, conley_cutoff = NULL, conley_distance = "network",
                   conley_resid_scale = 3, conley_resid_order = NULL, fuzzy = NULL,
                   weights = NULL, pooled = FALSE, level = 95, cbands = TRUE, repp = 2000,
-                  min_obs = NULL, scaleregul = 3, scalebiascrct = 1, seed = NULL) {
+                  min_obs = NULL, scaleregul = 3, scalebiascrct = 1, seed = 0) {
   .check_coords(coords)
   y <- .check_obs(y, coords$n_obs, "y")
   if (!is.numeric(level) || length(level) != 1 || !(level > 1 && level < 100)) {
@@ -553,19 +554,24 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 #'
 #' `wbate()` is the weighted boundary average treatment effect `w' tau`
 #' (rd2d's WBATE): `weights` has one entry per evaluation point and is
-#' normalised to sum to one; by default every estimated point gets equal
-#' weight. Points that were not estimated must get weight 0. Its standard error `sqrt(w' Sigma w)` uses the joint covariance
-#' `x$cov`, so it accounts for the correlation between nearby points.
+#' normalised to sum to one. By default every distinct place where an estimated
+#' point lies gets equal weight: evaluation points that snapped to the same place
+#' (`node_arc`) repeat one estimate and share its weight. Points that were not
+#' estimated must get weight 0. Its standard error `sqrt(w' Sigma w)` uses the
+#' joint covariance `x$cov`, so it accounts for the correlation between nearby points.
 #'
 #' `lbate()` is the largest boundary average treatment effect
 #' `max_j tau(b_j)` (rd2d's LBATE), with interval
 #' `[max_j (tau_bc - crit se_rb), max_j (tau_bc + crit se_rb)]` over the
 #' estimated points, `crit` the uniform critical value, so it inherits the
-#' uniform band's joint coverage.
+#' uniform band's joint coverage. `kind = "min"` gives the smallest effect
+#' (`[min_j lo_j, min_j hi_j]`) and `kind = "absmax"` the largest absolute effect
+#' (`[max_j dist(0, [lo_j, hi_j]), max_j max(|lo_j|, |hi_j|)]`).
 #'
 #' @param x An [rdnet()] result.
 #' @param weights One weight per evaluation point (default: equal weights on
-#'   the estimated points).
+#'   the distinct places of the estimated points).
+#' @param kind For `lbate()`: `"max"` (default), `"min"` or `"absmax"`.
 #' @return A named numeric vector: `tau`, `tau_bc`, `se_rb`, `ci_lo`,
 #'   `ci_hi`, `pvalue` (the bias-corrected estimate drives the interval and
 #'   p-value; `se_rb` and `pvalue` are `NA` for LBATE).
@@ -580,7 +586,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 wbate <- function(x, weights = NULL) {
   if (!inherits(x, "rdnet")) stop("expected an rdnet() result", call. = FALSE)
   J <- nrow(x$table)
-  w <- if (is.null(weights)) as.numeric(x$table$status == "ok") else as.numeric(weights)
+  w <- if (is.null(weights)) .place_weights(x$table) else as.numeric(weights)
   if (length(w) != J) {
     stop(sprintf("WBATE weights must have one entry per evaluation point (%d)", J), call. = FALSE)
   }
@@ -603,14 +609,29 @@ wbate <- function(x, weights = NULL) {
 
 #' @rdname wbate
 #' @export
-lbate <- function(x) {
+lbate <- function(x, kind = c("max", "min", "absmax")) {
   if (!inherits(x, "rdnet")) stop("expected an rdnet() result", call. = FALSE)
+  kind <- match.arg(kind)
   ok <- x$table$status == "ok"
   if (!any(ok) || is.null(x$crit)) stop("LBATE needs at least one estimated evaluation point", call. = FALSE)
   t <- x$table[ok, , drop = FALSE]
-  c(tau = max(t$tau), tau_bc = max(t$tau_bc), se_rb = NA_real_,
-    ci_lo = max(t$tau_bc - x$crit * t$se_rb), ci_hi = max(t$tau_bc + x$crit * t$se_rb),
-    pvalue = NA_real_)
+  lo <- t$tau_bc - x$crit * t$se_rb
+  hi <- t$tau_bc + x$crit * t$se_rb
+  v <- switch(kind,
+    max = c(max(t$tau), max(t$tau_bc), max(lo), max(hi)),
+    min = c(min(t$tau), min(t$tau_bc), min(lo), min(hi)),
+    absmax = c(max(abs(t$tau)), max(abs(t$tau_bc)), max(pmax(0, lo, -hi)), max(pmax(abs(lo), abs(hi)))))
+  c(tau = v[1], tau_bc = v[2], se_rb = NA_real_, ci_lo = v[3], ci_hi = v[4], pvalue = NA_real_)
+}
+
+# Equal weight per distinct place among the estimated points, shared by repeats.
+.place_weights <- function(tab) {
+  ok <- tab$status == "ok"
+  w <- numeric(nrow(tab))
+  if (!any(ok)) return(w)
+  place <- round(tab$node_arc[ok], 9)
+  w[ok] <- 1 / as.numeric(table(place)[as.character(place)])
+  w
 }
 
 #' Summaries of rdnet results

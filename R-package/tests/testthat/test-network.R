@@ -66,7 +66,7 @@ test_that("networks from igraph", {
 
 test_that("from_place falls back to the mock network offline", {
   local_mocked_bindings(.geocode_bbox = function(...) stop("no internet"))
-  expect_warning(net <- network_graph_from_place("Manhattan, New York"), "bundled mock")
+  expect_warning(net <- network_graph_from_place("Manhattan, New York", offline_fallback = TRUE), "bundled mock")
   expect_equal(net$n_nodes, 450)
   expect_error(network_graph_from_place("Manhattan", offline_fallback = FALSE), "no internet")
   expect_error(network_graph_from_place(), "query or a bbox")
@@ -118,4 +118,18 @@ test_that("edge_frame keeps one row per street and orients geometries", {
   expect_equal(nrow(E), 1)
   expect_equal(E$geometry[[1]][1, ], c(0, 0))
   expect_equal(E$length, 10)
+})
+
+test_that("direction = 'flow' measures both sides of a river", {
+  nodes <- data.frame(name = c(0:4, 9), x = c(0, 100, 200, 300, 400, 200), y = c(0, 0, 0, 0, 0, 300))
+  edges <- data.frame(from = c(0:3, 9), to = c(1:4, 3), length = c(100, 100, 100, 100, sqrt(100^2 + 300^2)))
+  bnd <- boundary(rbind(c(200, -500), c(200, 500)), treated_side = "right")
+  pts <- rbind(c(50, 0), c(350, 0))
+  out <- suppressWarnings(network_coordinates(network_graph(edges, nodes, directed = TRUE, direction = "out"),
+                                              bnd, pts, eval_points = 500))
+  expect_true(is.na(out$s[1]))
+  flow <- network_coordinates(network_graph(edges, nodes, directed = TRUE, direction = "flow"), bnd, pts,
+                              eval_points = 500)
+  expect_equal(flow$s, c(-150, 150))
+  expect_equal(coords_at(flow, 1)$d, c(150, 150))
 })

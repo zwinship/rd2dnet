@@ -99,6 +99,23 @@ program define t_hc1
     rdn_expect r(se_rb) 0.35252971060533 1e-8 "WBATE se"
     estat lbate
     rdn_expect (r(ci_lo)<=r(tau_bc)&r(tau_bc)<=r(ci_hi)) 1 0 "LBATE interval contains max tau_bc"
+    estat lbate, min
+    rdn_expect r(tau_bc) -0.09516753502656217 1e-8 "LBATE min tau_bc"
+    estat lbate, absmax
+    rdn_expect r(tau_bc) 2.6714197044901438 1e-8 "LBATE absmax tau_bc"
+    * equal WBATE weights per distinct place: the two highway-node points share one
+    * (compared with explicit weights; at this bandwidth a few points equidistant
+    * from two boundary nodes enter, and Python breaks those ties differently)
+    rdnet outcome, h(2000) vce(hc1) seed(0)
+    estat wbate, weights(equal)
+    local wpl = r(tau_bc)
+    matrix RW = e(results)
+    matrix WW = J(rowsof(RW), 1, 0)
+    forvalues j = 1/`=rowsof(RW)' {
+        if RW[`j', 15] == 0 & `j' != 2 matrix WW[`j', 1] = 1
+    }
+    estat wbate, weights(WW)
+    rdn_expect `wpl' r(tau_bc) 1e-12 "WBATE equal weights per place"
     lincom eval3 - eval4
 end
 
@@ -206,7 +223,7 @@ program define t_metrics
     rdnetmock, clear
     rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) cost(travel_time) boundary(rdn_line) ///
         treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
-    local s 78.106176 107.859586909091 -118.87362 -178.695072 149.707296 152.134416
+    local s 80.508528 111.763714909091 -121.85946 -183.33648 150.969168 156.090672
     forvalues i = 1/6 {
         rdn_expect _rdn_s[`i'] `: word `i' of `s'' 1e-9 "travel time s[`i']"
     }
@@ -397,6 +414,13 @@ program define t_pointnodes
     local w2 = -(2 * sqrt(300^2 + 100^2) + 50)
     rdn_expect _rdn_s[1] `w1' 1e-12 "one-way edge: s[1]"
     rdn_expect _rdn_s[2] `w2' 1e-12 "one-way edge: s[2]"
+    * direction(flow): the shorter directed path either way; from the points on
+    * N -> M only the downstream end M is reachable, and M is a dead end, so the
+    * path is the one from the boundary (as with direction(out))
+    rdnetset x y, nodes(pn_nodes) edges(pn_edges) boundary(PL) treatedside(left) evalpoints(PE) ///
+        directed direction(flow)
+    rdn_expect _rdn_s[1] `w1' 1e-12 "flow: s[1]"
+    rdn_expect _rdn_s[2] `w2' 1e-12 "flow: s[2]"
     * the transition penalty applies to the edge a location sits on: points on the
     * primary edge P-Q reach the boundary along primary streets via Z, not via X
     frame pn_nodes {

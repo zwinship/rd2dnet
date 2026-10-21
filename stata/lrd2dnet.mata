@@ -603,7 +603,7 @@ real matrix rdn_binterp(struct rdn_bnd scalar B, real colvector arc)
 
 real colvector rdn_btreated(struct rdn_bnd scalar B, real matrix xy)
 {
-    real colvector arc, left, d
+    real colvector arc, left, d, on
     real matrix a, z, foot
     real scalar eps
     if (B.hasregion) {
@@ -616,8 +616,10 @@ real colvector rdn_btreated(struct rdn_bnd scalar B, real matrix xy)
     z = rdn_binterp(B, rowmax((rowmin((arc :+ eps, J(rows(arc), 1, B.blen))), J(rows(arc), 1, 0))))
     foot = rdn_binterp(B, arc)
     left = ((z[., 1] - a[., 1]) :* (xy[., 2] - foot[., 2]) - (z[., 2] - a[., 2]) :* (xy[., 1] - foot[., 1])) :> 0
-    if (B.side == "left") return(left)
-    return(1 :- left)
+    // points on the line (within tol) count as treated, as with a treated region
+    on = sqrt((xy[., 1] - foot[., 1]) :^ 2 + (xy[., 2] - foot[., 2]) :^ 2) :<= B.tol
+    if (B.side == "left") return(left :| on)
+    return((1 :- left) :| on)
 }
 
 real colvector rdn_bmasked(struct rdn_bnd scalar B, real colvector arc)
@@ -937,9 +939,49 @@ struct rdn_net {
     real matrix xy, penmat
     real colvector efrom, eto, ecost, elen, iscross
     real colvector fu, fv, flen, fcost, fglen
-    real scalar n, directed, metric, defpen, snapscale, ncross
+    real scalar n, directed, metric, defpen, snapscale, ncross, flow
     string scalar direction
-    struct rdn_engine scalar E
+    struct rdn_engine scalar E, E2
+}
+
+// Distances, nearest sources and close pairs on the network: with
+// direction(flow), the shorter of the directed paths a -> b (engine E, edges
+// as drawn) and b -> a (engine E2, edges reversed).
+real matrix rdn_net_distances(struct rdn_net scalar N, real colvector sources, real scalar limit)
+{
+    real matrix A, B
+    A = rdn_distances(N.E, sources, limit)
+    if (!N.flow) return(A)
+    B = rdn_distances(N.E2, sources, limit)
+    return(A :* (A :<= B) + B :* (B :< A))
+}
+
+void rdn_net_nearest(struct rdn_net scalar N, real colvector sources, real colvector dist, real colvector src)
+{
+    real colvector d2, s2, take
+    rdn_nearest_source(N.E, sources, dist, src)
+    if (!N.flow) return
+    d2 = .
+    s2 = .
+    rdn_nearest_source(N.E2, sources, d2, s2)
+    take = (d2 :< dist)
+    dist = rdn_where(take, d2, dist)
+    src = rdn_where(take, s2, src)
+}
+
+real matrix rdn_net_pairs(struct rdn_net scalar N, real colvector sources, real scalar limit)
+{
+    real matrix P, o
+    real colvector keep
+    real scalar r
+    P = rdn_pairs(N.E, sources, limit)
+    if (!N.flow) return(P)
+    P = P \ rdn_pairs(N.E2, sources, limit)
+    if (rows(P) == 0) return(P)
+    P = P[order(P, (1, 2, 3)), .]
+    keep = J(rows(P), 1, 1)
+    for (r = 2; r <= rows(P); r++) keep[r] = (P[r, 1] != P[r - 1, 1]) | (P[r, 2] != P[r - 1, 2])
+    return(select(P, keep))
 }
 
 // Edge table: one row per undirected street (of parallel edges, the cheapest,
@@ -996,8 +1038,23 @@ void rdn_compile(struct rdn_net scalar N)
     string colvector cls, classes
     real matrix pen
     real scalar mm, C, nmem, a, b, k, nstates, tot, s, mem, ed, p
-    struct rdn_engine scalar A
+    struct rdn_engine scalar A, E1
     transmorphic map
+    N.flow = 0
+    if (N.directed & N.direction == "flow") {
+        // the shorter of the directed paths a -> b and b -> a: engines for the
+        // edges as drawn (E) and reversed (E2)
+        N.direction = "out"
+        rdn_compile(N)
+        E1 = N.E
+        N.direction = "in"
+        rdn_compile(N)
+        N.E2 = N.E
+        N.E = E1
+        N.direction = "flow"
+        N.flow = 1
+        return
+    }
     if (!N.directed | N.direction == "both") {
         tail = N.efrom \ N.eto
         head = N.eto \ N.efrom
@@ -1443,7 +1500,36 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
 // ---------------------------------------------------------------------------
 
 struct rdn_snap {
-    real colvector u, v, cu, cv, depth
+    real colvector u, v, cu, cv, depth, rate
+}
+
+// Cost per unit length of each street in the edge table (cost / length), with
+// the median for streets without a usable length; and the mean over each
+// node's streets.
+real colvector rdn_edge_rates(struct rdn_net scalar N)
+{
+    real colvector r, good
+    real scalar fb
+    r = N.fcost :/ N.flen
+    good = (r :< .) :& (N.flen :> 0) :& (N.fcost :< rdn_inf())
+    fb = (sum(good) ? rdn_median(select(r, good)) : 0)
+    return(rdn_where(good, r, J(rows(r), 1, fb)))
+}
+
+real colvector rdn_node_rates(struct rdn_net scalar N, real colvector er)
+{
+    real colvector sm, ct
+    real scalar k, fb
+    sm = J(N.n, 1, 0)
+    ct = J(N.n, 1, 0)
+    for (k = 1; k <= rows(er); k++) {
+        sm[N.fu[k]] = sm[N.fu[k]] + er[k]
+        sm[N.fv[k]] = sm[N.fv[k]] + er[k]
+        ct[N.fu[k]] = ct[N.fu[k]] + 1
+        ct[N.fv[k]] = ct[N.fv[k]] + 1
+    }
+    fb = (rows(er) ? rdn_median(er) : 0)
+    return(rdn_where(ct :> 0, sm :/ rowmax((ct, J(N.n, 1, 1))), J(N.n, 1, fb)))
 }
 
 // Attach points to the nearest allowed street segment (or node).
@@ -1452,7 +1538,7 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
 {
     struct rdn_snap scalar S
     struct rdn_near scalar R
-    real colvector cand, ok, ei, ed
+    real colvector cand, ok, ei, ed, er, nr, atu, atv, tiny
     if (nodemode) {
         cand = selectindex(allowed)
         if (rows(cand) == 0) _error(3498, "no network nodes available for snapping")
@@ -1463,6 +1549,7 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
         S.cu = J(rows(xy), 1, 0)
         S.cv = J(rows(xy), 1, 0)
         S.depth = R.dist
+        S.rate = rdn_node_rates(N, rdn_edge_rates(N))[S.u]
         return(S)
     }
     ok = allowed[N.fu] :& allowed[N.fv] :& (N.fcost :< rdn_inf())
@@ -1476,6 +1563,15 @@ struct rdn_snap scalar rdn_snap_points(struct rdn_net scalar N, real matrix xy,
     S.cu = R.t :* N.fcost[ed]
     S.cv = (1 :- R.t) :* N.fcost[ed]
     S.depth = R.dist
+    // a point at an end node uses the node's rate (which of its edges it
+    // "snapped to" is arbitrary)
+    er = rdn_edge_rates(N)
+    nr = rdn_node_rates(N, er)
+    S.rate = er[ed]
+    tiny = 1e-9 :* (S.cu + S.cv)  // projections onto an edge's end, up to rounding
+    atv = (S.u :!= S.v) :& (S.cv :<= tiny) :& (S.cu :> tiny)
+    atu = (S.u :== S.v) :| ((S.cu :<= tiny) :& (!atv))
+    S.rate = rdn_where(atu, nr[S.u], rdn_where(atv, nr[S.v], S.rate))
     return(S)
 }
 
@@ -1575,7 +1671,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     struct rdn_snap scalar S
     real colvector bnodes, loc, firstl, TL, u, v, cu, cv, dep, m, allowed, depc
     real colvector viau, viav, dist, xnode, onedge, unreach, safe, bnarc, tot, frac, idx
-    real colvector pu, pv, pc, onends, pnode, off
+    real colvector pu, pv, pc, onends, pnode, off, rate
     struct rdn_net scalar NP
     real matrix xyl, D
     real scalar n, side, j, Jn, useT
@@ -1606,6 +1702,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     cu = J(n, 1, .)
     cv = J(n, 1, .)
     dep = J(n, 1, .)
+    rate = J(n, 1, .)
     for (side = 1; side <= 2; side++) {
         if (side == 1) {
             m = selectindex(TL)
@@ -1622,8 +1719,10 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
         cu[m] = S.cu
         cv[m] = S.cv
         dep[m] = S.depth
+        rate[m] = S.rate
     }
-    depc = dep :* C.N.snapscale
+    // off-network cost: snapscale(), or the snapped street's cost per unit length
+    depc = dep :* (C.N.snapscale < . ? J(n, 1, C.N.snapscale) : rate)
 
     bnarc = rdn_bproject(C.B, C.N.xy[bnodes, .])
     if (rows(evalarc)) C.evalarc = evalarc
@@ -1664,7 +1763,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
     }
     ndist = .
     nsrc = .
-    rdn_nearest_source(C.N.E, bnodes, ndist, nsrc)
+    rdn_net_nearest(C.N, bnodes, ndist, nsrc)
     C.nodedist = ndist
     C.nodesrc = nsrc
     viau = cu + C.nodedist[u]
@@ -1701,7 +1800,7 @@ void rdn_build_coords(struct rdn_coords scalar C, real matrix xy, real colvector
 
     // node rows: metric distance from each evaluation point to every node
     Jn = rows(C.evalarc)
-    D = rdn_distances(C.N.E, C.eu \ C.ev, rdn_inf())
+    D = rdn_net_distances(C.N, C.eu \ C.ev, rdn_inf())
     C.NR = J(Jn, C.N.n, .)
     for (j = 1; j <= Jn; j++) {
         C.NR[j, .] = colmin((C.ecu[j] :+ D[j, .]) \ (C.ecv[j] :+ D[Jn + j, .]))
@@ -1926,7 +2025,7 @@ real matrix rdn_hac(struct rdn_coords scalar C, real colvector idx, real matrix 
         nodes = uniqrows(eu \ ev)
         npos = J(C.N.n, 1, 0)
         npos[nodes] = (1::rows(nodes))
-        PR = rdn_pairs(C.N.E, nodes, cutoff)
+        PR = rdn_net_pairs(C.N, nodes, cutoff)
         if (rows(PR)) {
             tgt = npos[PR[., 2]]
             keep = selectindex(tgt :> 0)
@@ -3301,7 +3400,9 @@ void rdn_setup()
     }
     else N.penmat = J(0, 0, .)
     ss = rdn_lnum("snapscale", -1)
-    if (ss < 0) ss = (costv == "length" ? 1 : 0)
+    // default: 1 for length; otherwise missing, meaning the snapped street's
+    // cost per unit length (travel time: that street's seconds per metre)
+    if (ss < 0) ss = (costv == "length" ? 1 : .)
     N.snapscale = ss
     if (!rdn_lnum("nosplit", 0)) rdn_split(N, B)
     rdn_edge_frame(N)
@@ -3807,16 +3908,55 @@ void rdn_wbate_entry()
 void rdn_lbate_entry()
 {
     real matrix R
-    real colvector okw
+    real colvector okw, lo, hi, tp, tq
     real scalar crit
+    string scalar kind
     R = st_matrix("e(results)")
     crit = st_numscalar("e(crit)")
+    kind = st_local("kind")
     okw = selectindex(R[., 15] :== 0)
     if (rows(okw) == 0 | crit >= .) _error(498, "LBATE needs at least one estimated evaluation point")
-    st_numscalar("r(tau)", max(R[okw, 8]))
-    st_numscalar("r(tau_bc)", max(R[okw, 10]))
-    st_numscalar("r(ci_lo)", max(R[okw, 10] - crit :* R[okw, 11]))
-    st_numscalar("r(ci_hi)", max(R[okw, 10] + crit :* R[okw, 11]))
+    tp = R[okw, 8]
+    tq = R[okw, 10]
+    lo = tq - crit :* R[okw, 11]
+    hi = tq + crit :* R[okw, 11]
+    if (kind == "min") {
+        st_numscalar("r(tau)", min(tp))
+        st_numscalar("r(tau_bc)", min(tq))
+        st_numscalar("r(ci_lo)", min(lo))
+        st_numscalar("r(ci_hi)", min(hi))
+    }
+    else if (kind == "absmax") {
+        // the interval for max_j |tau_j| implied by the uniform band
+        st_numscalar("r(tau)", max(abs(tp)))
+        st_numscalar("r(tau_bc)", max(abs(tq)))
+        st_numscalar("r(ci_lo)", max(rowmax((J(rows(lo), 1, 0), lo, -hi))))
+        st_numscalar("r(ci_hi)", max(rowmax((abs(lo), abs(hi)))))
+    }
+    else {
+        st_numscalar("r(tau)", max(tp))
+        st_numscalar("r(tau_bc)", max(tq))
+        st_numscalar("r(ci_lo)", max(lo))
+        st_numscalar("r(ci_hi)", max(hi))
+    }
+}
+
+// Equal weight per distinct place (node_arc, column 3) among the estimated
+// points (status 0, column 15); points at the same place share its weight.
+real colvector rdn_place_weights(real matrix R)
+{
+    real colvector w, ok, place
+    real scalar j, k, c
+    w = J(rows(R), 1, 0)
+    ok = (R[., 15] :== 0)
+    place = round(R[., 3], 1e-9)
+    for (j = 1; j <= rows(R); j++) {
+        if (!ok[j]) continue
+        c = 0
+        for (k = 1; k <= rows(R); k++) c = c + (ok[k] & place[k] == place[j])
+        w[j] = 1 / c
+    }
+    return(w)
 }
 
 end

@@ -159,7 +159,9 @@ boundary_is_treated <- function(b, xy) {
   tx <- z[, 1] - a[, 1]
   ty <- z[, 2] - a[, 2]
   left <- tx * (xy[, 2] - foot[, 2]) - ty * (xy[, 1] - foot[, 1]) > 0
-  if (identical(b$treated_side, "left")) left else !left
+  # points on the line (within tol) count as treated, as with a treated_region
+  on <- sqrt((xy[, 1] - foot[, 1])^2 + (xy[, 2] - foot[, 2])^2) <= b$tol
+  (if (identical(b$treated_side, "left")) left else !left) | on
 }
 
 #' Masked stretches of the boundary
