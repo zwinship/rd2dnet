@@ -1,0 +1,44 @@
+{
+ "case": 9,
+ "kind": "grid",
+ "directed": false,
+ "direction": "both",
+ "metric": "transition",
+ "penalty": 50.4,
+ "n_eval": 7,
+ "n_obs": 1400,
+ "runs": [
+  {
+   "kernel": "uniform",
+   "vce": "hc1",
+   "p": 1,
+   "h": 407.4,
+   "covs": true
+  },
+  {
+   "kernel": "triangular",
+   "vce": "hc1",
+   "p": 1,
+   "h": 265.4,
+   "covs": true
+  },
+  {
+   "kernel": "triangular",
+   "vce": "hc2",
+   "p": 1,
+   "bwselect": "cerrd",
+   "covs": true
+  }
+ ],
+ "density": [
+  {
+   "normalize": "network",
+   "bwselect": "common"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "msetwo"
+  }
+ ]
+}
