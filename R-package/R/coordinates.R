@@ -171,7 +171,7 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
     pc <- c(cu, eval_snap$cost_u)
     tot <- pc + c(cv, eval_snap$cost_v)
     frac <- ifelse(tot > 0, pc / tot, 0)
-    on_edge_ends <- node_on[pu] & node_on[pv]
+    on_edge_ends <- .on_along(network, boundary, node_on, pu, pv)
     sp <- .with_point_nodes(network, pu, pv, frac, extensive)
     network <- sp$net
     pnode <- sp$node
@@ -194,7 +194,7 @@ network_coordinates <- function(network, boundary, points, treated = NULL, eval_
   dist <- depth_cost + pmin(via_u, via_v)
   crossing <- ifelse(via_u <= via_v, node_src[u], node_src[v])
   # A location snapped onto a segment that runs along the boundary is already there.
-  on_edge <- node_on[u] & node_on[v] & (u != v)
+  on_edge <- .on_along(network, boundary, node_on, u, v)
   dist[on_edge] <- depth_cost[on_edge]
   crossing[on_edge] <- ifelse(cu <= cv, u, v)[on_edge]
   unreachable <- !is.finite(dist) | is.na(crossing)
@@ -322,6 +322,30 @@ print.rd2dnet_coords <- function(x, ...) {
 }
 
 # Place evaluation points on boundary street segments (or boundary nodes).
+# Edge-frame rows of street segments that run along the boundary. Both ends on
+# the boundary is not enough: a road that leaves the boundary and comes back
+# (a crescent, a loop into one side) is not on it. Its quarter points must lie
+# within the boundary's tolerance too.
+.along_boundary <- function(net, b, node_on) {
+  E <- edge_frame(net)
+  out <- node_on[E$u] & node_on[E$v] & (E$u != E$v)
+  for (k in which(out)) {
+    sg <- .segments(E$geometry[[k]])
+    q <- .line_interpolate(sg, c(0.25, 0.5, 0.75) * sg$total)
+    out[k] <- all(boundary_distance(b, q) <= b$tol)
+  }
+  out
+}
+
+# Whether points snapped between nodes u and v lie on a segment along the boundary.
+.on_along <- function(net, b, node_on, u, v) {
+  on <- node_on[u] & node_on[v] & (u != v)
+  if (!any(on)) return(on)
+  E <- edge_frame(net)
+  keys <- paste(pmin(E$u, E$v), pmax(E$u, E$v))[.along_boundary(net, b, node_on)]
+  on & paste(pmin(u, v), pmax(u, v)) %in% keys
+}
+
 .snap_eval_points <- function(net, b, eval_arc, node_on, bnodes, bnode_arc) {
   k <- length(eval_arc)
   nearest <- bnodes[vapply(eval_arc, function(a) which.min(abs(bnode_arc - a)), integer(1))]
@@ -330,7 +354,7 @@ print.rd2dnet_coords <- function(x, ...) {
     return(out)
   }
   E <- edge_frame(net)
-  along <- node_on[E$u] & node_on[E$v] & is.finite(E$cost)
+  along <- .along_boundary(net, b, node_on) & is.finite(E$cost)
   if (!any(along)) {
     return(out)
   }

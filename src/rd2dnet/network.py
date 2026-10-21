@@ -773,7 +773,9 @@ def _warn_unjoined(G, lengths, tol, split) -> None:
     from scipy.spatial import cKDTree
 
     xy = np.array([(G.nodes[v]["x"], G.nodes[v]["y"]) for v in nodes])
-    gap = cKDTree(xy).query(xy[dangle], k=2)[0][:, 1]
+    di = np.flatnonzero(dangle)
+    probe = di[np.unique(np.round(np.linspace(0, len(di) - 1, min(500, len(di)))).astype(int))]
+    gap = cKDTree(xy).query(xy[probe], k=2)[0][:, 1]
     g = float(np.median(gap))
     hint = []
     if g < 0.1 * float(np.median(lengths)):

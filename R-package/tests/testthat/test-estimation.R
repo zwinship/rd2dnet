@@ -535,3 +535,37 @@ test_that("a Conley cutoff above the bandwidth warns", {
   expect_warning(rdnet(mock_city()$obs$outcome, mock_coords(), h = 400, conley_cutoff = 1500, cbands = FALSE),
                  "exceeds the bandwidth")
 })
+
+test_that("fuzzy points with a first stage near zero are flagged", {
+  cc <- mock_coords()
+  set.seed(0)
+  d <- stats::rbinom(cc$n_obs, 1, 0.5) # take-up unrelated to the boundary
+  t <- rdnet(mock_city()$obs$outcome, cc, h = 600, fuzzy = d, cbands = FALSE)$table
+  weak <- t$status == "weak first stage"
+  expect_true(any(weak))
+  expect_true(all(abs(t$fs[weak]) < 2 * t$fs_se[weak]))
+  expect_true(all(is.finite(t$tau_bc[weak])))
+  strong <- t$status == "ok"
+  expect_true(all(abs(t$fs[strong]) >= 2 * t$fs_se[strong]))
+})
+
+test_that("rdbwnet reproduces the bandwidths rdnet selects with cluster and conley", {
+  city <- mock_city()
+  cc <- mock_coords()
+  y <- city$obs$outcome
+  cl <- city$obs$x %/% 500
+  r <- suppressWarnings(rdnet(y, cc, cluster = cl, cbands = FALSE))
+  bw <- rdbwnet(y, cc, cluster = cl, vce = "cluster", scaleregul = 3)
+  expect_equal(r$table$h0, bw$h0, tolerance = 1e-12)
+  r <- rdnet(y, cc, conley_cutoff = 150, cbands = FALSE)
+  bw <- rdbwnet(y, cc, vce = "conley", scaleregul = 3)
+  expect_equal(r$table$h0, bw$h0, tolerance = 1e-12)
+})
+
+test_that("HC errors warn when observations repeat at few locations", {
+  city <- mock_city()
+  xy <- as.matrix(city$obs[rep(seq_len(300), 3), c("x", "y")])
+  cc <- network_coordinates(city$network(), city$boundary, xy, n_eval = 5)
+  set.seed(1)
+  expect_warning(rdnet(stats::rnorm(nrow(xy)), cc, h = 800, cbands = FALSE), "distinct locations")
+})

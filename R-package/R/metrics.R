@@ -156,9 +156,18 @@ precomputed_from_od <- function(table, origin = "origin", destination = "destina
 #'   length_ft`, `speed_kph = 1.609344 * speed_mph`).
 #' @export
 travel_time <- function(speed_attr = "speed_kph", length_attr = "length", default_kph = NULL) {
+  warned <- FALSE
   fn <- function(edges) {
     speed <- if (speed_attr %in% names(edges)) .first_value(edges[[speed_attr]]) else rep(NA_real_, nrow(edges))
-    if (!is.null(default_kph)) speed[is.na(speed)] <- default_kph
+    if (!is.null(default_kph)) {
+      if (!warned && nrow(edges) && mean(is.na(speed)) > 0.5) {
+        warning(sprintf(paste0("%.0f%% of edges have no '%s' and use default_kph = %g: travel times are then ",
+                               "mostly length / one speed. OpenStreetMap downloads carry speeds only where ",
+                               "mapped"), 100 * mean(is.na(speed)), speed_attr, default_kph), call. = FALSE)
+        warned <<- TRUE
+      }
+      speed[is.na(speed)] <- default_kph
+    }
     miss <- which(is.na(speed))
     if (length(miss)) {
       stop(sprintf("edge (%s, %s) has no '%s' and no default_kph", edges$from[miss[1]],
@@ -369,6 +378,10 @@ as_metric <- function(spec) {
     for (b in seq_along(classes)) {
       pen[a + 1L, b + 1L] <- .transition_penalty(metric, classes[a], classes[b])
     }
+  }
+  if (net$directed && net$direction == "in") {
+    # arcs are reversed, so the search meets each turn from its far side
+    pen <- t(pen)
   }
   cid <- match(ecls, classes) + 1L
   cid[is.na(cid) | is_conn] <- 1L

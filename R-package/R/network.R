@@ -111,6 +111,25 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
 }
 
 # Edge columns a metric reads as additive costs (split in proportion when an edge is cut).
+# Warn when a cost function's cost does not add up over the pieces of a split
+# edge. Column costs are split in proportion automatically; a function may read
+# any column, and those it reads must be listed in `extensive`.
+.check_split_cost <- function(net, orig, pieces) {
+  m <- if (inherits(net$metric, "rd2dnet_transition_cost")) net$metric$base else net$metric
+  if (!inherits(m, "rd2dnet_edge_cost") || !is.function(m$cost)) return(invisible())
+  pieces$from <- orig$from
+  pieces$to <- orig$to
+  keep <- intersect(names(orig), names(pieces))
+  c0 <- tryCatch(.edge_costs(m, rbind(orig[keep], pieces[keep]), net), error = function(e) NULL)
+  if (is.null(c0) || !all(is.finite(c0))) return(invisible())
+  if (abs(sum(c0[-1]) - c0[1]) > 1e-6 * max(abs(c0[1]), 1e-12)) {
+    warning(sprintf(paste0("the metric's cost does not add up over the pieces of a split edge (%g instead of %g): ",
+                           "list the edge columns a cost function reads in extensive, e.g. ",
+                           "extensive = c(\"length\", \"minutes\")"), sum(c0[-1]), c0[1]), call. = FALSE)
+  }
+  invisible()
+}
+
 .cost_attributes <- function(metric) {
   m <- if (inherits(metric, "rd2dnet_transition_cost")) metric$base else metric
   if (inherits(m, "rd2dnet_edge_cost") && is.character(m$cost) && length(m$cost) == 1) m$cost else character()
@@ -415,11 +434,6 @@ snap_points <- function(net, xy, allowed = NULL, mode = "edge") {
 with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time")) {
   .check_network(net)
   .check_boundary(b)
-  if (!isTRUE(net$metric$supports_edge_splitting)) {
-    warning(sprintf("%s cannot split edges; make sure boundary nodes exist in the graph",
-                    format(net$metric)), call. = FALSE)
-    return(net)
-  }
   if (!is.null(net$cache$split_boundary) && identical(net$cache$split_boundary, b)) {
     return(net$cache$split_net)
   }
@@ -431,6 +445,12 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   iu <- E$from
   iv <- E$to
   cand <- which(!on[iu] & !on[iv] & (Tn[iu] != Tn[iv]))
+  if (length(cand) && !isTRUE(net$metric$supports_edge_splitting)) {
+    warning(sprintf(paste0("%d edges cross the boundary between their end nodes, and %s cannot split edges: ",
+                           "paths along them skip the boundary. Add nodes on the boundary to the graph (and to ",
+                           "the distance matrix)"), length(cand), format(net$metric)), call. = FALSE)
+    return(net)
+  }
   if (!length(cand)) {
     attr(net, "n_crossings_inserted") <- 0L
     net$cache$split_boundary <- b
@@ -482,6 +502,7 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
     net$cache$split_net <- net
     return(net)
   }
+  .check_split_cost(net, E[drop[1], , drop = FALSE], rbind(new_edges[[1]], new_edges[[2]]))
   added <- do.call(rbind, new_nodes)
   ids <- nodes$name
   if (!is.character(ids)) ids <- as.character(ids)
@@ -568,6 +589,15 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
   node[mid] <- n0 + sid
   S <- data.frame(lo = lo[first], hi = hi[first], t = t[first])
   xy <- net$coords[S$lo, , drop = FALSE] + (net$coords[S$hi, , drop = FALSE] - net$coords[S$lo, , drop = FALSE]) * S$t
+  # the new node sits on the street's own geometry, not on the chord
+  Ef <- edge_frame(net)
+  r <- match(paste(S$lo, S$hi), paste(pmin(Ef$u, Ef$v), pmax(Ef$u, Ef$v)))
+  for (k in which(!is.na(r))) {
+    g <- Ef$geometry[[r[k]]]
+    if (is.null(g) || nrow(g) < 3) next
+    sg <- .segments(g)
+    xy[k, ] <- .line_interpolate(sg, (if (Ef$u[r[k]] == S$lo[k]) S$t[k] else 1 - S$t[k]) * sg$total)
+  }
   nodes <- net$nodes
   nodes$name <- as.character(nodes$name)
   added <- data.frame(name = .fresh_labels(nodes$name, "rdnet_point", nrow(S)), x = xy[, 1], y = xy[, 2],
@@ -601,8 +631,10 @@ with_boundary_crossings <- function(net, b, extensive = c("length", "travel_time
       piece$to <- chain[i + 1]
       new_edges[[length(new_edges) + 1]] <- piece
     }
+    if (!length(drop)) first_n <- length(new_edges)
     drop <- c(drop, k)
   }
+  if (length(drop)) .check_split_cost(net, E[drop[1], , drop = FALSE], do.call(rbind, new_edges[seq_len(first_n)]))
   E2 <- rbind(E[-drop, , drop = FALSE], do.call(rbind, new_edges))
   E2$from <- all_nodes$name[E2$from]
   E2$to <- all_nodes$name[E2$to]

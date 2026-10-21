@@ -33,8 +33,8 @@ from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
 
 
-def _street_closeness(coords: NetworkCoordinates, n_ref: int = 2000) -> float:
-    """Median snap distance of the locations relative to points spread uniformly over their extent.
+def _street_closeness(coords: NetworkCoordinates, n_ref: int = 45) -> float:
+    """Median snap distance of the locations relative to points spread evenly over their extent.
 
     About 1 when units are spread over the plane (parcels, households), near 0
     when they sit on or next to the streets (stations on a river, GPS fixes of
@@ -46,7 +46,9 @@ def _street_closeness(coords: NetworkCoordinates, n_ref: int = 2000) -> float:
     if ok.sum() < 20:
         return np.nan
     lo, hi = xy[ok].min(axis=0), xy[ok].max(axis=0)
-    ref_pts = np.random.default_rng(0).uniform(lo, hi, (n_ref, 2))
+    g = (np.arange(n_ref) + 0.5) / n_ref  # a regular 45 x 45 lattice over the locations' extent
+    gx, gy = np.meshgrid(lo[0] + g * (hi[0] - lo[0]), lo[1] + g * (hi[1] - lo[1]))
+    ref_pts = np.column_stack([gx.ravel(), gy.ravel()])
     try:
         ref = np.asarray(coords.network.snap(ref_pts).depth, dtype=float)
     except ValueError:

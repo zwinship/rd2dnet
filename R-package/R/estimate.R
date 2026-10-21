@@ -89,7 +89,11 @@
 #'       `"few clusters"`, `"singular"`, `"weak first stage"`, `"no
 #'       bandwidth"`), the local `basis` (`"s,o"` or `"s"`, see Details), and
 #'       optionally the uniform band `cb_lo`/`cb_hi`. Fuzzy designs add `itt`,
-#'       `fs` and `fs_se`.}
+#'       `fs` and `fs_se`; a point whose first stage is within two standard
+#'       errors of zero (`|fs| < 2 fs_se`) is `"weak first stage"`: its
+#'       estimates are reported, but the delta-method interval for `itt / fs`
+#'       is unreliable and it is left out of the default [wbate()] and of
+#'       [lbate()].}
 #'     \item{`cov`}{the `J x J` covariance of `tau_bc` across evaluation
 #'       points (rd2d's `params_cov`), `NA` for points not estimated; its
 #'       diagonal is `se_rb^2`.}
@@ -134,13 +138,12 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   if (!is.numeric(level) || length(level) != 1 || !(level > 1 && level < 100)) {
     stop(sprintf("level is a percentage, e.g. 95 (got %s)", format(level)), call. = FALSE)
   }
-  q <- if (is.null(q)) p + 1 else as.integer(q)
-  if (p < 0 || q < p) stop("need 0 <= p <= q", call. = FALSE)
+  p <- .as_int(p, "p", 0L)
+  q <- if (is.null(q)) p + 1L else .as_int(q, "q")
+  if (q < p) stop("need 0 <= p <= q", call. = FALSE)
+  repp <- .as_int(repp, "repp", 1L)
   J <- coords$n_eval
-  deriv <- as.integer(deriv)
-  if (length(deriv) != 2 || min(deriv) < 0 || sum(deriv) > p) {
-    stop("deriv must be c(a, c) with a, c >= 0 and a + c <= p", call. = FALSE)
-  }
+  deriv <- .check_deriv(deriv, p)
   tang <- NULL
   if (!is.null(tangvec)) {
     if (sum(deriv) != 0) stop("give either deriv or tangvec, not both", call. = FALSE)
@@ -401,7 +404,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
     pos[union] <- seq_along(union)
     Psi <- matrix(0, length(union), length(hac_cols))
     for (cc in seq_along(hac_cols)) Psi[pos[hac_cols[[cc]]$idx], cc] <- hac_cols[[cc]]$psi
-    V <- .hac_quadratic(coords, union, Psi, conley_cutoff, conley_distance)
+    V <- .psd(.hac_quadratic(coords, union, Psi, conley_cutoff, conley_distance))
     se_all <- sqrt(pmax(diag(V), 0))
     for (cc in seq_along(hac_cols)) {
       hcj <- hac_cols[[cc]]
@@ -418,12 +421,28 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   } else if (length(psi_store)) {
     cov <- .joint_covariance(psi_store, coords, vce, cluster, J)
   }
+  if (!is.null(D)) {
+    # a first stage indistinguishable from zero makes tau = itt / fs and its
+    # delta-method interval unreliable: flag it (the estimates are kept)
+    weak <- tab$status == "ok" & abs(tab$fs) < 2 * tab$fs_se
+    weak[is.na(weak)] <- FALSE
+    tab$status[weak] <- "weak first stage"
+  }
   g_ok <- g_min[g_min >= 2]
-  if (length(g_ok) && min(g_ok) < 10) {
+  if (length(g_ok) && min(g_ok) < 50) {
     warning(sprintf(paste0("cluster-robust standard errors rest on few clusters: as few as %d per side within ",
-                           "the bandwidth at some evaluation points; with fewer than about 10 per side they are ",
-                           "too small (coverage near 0.7 in Monte Carlo runs with 5-6). Consider conley_cutoff."),
+                           "the bandwidth at some evaluation points. Local cluster-robust errors are too small ",
+                           "unless there are many clusters per side (Monte Carlo coverage of 95%% intervals: about ",
+                           "0.7 with 5-6, 0.78 with 26, 0.88 with 48, 0.94 with 190). Consider conley_cutoff."),
                     min(g_ok)), call. = FALSE)
+  } else if (vce %in% c("hc0", "hc1", "hc2", "hc3")) {
+    n_loc <- length(unique(coords$loc))
+    if (n_loc < 0.9 * coords$n_obs) {
+      warning(sprintf(paste0("the %d observations sit at only %d distinct locations (a panel or repeated ",
+                             "measurements?); %s standard errors treat them as independent and are too small when ",
+                             "observations at one place are correlated. Cluster by unit (cluster = ...) or use ",
+                             "conley_cutoff."), coords$n_obs, n_loc, toupper(vce)), call. = FALSE)
+    }
   }
   tab$h <- ifelse(.isclose(tab$h0, tab$h1), tab$h0, NA_real_)
   if (!is.null(cov)) {
@@ -512,6 +531,22 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 }
 
 # rd2d's (n - 1) / (n - k) cluster degrees-of-freedom factor (1 with one cluster or n <= k).
+# Nearest positive semi-definite matrix when V is clearly not one. Bartlett
+# weights are positive definite on a line but not on a network or in the
+# plane, so a Conley covariance can have negative eigenvalues (and negative
+# variances). They are set to zero, with a warning; a matrix that is positive
+# semi-definite up to rounding is returned unchanged.
+.psd <- function(V) {
+  if (!length(V) || !all(is.finite(V))) return(V)
+  e <- eigen(V, symmetric = TRUE)
+  if (min(e$values) >= -1e-10 * max(max(e$values), 0)) return(V)
+  warning(paste0("the Conley covariance was not positive semi-definite (Bartlett weights need not be on a ",
+                 "network); its negative eigenvalues were set to 0. A smaller conley_cutoff avoids this"),
+          call. = FALSE)
+  out <- e$vectors %*% (pmax(e$values, 0) * t(e$vectors))
+  (out + t(out)) / 2
+}
+
 .cluster_dof <- function(n, k, cl) {
   if (n > k && length(unique(cl)) > 1) (n - 1) / (n - k) else 1
 }
@@ -569,8 +604,9 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 #' (rd2d's WBATE): `weights` has one entry per evaluation point and is
 #' normalised to sum to one. By default every distinct place where an estimated
 #' point lies gets equal weight: evaluation points that snapped to the same place
-#' (`node_arc`) repeat one estimate and share its weight. Points that were not
-#' estimated must get weight 0. Its standard error `sqrt(w' Sigma w)` uses the
+#' (`node_arc`) repeat one estimate and share its weight. Points with a weak
+#' first stage are left out by default but may be given weight. Points that were
+#' not estimated must get weight 0. Its standard error `sqrt(w' Sigma w)` uses the
 #' joint covariance `x$cov`, so it accounts for the correlation between nearby points.
 #'
 #' `lbate()` is the largest boundary average treatment effect
@@ -605,7 +641,7 @@ wbate <- function(x, weights = NULL) {
   }
   if (!all(is.finite(w))) stop("WBATE weights must be finite", call. = FALSE)
   if (sum(w) == 0) stop("WBATE weights must have a nonzero sum", call. = FALSE)
-  ok <- x$table$status == "ok"
+  ok <- x$table$status %in% c("ok", "weak first stage")
   bad <- which(!ok & w != 0)
   if (length(bad)) {
     stop(sprintf("WBATE puts weight on evaluation points that were not estimated: %s; give them weight 0",
