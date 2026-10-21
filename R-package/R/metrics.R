@@ -186,7 +186,7 @@ node_contrast <- function(attr, weight, base = "length", snap_scale = NULL) {
     j <- match(edges$to, nodes$name)
     .first_value(edges[[base]]) + weight * abs(a[i] - a[j])
   }
-  edge_cost(fn, snap_scale = snap_scale %||% (if (identical(base, "length")) 1 else 0),
+  edge_cost(fn, snap_scale = snap_scale %||% (if (identical(base, "length")) 1 else NULL),
             name = sprintf("%s+%s*|d%s|", base, format(weight), attr))
 }
 
@@ -239,7 +239,8 @@ as_metric <- function(spec) {
     if (!is.null(metric$snap_scale)) {
       return(as.numeric(metric$snap_scale))
     }
-    return(if (identical(metric$cost, "length")) 1 else 0)
+    # NA: the snapped edge's cost per unit length (see .snap_rates())
+    return(if (identical(metric$cost, "length")) 1 else NA_real_)
   }
   0
 }

@@ -45,6 +45,9 @@
 * Local fits keep their identifiable terms (in degree order, dropping columns that are
   aliased or determined by a single observation) instead of switching the whole fit to
   `s` alone. A singular bias-correction fit no longer changes the main estimate.
+* Off-network distance is charged at the snapped street's own cost per unit length by
+  default (travel time: that street's seconds per metre), instead of free for metrics
+  other than length.
 
 * Directed networks: locations partway along one-way edges were reached through either
   end node, as if the edge were two-way. Transition costs: the penalty for switching onto

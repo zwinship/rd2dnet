@@ -80,7 +80,8 @@ network_graph <- function(edges, nodes, metric = "length", directed = FALSE, dir
     warning("the network is in longitude/latitude, so distances are in degrees; project it to a ",
             "metric CRS first (network_graph_from_lines() does this for sf layers)", call. = FALSE)
   }
-  if (!is.null(snap_scale) && (length(snap_scale) != 1 || !is.finite(snap_scale) || snap_scale < 0)) {
+  if (!is.null(snap_scale) && !(length(snap_scale) == 1 && is.na(snap_scale)) &&
+      (length(snap_scale) != 1 || !is.finite(snap_scale) || snap_scale < 0)) {
     stop("snap_scale must be finite and non-negative", call. = FALSE)
   }
   metric <- as_metric(metric)
@@ -222,6 +223,36 @@ node_distance <- function(net, a, b) {
 #' city <- load_mock_midtown()
 #' head(edge_frame(city$network())[, c("u", "v", "length", "cost")])
 #' @export
+# Cost per unit of off-network distance for each snapped point: snap_scale when
+# it is a number, otherwise the snapped edge's cost divided by its length (for
+# points at a node, including those projecting onto an edge's end, the mean over
+# the node's edges).
+.snap_rates <- function(net, snap) {
+  n <- length(snap$u)
+  if (!is.na(net$snap_scale)) return(rep(net$snap_scale, n))
+  E <- edge_frame(net)
+  rate <- E$cost / E$length
+  good <- is.finite(rate) & E$length > 0
+  fallback <- if (any(good)) stats::median(rate[good]) else 0
+  rate[!good] <- fallback
+  key <- paste(pmin(E$u, E$v), pmax(E$u, E$v))
+  ends <- c(E$u, E$v)
+  rr <- c(rate, rate)
+  node_sum <- as.numeric(tapply(rr, factor(ends, levels = seq_len(net$n_nodes)), sum))
+  node_cnt <- tabulate(ends, nbins = net$n_nodes)
+  node_sum[is.na(node_sum)] <- 0
+  node_rate <- ifelse(node_cnt > 0, node_sum / pmax(node_cnt, 1), fallback)
+  out <- rate[match(paste(pmin(snap$u, snap$v), pmax(snap$u, snap$v)), key)]
+  # a point at an end node (snapped to a node, or projecting onto an edge's end)
+  # uses the node's rate: which of its edges it "snapped to" is arbitrary
+  tiny <- 1e-9 * (snap$cost_u + snap$cost_v) # projections onto an edge's end, up to rounding
+  at_v <- snap$u != snap$v & snap$cost_v <= tiny & snap$cost_u > tiny
+  at_u <- snap$u == snap$v | (snap$cost_u <= tiny & !at_v) | is.na(out)
+  out[at_u] <- node_rate[snap$u[at_u]]
+  out[at_v] <- node_rate[snap$v[at_v]]
+  out
+}
+
 edge_frame <- function(net) {
   .check_network(net)
   if (!is.null(net$cache$edges)) {

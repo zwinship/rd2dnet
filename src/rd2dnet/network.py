@@ -56,7 +56,9 @@ class NetworkGraph:
         ``"out"`` follows edge direction; ``"in"`` reverses it.
     snap_scale
         Metric cost per unit of off-network snapping distance. Defaults to the
-        metric's own default (1 for length, 0 otherwise).
+        metric's own default: 1 for length, and otherwise the snapped edge's
+        cost per unit length (so with travel time the walk to the street is
+        charged at that street's seconds per metre); 0 for a precomputed matrix.
     """
 
     def __init__(
@@ -99,7 +101,7 @@ class NetworkGraph:
                 raise KeyError(f"{missing} edges have no {cost!r} attribute for the metric; edge attributes "
                                f"available: {have}")
         self.snap_scale = self.metric.default_snap_scale if snap_scale is None else float(snap_scale)
-        if not (np.isfinite(self.snap_scale) and self.snap_scale >= 0):
+        if self.snap_scale is not None and not (np.isfinite(self.snap_scale) and self.snap_scale >= 0):
             raise ValueError(f"snap_scale must be finite and non-negative, got {snap_scale!r}")
         self._engine = None
         self._edges: pd.DataFrame | None = None
@@ -241,6 +243,40 @@ class NetworkGraph:
             (1 - frac) * cost,
             dist,
         )
+
+    def snap_rates(self, snap: "Snap") -> np.ndarray:
+        """Cost per unit of off-network distance for each snapped point.
+
+        ``snap_scale`` when it is a number; otherwise the snapped edge's cost
+        divided by its length (for points at a node, including those projecting
+        onto an edge's end, the mean over the node's edges).
+        """
+        n = len(snap.u)
+        if self.snap_scale is not None:
+            return np.full(n, float(self.snap_scale))
+        E = self.edge_frame()
+        rate = np.asarray(E["cost"], dtype=float) / np.asarray(E["length"], dtype=float)
+        good = np.isfinite(rate) & (np.asarray(E["length"], dtype=float) > 0)
+        fallback = float(np.median(rate[good])) if good.any() else 0.0
+        rate = np.where(good, rate, fallback)
+        eu, ev = E["u"].to_numpy(), E["v"].to_numpy()
+        key = np.minimum(eu, ev) * self.n_nodes + np.maximum(eu, ev)
+        lookup = dict(zip(key.tolist(), rate.tolist()))
+        node_sum = np.bincount(np.r_[eu, ev], weights=np.r_[rate, rate], minlength=self.n_nodes)
+        node_cnt = np.bincount(np.r_[eu, ev], minlength=self.n_nodes)
+        node_rate = np.where(node_cnt > 0, node_sum / np.maximum(node_cnt, 1), fallback)
+        u, v = np.asarray(snap.u), np.asarray(snap.v)
+        k = np.minimum(u, v) * self.n_nodes + np.maximum(u, v)
+        out = np.array([lookup.get(kk, np.nan) for kk in k.tolist()], dtype=float)
+        # a point at an end node (snapped to a node, or projecting onto an edge's
+        # end) uses the node's rate: which of its edges it "snapped to" is arbitrary
+        cu, cv = np.asarray(snap.cost_u), np.asarray(snap.cost_v)
+        tiny = 1e-9 * (cu + cv)  # projections onto an edge's end, up to rounding
+        at_v = (u != v) & (cv <= tiny) & (cu > tiny)
+        at_u = (u == v) | ((cu <= tiny) & ~at_v) | np.isnan(out)
+        out[at_u] = node_rate[u[at_u]]
+        out[at_v] = node_rate[v[at_v]]
+        return out
 
     # --- boundary preparation ----------------------------------------------
 

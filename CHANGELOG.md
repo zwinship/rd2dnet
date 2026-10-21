@@ -75,6 +75,13 @@ Fixes from cross-language and invariance testing:
   silently refitted the main estimate in `s` alone, biasing it (a noise-free design
   gave tau 2.83 instead of 2.5), and fits with one observation pinning an `o` term had
   collapsed HC1 standard errors (Monte Carlo coverage 0.37; sd of tau_bc 1.67, now 0.44).
+- **Off-network distance is no longer free for non-length metrics.** By default the walk from
+  a location to its street is charged at the snapped street's own cost per unit length
+  (its cost divided by its length): unchanged for `"length"`, the street's seconds per
+  metre for travel time, the column's cost per metre for other cost columns. Before, it
+  cost 0, so with travel time a household 1.5 km from its street sat on the boundary
+  (`s = 0`). An explicit `snap_scale` still applies; `Precomputed` keeps 0 (Python, R,
+  Stata).
 
 - Directed networks: a location partway along a one-way edge was reached through
   either end node, as if the edge ran both ways, so `s` and kernel distances were too

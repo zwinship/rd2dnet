@@ -206,3 +206,14 @@ test_that("precomputed metric from a long OD table", {
   expect_true(is.infinite(precomputed_from_od(od)$matrix[2, 1]))
   expect_error(precomputed_from_od(transform(od, cost = -1)), "non-negative")
 })
+
+test_that("off-network distance is charged at the street's cost rate", {
+  nodes <- data.frame(name = 0:1, x = c(0, 0), y = c(-100, 100))
+  edges <- data.frame(from = 0, to = 1, length = 200, speed_kph = 36)
+  bnd <- boundary(rbind(c(-50, 0), c(50, 0)), treated_side = "left")
+  net <- network_graph(edges, nodes, travel_time())
+  cc <- network_coordinates(net, bnd, rbind(c(30, 50), c(0, 50)), eval_points = 50)
+  expect_equal(cc$s, c(8, 5)) # 50 m at 0.1 s/m, plus 30 m off the street at the same rate
+  net0 <- network_graph(edges, nodes, travel_time(), snap_scale = 0)
+  expect_equal(network_coordinates(net0, bnd, rbind(c(30, 50)), eval_points = 50)$s, 5)
+})
