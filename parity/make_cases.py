@@ -300,7 +300,7 @@ def run_bins(d, obs, cc):
         d / "py_bins_tab.csv", index=False, float_format="%.17g")
     agg = {}
     for k, kw in enumerate([dict(h=BINS_H), dict()], 1):
-        res = rd2dnet.rdnet(y, b, min_obs=10, seed=0, **kw)
+        res = rd2dnet.rdnet(y, b, min_obs=20, seed=0, **kw)
         res_frame(res.table).to_csv(d / f"py_bins_res_{k}.csv", index=False)
         if k == 1:
             for rule in ("density", "gls"):

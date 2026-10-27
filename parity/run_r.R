@@ -42,7 +42,7 @@ run_bins <- function(obs, cc, d, h) {
             row.names = FALSE)
   agg <- list()
   for (k in 1:2) {
-    res <- if (k == 1) rdnet(obs$y_out, b, h = h, min_obs = 10, seed = 0) else rdnet(obs$y_out, b, min_obs = 10, seed = 0)
+    res <- if (k == 1) rdnet(obs$y_out, b, h = h, min_obs = 20, seed = 0) else rdnet(obs$y_out, b, min_obs = 20, seed = 0)
     write_res(res$table, file.path(d, sprintf("r_bins_res_%d.csv", k)))
     if (k == 1) {
       for (rule in c("density", "gls")) {

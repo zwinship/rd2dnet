@@ -254,9 +254,9 @@ program define rdn_par_bins
         }
     }
     rdn_par_note `case' "bins table" `worst'
-    quietly rdnet y_out, minobs(10) seed(0)
+    quietly rdnet y_out, minobs(20) seed(0)
     rdn_par_res "`dir'/py_bins_res_2.csv" `case' bins_selected
-    quietly rdnet y_out, h(`h') minobs(10) seed(0)
+    quietly rdnet y_out, h(`h') minobs(20) seed(0)
     rdn_par_res "`dir'/py_bins_res_1.csv" `case' bins_fixed
     rdn_par_ref "`dir'/py_bins_agg.csv" "density_tau_bc density_se gls_tau_bc gls_se fe_tau fe_se fe_tau_bc fe_se_rb"
     forvalues k = 1/8 {

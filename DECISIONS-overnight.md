@@ -265,3 +265,10 @@ the default is unchanged), with the owner's agreement on the main ones:
     really differ by branch, documented in the README.
 48. **GLS weights** may be negative with strongly correlated estimates; a warning says
     so rather than truncating them.
+49. **Branch slopes need `min_branch` (default 10) locations on their side**; the reference
+    slope is the trunk's, or else the largest branch's. Before, which aliased branch column
+    a fit dropped depended on column order (two orders gave tau -0.37 and +0.38 in a parity
+    case with no trunk and a one-location branch).
+50. **Parity bins runs use `min_obs = 20`.** With 10 a bin fit at leverage near 1 gave
+    se_rb = 305 in both languages, equal only to 5e-6: the known near-singular HC3 case
+    (DECISIONS "Near-singular q-fits"), not specific to bins.
