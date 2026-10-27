@@ -47,6 +47,9 @@
 #' @param similarity Use the dissimilarity `S` (the kernel `K2` and the `R * S`
 #'   slopes); `FALSE` gives plain bins.
 #' @param branches Give each branch its own slopes on each side.
+#' @param min_branch A branch gets its own slope only with at least this many
+#'   distinct locations on its side of the local sample; smaller branches share
+#'   the reference slope (the trunk's, or else the largest branch's).
 #' @param h_S `"rot"`, a positive number, or `Inf` (no kernel in `S`).
 #' @param kernel_S Kernel `K2` (default triangular).
 #' @return Coordinates of class `rd2dnet_bins` (also `rd2dnet_coords`) with one
@@ -62,7 +65,7 @@
 #' wbate(res, "density")
 #' @export
 bin_coordinates <- function(coords, features = character(), topology = TRUE, similarity = TRUE,
-                            branches = TRUE, h_S = "rot", kernel_S = "triangular") {
+                            branches = TRUE, min_branch = 10, h_S = "rot", kernel_S = "triangular") {
   .check_coords(coords)
   if (inherits(coords, "rd2dnet_bins")) {
     stop("coords are already bins; pass the output of network_coordinates()", call. = FALSE)
@@ -153,6 +156,10 @@ bin_coordinates <- function(coords, features = character(), topology = TRUE, sim
   colnames(out$reference) <- names_f
   out$features <- names_f
   out$use_similarity <- isTRUE(similarity)
+  if (!is.numeric(min_branch) || length(min_branch) != 1 || min_branch < 1 || min_branch != round(min_branch)) {
+    stop("min_branch must be a positive integer", call. = FALSE)
+  }
+  out$min_branch <- as.integer(min_branch)
   get_kernel(kernel_S)
   out$kernel_S <- kernel_S
   if (is.character(h_S)) {
@@ -244,13 +251,41 @@ print.rd2dnet_bins <- function(x, ...) {
 }
 
 # Extra slope regressors of bin j at `rows` (multiplied by s / h in the fit):
-# one indicator per branch (the trunk is the base), then S. NULL for other coordinates.
-.local_slopes <- function(coords, j, rows) {
+# one indicator per branch with its own slope (decided on `basis`, default the
+# rows themselves), then S. NULL for other coordinates.
+.local_slopes <- function(coords, j, rows, basis = rows) {
   if (!inherits(coords, "rd2dnet_bins")) return(NULL)
-  cols <- lapply(coords$bin_branches[[j]], function(b) as.numeric(coords$branch[rows] == b))
+  cols <- lapply(.slope_branches(coords, j, basis), function(b) as.numeric(coords$branch[rows] == b))
   if (.has_similarity(coords)) cols[[length(cols) + 1]] <- coords$similarity[rows]
   if (!length(cols)) return(NULL)
   do.call(cbind, cols)
+}
+
+# Branches of bin j with their own slope in the local sample `rows`: on each side,
+# those with at least min_branch distinct locations; the reference (no indicator)
+# is the trunk when it qualifies, else the largest qualifying branch (the first
+# to appear on ties). Smaller branches share the reference slope. Independent of
+# column order, as in Python and Stata.
+.slope_branches <- function(bins, j, rows) {
+  order <- bins$bin_branches[[j]]
+  br <- bins$branch[rows]
+  Tr <- bins$treated[rows]
+  loc <- bins$loc[rows]
+  out <- integer()
+  for (side in c(TRUE, FALSE)) {
+    on <- Tr == side
+    labs <- c(0L, order)
+    cnt <- vapply(labs, function(x) length(unique(loc[on & br == x])), integer(1))
+    ok <- order[cnt[-1] >= bins$min_branch]
+    if (cnt[1] >= bins$min_branch || !length(ok)) {
+      ref <- 0L
+    } else {
+      cok <- cnt[-1][cnt[-1] >= bins$min_branch]
+      ref <- ok[which.max(cok)]
+    }
+    out <- c(out, setdiff(ok, ref))
+  }
+  order[order %in% out]
 }
 
 # Pseudo-inverse and rank of a symmetric PSD matrix (eigenvalues above rcond x the largest).

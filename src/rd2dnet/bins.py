@@ -72,6 +72,31 @@ def similarity_bandwidth(k: int, level: float = 0.95) -> float:
     return float(np.sqrt(2.0 * stats.chi2.ppf(level, k)))
 
 
+def _slope_branches(bins, j: int, rows: np.ndarray) -> list:
+    """Branches of bin ``j`` that get their own slope in the local sample ``rows``.
+
+    On each side, a branch qualifies with at least ``min_branch`` distinct
+    locations in ``rows``. The reference slope is the trunk's when the trunk
+    qualifies, otherwise the largest qualifying branch's (the first one to
+    appear on ties); it gets no indicator, and branches that do not qualify
+    share it. The rule does not depend on the order of the columns, so the fit
+    does not depend on how each language numbers edges.
+    """
+    out = []
+    br, T, loc = bins.branch[rows], bins.treated[rows], bins.loc[rows]
+    order = list(bins._bin_branches[j])
+    for side in (True, False):
+        on = T == side
+        count = {x: len(np.unique(loc[on & (br == x)])) for x in [-1] + order}
+        ok = [x for x in order if count[x] >= bins.min_branch]
+        if count[-1] >= bins.min_branch or not ok:
+            ref = -1
+        else:
+            ref = max(ok, key=lambda x: (count[x], -order.index(x)))
+        out += [x for x in ok if x != ref]
+    return [x for x in order if x in out]
+
+
 class BinCoordinates(NetworkCoordinates):
     """Network coordinates with one evaluation point per nearest-crossing bin.
 
@@ -110,14 +135,15 @@ class BinCoordinates(NetworkCoordinates):
     def node_rows(self, js) -> None:
         """Nothing to precompute: kernel distances are ``|s|``."""
 
-    def local_slopes(self, j: int, rows: np.ndarray) -> np.ndarray | None:
+    def local_slopes(self, j: int, rows: np.ndarray, basis: np.ndarray | None = None) -> np.ndarray | None:
         """Extra slope regressors for bin ``j`` at ``rows``, multiplied by ``s / h`` in the fit.
 
-        One indicator per branch of the bin (the trunk is the base; when every
-        member is on some branch, the last indicator is aliased and dropped),
-        then ``S``.
+        One indicator per branch with its own slope, then ``S``. Which branches
+        get their own slope is decided on ``basis`` (default ``rows``, the local
+        sample): see :func:`_slope_branches`.
         """
-        cols = [(self.branch[rows] == b).astype(float) for b in self._bin_branches[j]]
+        b = _slope_branches(self, j, rows if basis is None else basis)
+        cols = [(self.branch[rows] == x).astype(float) for x in b]
         if self.has_similarity:
             cols.append(self.similarity[rows])
         return np.column_stack(cols) if cols else None
@@ -170,6 +196,7 @@ def bin_coordinates(
     topology: bool = True,
     similarity: bool = True,
     branches: bool = True,
+    min_branch: int = 10,
     h_S="rot",
     kernel_S="triangular",
 ) -> BinCoordinates:
@@ -195,6 +222,10 @@ def bin_coordinates(
         ``R * S`` slopes. ``False`` gives plain bins (Step 1 only).
     branches
         Give each branch its own slopes on each side.
+    min_branch
+        A branch gets its own slope only with at least this many distinct
+        locations on its side of the local sample; smaller branches share the
+        reference slope (the trunk's, or else the largest branch's).
     h_S
         Similarity bandwidth: ``"rot"`` (default, :func:`similarity_bandwidth`
         for the rank of the feature covariance), a positive number, or
@@ -312,6 +343,9 @@ def bin_coordinates(
         out.feature_rank = 0
     out.features = names
     out._use_similarity = bool(similarity)
+    if int(min_branch) != min_branch or min_branch < 1:
+        raise ValueError("min_branch must be a positive integer")
+    out.min_branch = int(min_branch)
     get_kernel(kernel_S)
     out.kernel_S = kernel_S
     if isinstance(h_S, str):

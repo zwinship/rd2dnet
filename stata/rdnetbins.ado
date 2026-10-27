@@ -3,7 +3,7 @@
 *! bins (an additional design; rerun rdnetset for the default design).
 program define rdnetbins, rclass
     version 16
-    syntax [, NOTOPology NOSIMilarity NOBRanches HS(string) KERNELS(string) ]
+    syntax [, NOTOPology NOSIMilarity NOBRanches HS(string) KERNELS(string) MINBRanch(integer 10) ]
 
     capture confirm variable _rdn_id
     if _rc {
@@ -28,6 +28,11 @@ program define rdnetbins, rclass
     local nobranches = ("`nobranches'" != "")
     local hs `hs'
     local kernels `kernels'
+    if `minbranch' < 1 {
+        di as err "minbranch() must be a positive integer"
+        exit 198
+    }
+    local minbranch `minbranch'
 
     rd2dnet_mata
     mata: rdn_bins_entry()

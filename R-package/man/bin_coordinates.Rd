@@ -10,6 +10,7 @@ bin_coordinates(
   topology = TRUE,
   similarity = TRUE,
   branches = TRUE,
+  min_branch = 10,
   h_S = "rot",
   kernel_S = "triangular"
 )
@@ -29,6 +30,10 @@ are filled with the attribute's mean.}
 slopes); \code{FALSE} gives plain bins.}
 
 \item{branches}{Give each branch its own slopes on each side.}
+
+\item{min_branch}{A branch gets its own slope only with at least this many
+distinct locations on its side of the local sample; smaller branches share
+the reference slope (the trunk's, or else the largest branch's).}
 
 \item{h_S}{\code{"rot"}, a positive number, or \code{Inf} (no kernel in \code{S}).}
 

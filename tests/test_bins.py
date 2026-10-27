@@ -235,3 +235,25 @@ def test_location_design_is_untouched(coords, city):
     res = rd2dnet.rdnet(city.obs["outcome"], coords, h=600.0)
     assert coords.kernel_weights is None and coords.local_slopes(0, np.arange(3)) is None
     assert np.isfinite(res.table["tau_bc"]).sum() > 10
+
+
+def test_branch_slopes_do_not_depend_on_column_order(city):
+    """Which branches get their own slope is decided by size, not by column order."""
+    coords = rd2dnet.network_coordinates(city.network(), city.boundary, city.obs[["x", "y"]], n_eval=5)
+    y = city.obs["outcome"]
+    b = rd2dnet.bin_coordinates(coords)
+    res = rd2dnet.rdnet(y, b, h=700.0, min_obs=10)
+    flipped = rd2dnet.bin_coordinates(coords)
+    flipped._bin_branches = [x[::-1] for x in flipped._bin_branches]
+    res2 = rd2dnet.rdnet(y, flipped, h=700.0, min_obs=10)
+    ok = res._ok()
+    assert ok.any()
+    assert np.allclose(res.table["tau_bc"][ok], res2.table["tau_bc"][ok], atol=1e-10)
+    # thin branches share the reference slope: with a huge threshold no branch has its own
+    big = rd2dnet.bin_coordinates(coords, min_branch=10**6)
+    plain = rd2dnet.bin_coordinates(coords, branches=False)
+    r_big = rd2dnet.rdnet(y, big, h=700.0, min_obs=10)
+    r_plain = rd2dnet.rdnet(y, plain, h=700.0, min_obs=10)
+    assert np.allclose(r_big.table["tau_bc"][ok], r_plain.table["tau_bc"][ok], atol=1e-10)
+    with pytest.raises(ValueError):
+        rd2dnet.bin_coordinates(coords, min_branch=0)

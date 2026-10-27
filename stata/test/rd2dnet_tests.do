@@ -626,8 +626,8 @@ program define t_bins
     rdn_expect ("`e(design)'" == "bins") 1 0 "bins: e(design)"
     matrix R = e(results)
     local rows 1 2 3 9 10 11
-    local tbc 3.9983786466343787 2.110269906086497 4.586325042139279 -0.15269496419695328 -0.5751017355618021 0.001954879349396532
-    local srb 0.7942751421472519 2.384314290443727 2.5618744452279025 1.1378721847563114 1.6622027716007328 1.508649493107737
+    local tbc 2.6059830764548826 1.7448275742516373 2.6104339718301404 0.7479398969433454 -0.44696316640305556 0.2975564306702405
+    local srb 1.1296253005948182 0.8552830518211703 1.5565437316143036 0.9590629182735356 1.0286060688798866 1.4690102717534774
     forvalues k = 1/6 {
         local j : word `k' of `rows'
         rdn_expect R[`j',10] `: word `k' of `tbc'' 1e-7 "bins: tau_bc bin `j'"
@@ -635,11 +635,11 @@ program define t_bins
     }
     rdn_expect R[5,15] 1 0 "bins: masked bin"
     estat wbate, weights(density)
-    rdn_expect r(tau_bc) 1.5945898521601314 1e-7 "bins: density WBATE"
-    rdn_expect r(se_rb) 0.854300748986819 1e-7 "bins: density WBATE se"
+    rdn_expect r(tau_bc) 1.2399885813481475 1e-7 "bins: density WBATE"
+    rdn_expect r(se_rb) 0.4857654141757674 1e-7 "bins: density WBATE se"
     estat wbate, weights(gls)
-    rdn_expect r(tau_bc) 2.031139096157601 1e-7 "bins: GLS WBATE"
-    rdn_expect r(se_rb) 0.535516431444253 1e-7 "bins: GLS WBATE se"
+    rdn_expect r(tau_bc) 1.1925819893045733 1e-7 "bins: GLS WBATE"
+    rdn_expect r(se_rb) 0.4445901952843397 1e-7 "bins: GLS WBATE se"
     rdnetfe outcome, h(700)
     rdn_expect e(tau) 1.4329741053916103 1e-7 "rdnetfe: tau"
     rdn_expect e(se) 0.2693587968689204 1e-7 "rdnetfe: se"

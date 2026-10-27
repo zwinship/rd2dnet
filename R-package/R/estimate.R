@@ -318,7 +318,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         m <- which(wk > 0 & base)
         Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
                       if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim,
-                      Ei = .local_slopes(coords, j, m))
+                      Ei = .local_slopes(coords, j, m, idx))
         Xi <- .design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, FALSE, dim, Ei = Ej)
         ka <- .identifiable(Xa, wk[m])
         aux <- list(Xa = Xa[, ka, drop = FALSE], wa = wk[m], m = m, Xi = Xi[, ka, drop = FALSE])

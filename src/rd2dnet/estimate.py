@@ -612,7 +612,7 @@ def rdnet(
                 wk = kfun(d / hs) / hs**2 * intensity
                 m = np.flatnonzero((wk > 0) & base)
                 Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
-                             None if zcols is None else Z[m][:, zcols], False, Ei=coords.local_slopes(j, m))
+                             None if zcols is None else Z[m][:, zcols], False, Ei=coords.local_slopes(j, m, idx))
                 ka = _identifiable(Xa, wk[m])
                 Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False, Ei=Ej)
                 aux = (Xa[:, ka], wk[m], m, Xi[:, ka])

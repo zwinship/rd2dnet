@@ -17,6 +17,7 @@
 {synopt:{opt notop:ology}}do not use the topology features (only those in {cmd:rdnetset}'s {opt features()}){p_end}
 {synopt:{opt nosim:ilarity}}no edge similarity: plain bins (no kernel in S, no R*S slopes){p_end}
 {synopt:{opt nobr:anches}}no branch-specific slopes{p_end}
+{synopt:{opt minbr:anch(#)}}a branch gets its own slope only with at least # distinct locations on its side of the local sample; default 10 (smaller branches share the reference slope: the trunk's, or else the largest branch's){p_end}
 {synopt:{opt hs(rot|#|inf)}}similarity bandwidth h_S; default {cmd:rot}; {cmd:inf} keeps the R*S slopes without the kernel{p_end}
 {synopt:{opt kernels(string)}}similarity kernel K2: {cmd:triangular} (default), {cmd:epanechnikov}, {cmd:uniform} or {cmd:gaussian}{p_end}
 {synoptline}

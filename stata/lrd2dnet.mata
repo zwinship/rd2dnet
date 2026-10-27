@@ -1657,7 +1657,7 @@ struct rdn_coords {
     real colvector nodeT, nodeon, nodedist, nodesrc
     real colvector evalarc, eu, ev, ecu, ecv, enode, enodearc, emasked
     // nearest-crossing bins (rdnetbins): isbins == 1 when set
-    real scalar isbins, hS, kernS, frank, usesim
+    real scalar isbins, hS, kernS, frank, usesim, minbr
     real colvector bin, branch, simil, kw
     real matrix binbr, bref, omega
 }
@@ -2662,7 +2662,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             wk = rdn_kernel(d :/ hs, kcode) :/ (hs :^ 2) :* editmissing(om, 0)
             m = selectindex((wk :> 0) :& base)
             Xa = rdn_design(s[m] :/ hs[m], o[m] :/ hs[m], Tf[m], auxorder,
-                (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0, rdn_local_slopes(C, j, m))
+                (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0, rdn_local_slopes(C, j, m, idx))
             Xi = rdn_design(s[idx] :/ hs[idx], o[idx] :/ hs[idx], Tf[idx], auxorder, Zi, 0, Ej)
             ka = rdn_identifiable(Xa, wk[m])
             Xa = select(Xa, ka')
@@ -4597,7 +4597,7 @@ real scalar rdn_hs_rot(real scalar k)
 
 // Turn network coordinates into nearest-crossing bins (in place).
 void rdn_bins_build(struct rdn_coords scalar C, real scalar topo, real scalar usesim, real scalar usebr,
-    real scalar hs, real scalar rot, real scalar kcode)
+    real scalar hs, real scalar rot, real scalar kcode, real scalar minbr)
 {
     external string rowvector rdn_binfeat
     real colvector dist, pred, label, root, deg, sideT, sideC, cross, okl, used, arc, o, rep
@@ -4738,6 +4738,7 @@ void rdn_bins_build(struct rdn_coords scalar C, real scalar topo, real scalar us
     C.simil = S[C.loc]
     C.isbins = 1
     C.kernS = kcode
+    C.minbr = minbr
     rdn_bins_set_hs(C, hs)
     // the evaluation points are the crossings
     C.evalarc = arc
@@ -4765,19 +4766,54 @@ void rdn_bins_set_hs(struct rdn_coords scalar C, real scalar hs)
     else C.kw = J(0, 1, .)
 }
 
+// Branches of bin j with their own slope in the local sample ix: on each side,
+// those with at least C.minbr distinct locations; the reference (no indicator)
+// is the trunk when it qualifies, else the largest qualifying branch (the first
+// to appear on ties). Smaller branches share the reference slope. Independent
+// of column order, as in Python and R.
+real colvector rdn_slope_branches(struct rdn_coords scalar C, real scalar j, real colvector ix)
+{
+    real colvector order, br, T, lc, cnt, keep, on
+    real scalar side, k, ctr, ref, best
+    if (rows(C.binbr) == 0) return(J(0, 1, .))
+    order = select(C.binbr[., 2], C.binbr[., 1] :== j)
+    if (rows(order) == 0) return(J(0, 1, .))
+    br = C.branch[ix]
+    T = C.treated[ix]
+    lc = C.loc[ix]
+    keep = J(rows(order), 1, 0)
+    for (side = 1; side >= 0; side--) {
+        on = (T :== side)
+        ctr = rows(rdn_first_per_value(select(lc, on :& (br :== 0))))
+        cnt = J(rows(order), 1, 0)
+        for (k = 1; k <= rows(order); k++) cnt[k] = rows(rdn_first_per_value(select(lc, on :& (br :== order[k]))))
+        ref = 0
+        if (!(ctr >= C.minbr) & any(cnt :>= C.minbr)) {
+            best = -1
+            for (k = 1; k <= rows(order); k++) {
+                if (cnt[k] >= C.minbr & cnt[k] > best) {
+                    best = cnt[k]
+                    ref = k
+                }
+            }
+        }
+        for (k = 1; k <= rows(order); k++) if (cnt[k] >= C.minbr & k != ref) keep[k] = 1
+    }
+    return(select(order, keep))
+}
+
 // Extra slope regressors of bin j at rows ix (multiplied by s / h in the fit):
-// one indicator per branch of the bin (the trunk is the base), then S.
-real matrix rdn_local_slopes(struct rdn_coords scalar C, real scalar j, real colvector ix)
+// one indicator per branch with its own slope (decided on basis, default ix),
+// then S.
+real matrix rdn_local_slopes(struct rdn_coords scalar C, real scalar j, real colvector ix, | real colvector basis)
 {
     real matrix out
     real colvector br
     real scalar k
     out = J(rows(ix), 0, .)
     if (C.isbins != 1) return(out)
-    if (rows(C.binbr)) {
-        br = select(C.binbr[., 2], C.binbr[., 1] :== j)
-        for (k = 1; k <= rows(br); k++) out = out, (C.branch[ix] :== br[k])
-    }
+    br = rdn_slope_branches(C, j, (args() >= 4 ? basis : ix))
+    for (k = 1; k <= rows(br); k++) out = out, (C.branch[ix] :== br[k])
     if (C.usesim == 1 & cols(C.bref) > 0) out = out, C.simil[ix]
     return(out)
 }
@@ -4802,7 +4838,7 @@ void rdn_bins_entry()
     }
     kcode = rdn_kernel_code(st_local("kernels"))
     rdn_bins_build(rdn_C, !rdn_lnum("notopology", 0), !rdn_lnum("nosimilarity", 0), !rdn_lnum("nobranches", 0),
-        hs, rot, kcode)
+        hs, rot, kcode, rdn_lnum("minbranch", 10))
     M = rdn_C.neval
     b = rdn_C.bin
     cnt0 = J(M, 1, 0)

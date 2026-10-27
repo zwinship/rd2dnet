@@ -229,7 +229,7 @@ class NetworkCoordinates:
         o = np.where(self._lcross_node >= 0, sign * reach, np.nan)
         return d[self.loc], o[self.loc]
 
-    def local_slopes(self, j: int, rows: np.ndarray) -> np.ndarray | None:
+    def local_slopes(self, j: int, rows: np.ndarray, basis: np.ndarray | None = None) -> np.ndarray | None:
         """Extra regressors at evaluation point ``j``, multiplied by ``s / h`` in each side's fit (None here)."""
         return None
 
