@@ -515,7 +515,9 @@ def rdbwnet(
         h = (num.mean() / den.mean()) ** expo if base == "imserd" else (num / den) ** expo
         if cer:
             h = h * cer_factor(n_eff, p)
-        h = np.clip(h, np.maximum(g["hmin0"], g["hmin1"]), np.maximum(g["hmax0"], g["hmax1"]))
+        # the floor wins over the largest distance: a side with exactly bwcheck locations
+        # has its nudged floor just above them, and capping it would drop the last one
+        h = np.maximum(np.minimum(h, np.maximum(g["hmax0"], g["hmax1"])), np.maximum(g["hmin0"], g["hmin1"]))
         out.loc[good, "h0"] = out.loc[good, "h1"] = h
     else:
         for t in (0, 1):
@@ -524,6 +526,6 @@ def rdbwnet(
             h = (num.mean() / den.mean()) ** expo if base == "imsetwo" else (num / den) ** expo
             if cer:
                 h = h * cer_factor(n_eff_side[t], p)
-            out.loc[good, f"h{t}"] = np.clip(h, g[f"hmin{t}"], g[f"hmax{t}"])
+            out.loc[good, f"h{t}"] = np.maximum(np.minimum(h, g[f"hmax{t}"]), g[f"hmin{t}"])
     out["h"] = np.where(np.isclose(out["h0"], out["h1"]), out["h0"], np.nan)
     return out

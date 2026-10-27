@@ -3307,7 +3307,9 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
         if (base == "imserd") h = J(rows(g), 1, (mean(num) / mean(den))^expo)
         else h = (num :/ den) :^ expo
         if (cer) h = h :* rdn_cer_factor(neff, p)
-        h = rowmin((rowmax((h, rowmax((g[., 9], g[., 10])))), rowmax((g[., 11], g[., 12]))))
+        // the floor wins over the largest distance: a side with exactly bwcheck
+        // locations has its nudged floor just above them
+        h = rowmax((rowmin((h, rowmax((g[., 11], g[., 12])))), rowmax((g[., 9], g[., 10]))))
         Out[good, 21] = h
         Out[good, 22] = h
     }
@@ -3318,7 +3320,7 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
             if (base == "imsetwo") h = J(rows(g), 1, (mean(num) / mean(den))^expo)
             else h = (num :/ den) :^ expo
             if (cer) h = h :* rdn_cer_factor((t == 0 ? neff0 : neff1), p)
-            h = rowmin((rowmax((h, g[., 9 + t])), g[., 11 + t]))
+            h = rowmax((rowmin((h, g[., 11 + t])), g[., 9 + t]))
             Out[good, 21 + t] = h
         }
     }

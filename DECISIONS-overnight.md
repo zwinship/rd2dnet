@@ -272,3 +272,8 @@ the default is unchanged), with the owner's agreement on the main ones:
 50. **Parity bins runs use `min_obs = 20`.** With 10 a bin fit at leverage near 1 gave
     se_rb = 305 in both languages, equal only to 5e-6: the known near-singular HC3 case
     (DECISIONS "Near-singular q-fits"), not specific to bins.
+51. **Bandwidth floor beats the largest distance.** When a side has exactly `bwcheck`
+    locations, the floor (nudged 1e-9 past the last one) is above that side's largest
+    distance. Python kept the floor (pandas `clip`), R and Stata capped at the largest
+    distance and lost the last location (status "insufficient"). All three now keep the
+    floor. Found by the parity harness (bins, case 06).
