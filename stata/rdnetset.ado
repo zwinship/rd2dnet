@@ -8,7 +8,7 @@ program define rdnetset, rclass
           DIRected direction(string) treatedregion(name) treatedside(string)                 ///
           treated(varname numeric) maskarcs(name) maskpolygons(name) classvar(name)          ///
           penalty(real 0) penaltymatrix(name) connectors(string) snapscale(real -1)          ///
-          tol(real 1e-6) neval(integer 25) evalpoints(name) NOSPLIT snapnode ]
+          tol(real 1e-6) neval(integer 25) evalpoints(name) NOSPLIT snapnode FEATures(namelist) ]
 
     gettoken xvar yvar : varlist
     local yvar = strtrim("`yvar'")
@@ -99,6 +99,7 @@ program define rdnetset, rclass
     local nosplit = ("`nosplit'" != "")
     local jointol `jointol' 
     local snapnode = ("`snapnode'" != "")
+    local features `features'
 
     rd2dnet_mata
     mata: rdn_setup()

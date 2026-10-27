@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ._wls import VCE_TYPES, poly_basis, poly_exponents, variance, wls
+from ._wls import VCE_TYPES, _pinv_sym, poly_basis, poly_exponents, variance, wls
 from .bandwidth import (_as_int, _check_cluster, _check_covs, _check_deriv, _check_obs, _check_tangvec, _check_weights,
                         default_min_obs, rdbwnet)
 from .coordinates import NetworkCoordinates
@@ -125,7 +125,7 @@ class RDNetResult:
             return w
         if rule == "gls":
             S = self.cov[np.ix_(ok, ok)]
-            g = np.linalg.pinv(S, hermitian=True) @ np.ones(int(ok.sum()))
+            g = _pinv_sym(S)[0] @ np.ones(int(ok.sum()))
             if not np.isfinite(g).all() or abs(g.sum()) < 1e-300:
                 raise ValueError("GLS weights are not defined: the covariance of the estimates is degenerate")
             g = g / g.sum()

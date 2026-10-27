@@ -24,7 +24,7 @@ d KW: causal inference
 d
 d Requires: Stata version 16
 d
-d Distribution-Date: 20261019
+d Distribution-Date: 20261027
 d
 d Author: Zach Winship
 d Support: email zachtwinship@gmail.com
@@ -43,6 +43,10 @@ f rdnetdensity.ado
 f rdnetdensity.sthlp
 f rdnetmanip.ado
 f rdnetmanip.sthlp
+f rdnetbins.ado
+f rdnetbins.sthlp
+f rdnetfe.ado
+f rdnetfe.sthlp
 f rdnetmock.ado
 f rdnetmock.sthlp
 F rdnet_mock_obs.dta

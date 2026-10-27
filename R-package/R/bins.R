@@ -89,7 +89,7 @@ bin_coordinates <- function(coords, features = character(), topology = TRUE, sim
   bin_loc[ok_loc] <- bin_node[cross[ok_loc]]
 
   tree <- .crossing_tree(net, node_on, coords$node_treated, E)
-  sn <- coords$lsnap
+  sn <- .at_nodes(coords$lsnap)
   Tl <- coords$treated[first]
   branch_loc <- if (branches) .location_branches(tree, sn, Tl) else integer(length(first))
   # a location whose tree path starts in another bin (ties, or a directed metric): trunk
@@ -324,6 +324,18 @@ print.rd2dnet_bins <- function(x, ...) {
   list(dist = dist, pred = pred, label = label, splits = splits, row_of = row_of, source = root)
 }
 
+# Locations that sit exactly on an end node of their segment, placed on that
+# node: such a location lies on every segment that meets the node, and which one
+# the snapper picked is a tie (broken differently in Python, R and Stata).
+.at_nodes <- function(sn) {
+  tiny <- 1e-9 * pmax(1, sn$cost_u + sn$cost_v)
+  at_u <- sn$u != sn$v & sn$cost_u <= tiny
+  at_v <- sn$u != sn$v & !at_u & sn$cost_v <= tiny
+  at <- at_u | at_v
+  node <- ifelse(at_u, sn$u, sn$v)
+  .snap(ifelse(at, node, sn$u), ifelse(at, node, sn$v), ifelse(at, 0, sn$cost_u), ifelse(at, 0, sn$cost_v), sn$depth)
+}
+
 # Branch of each location (one per element of the location snap `sn`).
 .location_branches <- function(tree, sn, Tl) {
   swap <- sn$cost_u + tree$dist[sn$u] > sn$cost_v + tree$dist[sn$v]
@@ -371,7 +383,7 @@ print.rd2dnet_bins <- function(x, ...) {
   walk <- function(a, prev) {
     for (i in seq_len(n)) {
       if (!transparent[a]) return(a)
-      nxt <- if (identical(nb[a, 1], prev)) nb[a, 2] else nb[a, 1]
+      nxt <- if (!is.na(nb[a, 1]) && nb[a, 1] == prev) nb[a, 2] else nb[a, 1]
       prev <- a
       a <- nxt
     }

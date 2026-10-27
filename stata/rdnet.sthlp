@@ -98,8 +98,11 @@ w'tau (rd2d's WBATE). Weights have one entry per evaluation point and are
 normalised to sum to one; points that were not estimated must get weight 0
 (points with a weak first stage may be given weight).
 {cmd:weights(equal)} gives every distinct place of the estimated points equal
-weight (points that snapped to the same place, {cmd:node_arc}, share it). The standard error
-sqrt(w' Sigma w) uses the joint covariance {cmd:e(cov)}.
+weight (points that snapped to the same place, {cmd:node_arc}, share it).
+{cmd:weights(density)} weights the estimated points by their local sample n0 + n1
+(after {helpb rdnetbins}: the density-weighted BATE), and {cmd:weights(gls)} uses the
+minimum-variance weights Sigma^-1 1 / (1' Sigma^-1 1) (a note says when some are
+negative). The standard error sqrt(w' Sigma w) uses the joint covariance {cmd:e(cov)}.
 
 {pstd}
 {cmd:estat lbate} reports the largest effect max_j tau(b_j) (rd2d's LBATE)

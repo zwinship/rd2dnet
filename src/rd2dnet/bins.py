@@ -46,7 +46,7 @@ import pandas as pd
 from scipy import sparse, stats
 from scipy.sparse.csgraph import dijkstra
 
-from ._wls import poly_basis, variance, wls
+from ._wls import _pinv_sym, poly_basis, variance, wls
 from .bandwidth import _check_cluster, _check_covs, _check_obs, _check_weights, rdbwnet
 from .coordinates import NetworkCoordinates
 from .kernels import get_kernel
@@ -261,7 +261,7 @@ def bin_coordinates(
     out.bin = bin_obs
     out._bin_nodes = bin_nodes
 
-    sn = coords._lsnap
+    sn = _at_nodes(coords._lsnap)
     branch_loc = _location_branches(tree, sn, coords.treated[first]) if branches else np.full(len(first), -1)
     # a location whose tree path starts in another bin (ties, or a directed metric): trunk
     sc = tree["source"]
@@ -318,16 +318,6 @@ def bin_coordinates(
     if M == 0:
         warnings.warn("no observation reaches the boundary: there are no bins", stacklevel=2)
     return out
-
-
-def _pinv_sym(A: np.ndarray, rcond: float = 1e-10) -> tuple[np.ndarray, int]:
-    """Pseudo-inverse and rank of a symmetric PSD matrix (eigenvalues above ``rcond`` times the largest)."""
-    if A.size == 0:
-        return A.copy(), 0
-    lam, V = np.linalg.eigh(A)
-    top = max(float(lam.max()), 0.0)
-    keep = lam > rcond * top if top > 0 else np.zeros(len(lam), dtype=bool)
-    return (V[:, keep] / lam[keep]) @ V[:, keep].T, int(keep.sum())
 
 
 def _crossing_tree(net, node_on, node_T, E) -> dict:
@@ -404,6 +394,22 @@ def _crossing_tree(net, node_on, node_T, E) -> dict:
         anc[m] = anc[up]
     root = np.where(np.isfinite(dist) & node_on[root], root, -1)
     return {"dist": dist, "pred": pred, "label": label, "splits": splits, "row_of": row_of, "source": root}
+
+
+def _at_nodes(sn: Snap) -> Snap:
+    """Locations that sit exactly on an end node of their segment, placed on that node.
+
+    Such a location lies on every segment that meets the node, and which one the
+    snapper picked is a tie (broken differently in Python, R and Stata); its
+    branch and segment are those of the node.
+    """
+    tiny = 1e-9 * np.maximum(1.0, sn.cost_u + sn.cost_v)
+    at_u = (sn.u != sn.v) & (sn.cost_u <= tiny)
+    at_v = (sn.u != sn.v) & ~at_u & (sn.cost_v <= tiny)
+    at = at_u | at_v
+    node = np.where(at_u, sn.u, sn.v)
+    return Snap(np.where(at, node, sn.u), np.where(at, node, sn.v), np.where(at, 0.0, sn.cost_u),
+                np.where(at, 0.0, sn.cost_v), sn.depth)
 
 
 def _location_branches(tree, sn: Snap, T) -> np.ndarray:

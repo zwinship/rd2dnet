@@ -37,7 +37,8 @@ run_bins <- function(obs, cc, d, h) {
   write.csv(data.frame(bin = b$bin, branch = canon, S = b$similarity), file.path(d, "r_bins_obs.csv"),
             row.names = FALSE)
   tab <- bins_table(b)
-  write.csv(data.frame(arc = tab$arc, n0 = tab$n0, n1 = tab$n1, h_S = b$h_S), file.path(d, "r_bins_tab.csv"),
+  write.csv(data.frame(arc = tab$arc, n0 = tab$n0, n1 = tab$n1, h_S = if (is.finite(b$h_S)) b$h_S else -1),
+            file.path(d, "r_bins_tab.csv"),
             row.names = FALSE)
   agg <- list()
   for (k in 1:2) {

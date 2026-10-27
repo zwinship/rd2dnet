@@ -599,6 +599,147 @@ program define t_round3
     }
 end
 
+* --------------------------------------------------------------------------
+* Nearest-crossing bins (rdnetbins, rdnetfe, estat wbate density|gls).
+* Reference values from Python rd2dnet (bin_coordinates on the mock city).
+capture program drop t_bins
+program define t_bins
+    rdnetmock, clear
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) ///
+        treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
+    rdnetbins
+    rdn_expect r(N_bins) 11 0 "bins: one per crossing reached"
+    rdn_expect r(rank) 3 0 "bins: rank of the topology features (no triangles on a grid)"
+    rdn_expect r(h_S) 3.953410654928521 1e-12 "bins: rule-of-thumb h_S"
+    matrix B = r(bins)
+    rdn_expect B[2,3] 214 0 "bins: n0 of bin 2"
+    rdn_expect B[2,4] 187 0 "bins: n1 of bin 2"
+    rdn_expect B[3,5] 6 0 "bins: branches of bin 3"
+    rdn_expect B[4,6] 1 0 "bins: bin 4 masked"
+    local S 1.807995690261959 2.325535786188288 1.1542993822150858 1.6480573193335377 2.241610069418619 1.8462591826814174
+    local bn 7 1 9 8 9 10
+    forvalues i = 1/6 {
+        rdn_expect _rdn_S[`i'] `: word `i' of `S'' 1e-9 "bins: S[`i']"
+        rdn_expect _rdn_bin[`i'] `: word `i' of `bn'' 0 "bins: bin[`i']"
+    }
+    rdnet outcome, h(700) minobs(10)
+    rdn_expect ("`e(design)'" == "bins") 1 0 "bins: e(design)"
+    matrix R = e(results)
+    local rows 1 2 3 9 10 11
+    local tbc 3.9983786466343787 2.110269906086497 4.586325042139279 -0.15269496419695328 -0.5751017355618021 0.001954879349396532
+    local srb 0.7942751421472519 2.384314290443727 2.5618744452279025 1.1378721847563114 1.6622027716007328 1.508649493107737
+    forvalues k = 1/6 {
+        local j : word `k' of `rows'
+        rdn_expect R[`j',10] `: word `k' of `tbc'' 1e-7 "bins: tau_bc bin `j'"
+        rdn_expect R[`j',11] `: word `k' of `srb'' 1e-7 "bins: se_rb bin `j'"
+    }
+    rdn_expect R[5,15] 1 0 "bins: masked bin"
+    estat wbate, weights(density)
+    rdn_expect r(tau_bc) 1.5945898521601314 1e-7 "bins: density WBATE"
+    rdn_expect r(se_rb) 0.854300748986819 1e-7 "bins: density WBATE se"
+    estat wbate, weights(gls)
+    rdn_expect r(tau_bc) 2.031139096157601 1e-7 "bins: GLS WBATE"
+    rdn_expect r(se_rb) 0.535516431444253 1e-7 "bins: GLS WBATE se"
+    rdnetfe outcome, h(700)
+    rdn_expect e(tau) 1.4329741053916103 1e-7 "rdnetfe: tau"
+    rdn_expect e(se) 0.2693587968689204 1e-7 "rdnetfe: se"
+    rdn_expect e(tau_bc) 1.1824789662250355 1e-7 "rdnetfe: tau_bc"
+    rdn_expect e(se_rb) 0.48376984245544763 1e-7 "rdnetfe: se_rb"
+    rdnetfe outcome, h(700) vce(cluster block)
+    rdn_expect e(se_rb) 0.6089516068407178 1e-7 "rdnetfe: CR2 se_rb"
+    rdn_expect e(df) 8.331857443318553 1e-7 "rdnetfe: CR2 degrees of freedom"
+    * rdnetset brings back the default design
+    rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) ///
+        treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
+    rdnet outcome, h(600)
+    rdn_expect ("`e(design)'" == "location") 1 0 "default design after rdnetset"
+end
+
+* Branch slopes recover the jump exactly on a comb: vertical streets crossing
+* y = 0 (treated below), each splitting 200 m from the boundary into a
+* straight continuation and a spur (mirrors tests/test_bins.py).
+capture program drop t_bins_comb
+program define t_bins_comb
+    capture frame drop cnodes
+    capture frame drop cedges
+    frame create cnodes str8 id double(x y)
+    frame create cedges str8(from to) double(length lanes)
+    forvalues k = 0/2 {
+        local x = `k' * 2000
+        foreach sg in 1 -1 {
+            local t = cond(`sg' > 0, "n", "s")
+            frame post cnodes ("`t'j`k'") (`x') (`sg' * 200)
+            frame post cnodes ("`t'e`k'") (`x') (`sg' * 600)
+            frame post cnodes ("`t'p`k'") (`x' + 300) (`sg' * 500)
+            frame post cedges ("`t'j`k'") ("`t'e`k'") (400) (2)
+            frame post cedges ("`t'j`k'") ("`t'p`k'") (sqrt(2) * 300) (1)
+        }
+        frame post cedges ("nj`k'") ("sj`k'") (400) (4)
+    }
+    forvalues k = 0/1 {
+        local k1 = `k' + 1
+        frame post cedges ("ne`k'") ("ne`k1'") (2000) (1)
+        frame post cedges ("se`k'") ("se`k1'") (2000) (1)
+    }
+    clear
+    quietly set obs 540
+    generate long i = _n - 1
+    generate int k = floor(i / 180)
+    generate int sg = cond(mod(floor(i / 90), 2) == 0, 1, -1)
+    generate int seg = mod(floor(i / 30), 3)
+    generate double t = (mod(i, 30) + 0.5) / 30
+    generate double x = k * 2000 + cond(seg == 2, 300 * t, 0)
+    generate double y = sg * cond(seg == 0, 199 * t + 0.5, cond(seg == 1, 200 + 400 * t, 200 + 300 * t))
+    matrix L = (-500, 0 \ 4500, 0)
+    rdnetset x y, nodes(cnodes) edges(cedges) boundary(L) treatedside(right) features(lanes) neval(3)
+    rdnetbins, notopology
+    rdn_expect r(N_bins) 3 0 "comb: three bins"
+    rdn_expect r(rank) 1 0 "comb: one feature"
+    quietly count if _rdn_bin != k + 1
+    rdn_expect r(N) 0 0 "comb: bins are the nearest crossings"
+    quietly count if seg == 0 & _rdn_branch != 0
+    rdn_expect r(N) 0 0 "comb: trunk before the junction"
+    quietly count if seg > 0 & _rdn_branch == 0
+    rdn_expect r(N) 0 0 "comb: branches beyond the junction"
+    tempvar nb
+    bysort _rdn_bin _rdn_treated seg: egen `nb' = nvals(_rdn_branch)
+    quietly summarize `nb'
+    rdn_expect r(max) 1 0 "comb: one branch per segment and side"
+    frame cedges: quietly summarize lanes
+    local sd = r(sd)
+    generate double S_want = cond(seg == 0, 0, cond(seg == 1, 2, 3)) / `sd'
+    generate double dS = abs(_rdn_S - S_want)
+    quietly summarize dS
+    rdn_expect r(max) 0 1e-10 "comb: S is the Mahalanobis distance of the lanes"
+    egen br = group(_rdn_branch)
+    generate double slope = cond(_rdn_branch == 0, 0.002, 0.001 * (br + 2) * cond(mod(br, 2), 1, -1))
+    generate double yy = cond(_rdn_bin == 1, 5, cond(_rdn_bin == 2, -1, 0.5)) + _rdn_bin * _rdn_treated + slope * _rdn_s
+    rdnetbins, notopology hs(inf)
+    rdnet yy, h(1500) minobs(5)
+    matrix R = e(results)
+    forvalues j = 1/3 {
+        rdn_expect R[`j',8] `j' 1e-8 "comb: tau bin `j' with branch slopes"
+        rdn_expect R[`j',10] `j' 1e-8 "comb: tau_bc bin `j' with branch slopes"
+    }
+    rdnetbins, nosimilarity nobranches
+    rdnet yy, h(1500) minobs(5)
+    matrix R = e(results)
+    local dev = max(abs(R[1,8] - 1), abs(R[2,8] - 2), abs(R[3,8] - 3))
+    rdn_expect (`dev' > 0.05) 1 0 "comb: biased without branch slopes"
+    * rdnetfe with p = 0 and no slopes: the IPW-weighted fixed effects average
+    * the bin effects by kernel mass
+    generate double y0 = cond(_rdn_bin == 1, 5, cond(_rdn_bin == 2, -1, 0.5)) + cond(_rdn_bin == 3, 4, _rdn_bin) * _rdn_treated
+    rdnetfe y0, h(500) p(0) q(0) nobinslopes
+    generate double W = max(1 - abs(_rdn_s) / 500, 0)
+    quietly summarize W if _rdn_bin == 1
+    local m1 = r(sum)
+    quietly summarize W if _rdn_bin == 2
+    local m2 = r(sum)
+    quietly summarize W if _rdn_bin == 3
+    local m3 = r(sum)
+    rdn_expect e(tau) (`m1' + 2 * `m2' + 4 * `m3') / (`m1' + `m2' + `m3') 1e-10 "rdnetfe: mass-weighted average of the bin effects"
+end
+
 capture program drop t_errors
 program define t_errors
     rdnetmock, clear
@@ -633,6 +774,8 @@ rdn_block t_pointnodes
 rdn_block t_errors
 rdn_block t_round2
 rdn_block t_round3
+rdn_block t_bins
+rdn_block t_bins_comb
 
 di _n "{hline 70}"
 if $rdn_fails == 0 & $rdn_errors == 0 {

@@ -183,6 +183,7 @@ program define rdnet, eclass
     ereturn local depvar `varlist'
     ereturn local title "Network boundary discontinuity estimates"
     ereturn local estat_cmd rdnet_estat
+    ereturn local design `design'
     ereturn local cmd rdnet
 
     Display
@@ -195,6 +196,7 @@ program define Display
     local lev = e(level)
     local design = cond("`e(fuzzy)'" != "", "fuzzy", "sharp")
     di
+    if "`e(design)'" == "bins" local design `design', nearest-crossing bins
     di as txt "rd2dnet: network boundary discontinuity estimates (`design')"
     di as txt "  distance = " as res "`e(cost)'" as txt "   kernel = " as res "`e(kernel)'" ///
         as txt "   p = " as res e(p) as txt "   q = " as res e(q) as txt "   vce = " as res "`e(vce)'"

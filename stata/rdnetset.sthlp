@@ -62,6 +62,7 @@
 {synopt:{opt snapscale(#)}}cost per unit of off-network snapping distance; default 1 if {cmd:cost(length)}, otherwise the snapped street's cost per unit length (with travel time, that street's seconds per metre){p_end}
 {synopt:{opt snapnode}}snap observations to the nearest node instead of the nearest street{p_end}
 {synopt:{opt nosplit}}do not split edges where they cross the boundary{p_end}
+{synopt:{opt feat:ures(varlist)}}edge variables describing street segments, for {helpb rdnetbins} (capacity, speed, lanes, ...){p_end}
 {synoptline}
 
 

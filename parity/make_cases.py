@@ -294,7 +294,9 @@ def run_bins(d, obs, cc):
     pd.DataFrame({"bin": np.where(b.bin >= 0, b.bin + 1, np.nan), "branch": canon_branches(b.branch, -1),
                   "S": b.similarity}).to_csv(d / "py_bins_obs.csv", index=False, float_format="%.17g")
     tab = b.bins_table()
-    pd.DataFrame({"arc": tab["arc"], "n0": tab["n0"], "n1": tab["n1"], "h_S": b.h_S}).to_csv(
+    # h_S = inf (no features of positive variance) is written as -1: Stata reads "inf" as text
+    pd.DataFrame({"arc": tab["arc"], "n0": tab["n0"], "n1": tab["n1"],
+                  "h_S": b.h_S if np.isfinite(b.h_S) else -1.0}).to_csv(
         d / "py_bins_tab.csv", index=False, float_format="%.17g")
     agg = {}
     for k, kw in enumerate([dict(h=BINS_H), dict()], 1):
@@ -385,7 +387,7 @@ def stata_script(spec, bnd, cdir):
     L = [f"* parity case {spec['case']} ({spec['kind']})",
          f'rdn_par_load {c}"',
          ]
-    opts = [f"nodes(nodes) edges(edges) boundary(BL) neval({spec['n_eval']})"]
+    opts = [f"nodes(nodes) edges(edges) boundary(BL) neval({spec['n_eval']}) features(lanes)"]
     opts.append("treatedregion(RG)" if "region" in bnd else f"treatedside({bnd['side']})")
     if spec["directed"]:
         opts.append(f"directed direction({spec['direction']})")
@@ -428,6 +430,7 @@ def stata_script(spec, bnd, cdir):
         L.append(f'rdn_par_bw {c}/py_bw_{k}.csv" {spec["case"]} rdbwnet{k}')
     L.append(f"rdnetmanip, q({MANIP_Q}) reps({MANIP_REPS})")
     L.append(f'rdn_par_manip {c}/py_manip_1.csv" {spec["case"]} manipulation')
+    L.append(f'rdn_par_bins {c}" {spec["case"]} {BINS_H!r}')
     return "\n".join(L) + "\n"
 
 
