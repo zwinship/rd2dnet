@@ -4605,7 +4605,7 @@ void rdn_bins_build(struct rdn_coords scalar C, real scalar topo, real scalar us
     real colvector inb, ids, ub, hasrow, inbin, tiny, atu, atv, Lu, Lv, Lcu, Lcv
     real matrix Z, Oinv, ref, pairs, DZ, Om
     string rowvector names
-    transmorphic rowmap
+    transmorphic rowmap, seenbb
     real scalar n, M, i, k, m, rank, x
     n = C.N.n
     dist = .
@@ -4667,7 +4667,23 @@ void rdn_bins_build(struct rdn_coords scalar C, real scalar topo, real scalar us
     other = (binl :> 0) :& (tb :!= binl)
     brl = rdn_where(other, 0, brl)
     inb = selectindex((binl :> 0) :& (brl :> 0))
-    C.binbr = (rows(inb) ? uniqrows((binl[inb], brl[inb])) : J(0, 2, .))
+    // (bin, branch) in order of first appearance among the locations, as in
+    // Python and R: which aliased column a fit drops depends on the order
+    C.binbr = J(0, 2, .)
+    if (rows(inb)) {
+        seenbb = asarray_create("real", 2)
+        pairs = J(rows(inb), 3, .)
+        x = 0
+        for (i = 1; i <= rows(inb); i++) {
+            if (asarray_contains(seenbb, (binl[inb[i]], brl[inb[i]]))) continue
+            asarray(seenbb, (binl[inb[i]], brl[inb[i]]), 1)
+            x++
+            pairs[x, .] = (binl[inb[i]], x, brl[inb[i]])
+        }
+        pairs = pairs[(1::x), .]
+        pairs = pairs[order(pairs, (1, 2)), .]
+        C.binbr = pairs[., (1, 3)]
+    }
 
     // edge similarity
     C.usesim = usesim

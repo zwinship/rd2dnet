@@ -4,7 +4,7 @@
 \alias{similarity_sensitivity}
 \title{BATE over a range of similarity bandwidths}
 \usage{
-similarity_sensitivity(y, bins, h_S = NULL, wbate = "density", ...)
+similarity_sensitivity(y, bins, ..., h_S = NULL, wbate = "density")
 }
 \arguments{
 \item{y}{Outcome.}

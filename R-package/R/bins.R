@@ -112,8 +112,8 @@ bin_coordinates <- function(coords, features = character(), topology = TRUE, sim
   out$bin <- bin_loc[coords$loc]
   out$branch <- branch_loc[coords$loc]
   out$bin_branches <- lapply(seq_len(M), function(m) {
-    b <- branch_loc[!is.na(bin_loc) & bin_loc == m & branch_loc > 0]
-    sort(unique(b))
+    # in order of first appearance among the locations, as in Python and Stata
+    unique(branch_loc[!is.na(bin_loc) & bin_loc == m & branch_loc > 0])
   })
 
   names_f <- character()
@@ -715,7 +715,7 @@ print.rdnet_fe <- function(x, digits = 3, ...) {
 #' coords <- network_coordinates(city$network(), city$boundary, city$obs, n_eval = 5)
 #' similarity_sensitivity(city$obs$outcome, bin_coordinates(coords), h = 700, min_obs = 10)
 #' @export
-similarity_sensitivity <- function(y, bins, h_S = NULL, wbate = "density", ...) {
+similarity_sensitivity <- function(y, bins, ..., h_S = NULL, wbate = "density") {
   if (!inherits(bins, "rd2dnet_bins")) stop("similarity_sensitivity() needs bin_coordinates()", call. = FALSE)
   if (is.null(h_S)) {
     base <- similarity_bandwidth(bins$feature_rank)

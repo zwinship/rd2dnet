@@ -166,7 +166,7 @@ test_that("wbate density and gls rules", {
   S <- res$cov[ok, ok]
   g <- solve(S, rep(1, sum(ok)))
   g <- g / sum(g)
-  gls <- expect_warning(wbate(res, "gls"), "negative")
+  expect_warning(gls <- wbate(res, "gls"), "negative")
   expect_equal(gls[["tau_bc"]], sum(g * res$table$tau_bc[ok]))
   expect_equal(gls[["se_rb"]], sqrt(drop(g %*% S %*% g)))
   expect_lte(gls[["se_rb"]], wbate(res, "density")[["se_rb"]] + 1e-12)

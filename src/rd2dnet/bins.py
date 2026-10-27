@@ -273,8 +273,12 @@ def bin_coordinates(
     out.branch = branch_loc[coords.loc]
     out._bin_branches = []
     for m in range(M):
-        b = np.unique(branch_loc[(bin_loc == m) & (branch_loc >= 0)])
-        out._bin_branches.append(b)
+        # in order of first appearance among the locations (numbered by first
+        # appearance in the data), so the columns are ordered the same in every
+        # language; which aliased column the fit drops depends on the order
+        sel = branch_loc[(bin_loc == m) & (branch_loc >= 0)]
+        b, first_at = np.unique(sel, return_index=True)
+        out._bin_branches.append(b[np.argsort(first_at)])
 
     names: list[str] = []
     if similarity and (features or topology):
