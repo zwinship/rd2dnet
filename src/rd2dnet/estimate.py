@@ -62,16 +62,31 @@ class RDNetResult:
         """Weighted boundary average treatment effect ``w' tau`` (rd2d's WBATE).
 
         ``weights`` has one entry per evaluation point and is normalised to sum
-        to one. By default every distinct place where an estimated point lies
-        gets equal weight: evaluation points that snapped to the same place
-        (``node_arc``) repeat one estimate and share its weight. Points with a
-        weak first stage are left out by default but may be given weight. Points
-        that were not estimated (masked, insufficient, ...) must get weight 0. The
-        standard error is ``sqrt(w' cov w)``, so it accounts for the
-        correlation between nearby evaluation points.
+        to one, or names a rule:
+
+        - ``None`` / ``"place"`` (default): every distinct place where an
+          estimated point lies gets equal weight; evaluation points that
+          snapped to the same place (``node_arc``) repeat one estimate and
+          share its weight.
+        - ``"density"``: weight proportional to the local sample, ``n0 + n1``
+          (observations with positive kernel weight). With bins this is the
+          density-weighted BATE.
+        - ``"gls"``: the minimum-variance combination
+          ``cov^-1 1 / (1' cov^-1 1)`` (inverse-variance weights when the
+          estimates are uncorrelated). With strongly correlated points some
+          weights can be negative; a warning says so.
+
+        The rules use the points with status ``"ok"``. Points with a weak first
+        stage are left out by default but may be given explicit weight. Points
+        that were not estimated (masked, insufficient, ...) must get weight 0.
+        The standard error is ``sqrt(w' cov w)``, so it accounts for the
+        correlation between evaluation points.
         """
         J = len(self.table)
-        w = _place_weights(self.table, self._ok()) if weights is None else np.asarray(weights, dtype=float)
+        if weights is None or isinstance(weights, str):
+            w = self._rule_weights("place" if weights is None else weights)
+        else:
+            w = np.asarray(weights, dtype=float)
         if w.shape != (J,):
             raise ValueError(f"WBATE weights must have one entry per evaluation point ({J})")
         if not np.all(np.isfinite(w)):
@@ -97,6 +112,29 @@ class RDNetResult:
         _set_rb(rec, se, z, df)
         return pd.Series(dict(tau=float(w @ t["tau"].to_numpy()), tau_bc=tau_q, se_rb=se,
                               ci_lo=rec["ci_lo"], ci_hi=rec["ci_hi"], pvalue=rec["pvalue"]), name="WBATE")
+
+    def _rule_weights(self, rule: str) -> np.ndarray:
+        ok = self._ok()
+        if rule in ("place", "equal"):
+            return _place_weights(self.table, ok)
+        w = np.zeros(len(self.table))
+        if not ok.any():
+            return w
+        if rule == "density":
+            w[ok] = (self.table["n0"] + self.table["n1"]).to_numpy(dtype=float)[ok]
+            return w
+        if rule == "gls":
+            S = self.cov[np.ix_(ok, ok)]
+            g = np.linalg.pinv(S, hermitian=True) @ np.ones(int(ok.sum()))
+            if not np.isfinite(g).all() or abs(g.sum()) < 1e-300:
+                raise ValueError("GLS weights are not defined: the covariance of the estimates is degenerate")
+            g = g / g.sum()
+            if np.any(g < -1e-12):
+                warnings.warn(f"{int(np.sum(g < -1e-12))} GLS weights are negative (strongly correlated estimates); "
+                              "the GLS BATE is then not an average of the local effects", stacklevel=3)
+            w[ok] = g
+            return w
+        raise ValueError("weights must be numbers or one of 'place', 'density', 'gls'")
 
     def lbate(self, kind: str = "max") -> pd.Series:
         """Largest boundary average treatment effect ``max_j tau(b_j)`` (rd2d's LBATE).
@@ -257,13 +295,20 @@ def _identifiable(X: np.ndarray, w: np.ndarray, tol: float = 1e-4) -> np.ndarray
     return keep
 
 
-def _design(us, uo, Ti, order, Zi, pooled, dim=2):
-    """Joint local design: side-specific polynomials (or pooled slopes) plus common covariates."""
+def _design(us, uo, Ti, order, Zi, pooled, dim=2, Ei=None):
+    """Joint local design: side-specific polynomials (or pooled slopes) plus common covariates.
+
+    ``Ei`` (bins) are extra regressors entering as slopes ``us * Ei``, one set per
+    side (or common with ``pooled``), between the polynomial and the covariates.
+    """
     R = poly_basis(us, uo, order, dim)
     if pooled:
         X = np.column_stack([np.ones(len(us)), Ti, R[:, 1:]])
     else:
         X = np.column_stack([R * Ti[:, None], R * (1.0 - Ti)[:, None]])
+    if Ei is not None:
+        S = us[:, None] * Ei
+        X = np.column_stack([X, S] if pooled else [X, S * Ti[:, None], S * (1.0 - Ti)[:, None]])
     return X if Zi is None else np.column_stack([X, Zi])
 
 
@@ -442,6 +487,8 @@ def rdnet(
     kfun = get_kernel(kernel)
     kname = kernel if isinstance(kernel, str) else getattr(kernel, "__name__", "custom")
     intensity = np.ones_like(y) if weights is None else _check_weights(weights, coords.n_obs)
+    if coords.kernel_weights is not None:  # bins: the similarity kernel K2(S / h_S)
+        intensity = intensity * coords.kernel_weights
     D = None if fuzzy is None else _check_obs(fuzzy, coords.n_obs, "fuzzy")
     Z = None
     if covs is not None:
@@ -556,6 +603,8 @@ def rdnet(
                 rec["status"] = "few clusters"
                 continue
 
+        Ej = coords.local_slopes(j, idx)
+
         def fit():
             aux = None
             if vce == "conley":
@@ -563,16 +612,16 @@ def rdnet(
                 wk = kfun(d / hs) / hs**2 * intensity
                 m = np.flatnonzero((wk > 0) & base)
                 Xa = _design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
-                             None if zcols is None else Z[m][:, zcols], False)
+                             None if zcols is None else Z[m][:, zcols], False, Ei=coords.local_slopes(j, m))
                 ka = _identifiable(Xa, wk[m])
-                Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False)
+                Xi = _design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, False, Ei=Ej)
                 aux = (Xa[:, ka], wk[m], m, Xi[:, ka])
             out, ks, offset, dfs = {}, {}, {}, {}
             for order in (p, q):
                 # the pooled model's slopes are common to both sides, so its basis uses
                 # one scale; the side-specific model scales each side by its own h
                 hb = np.full(len(idx), max(H[j, 0], H[j, 1])) if pooled else hside[idx]
-                X = _design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled)
+                X = _design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled, Ei=Ej)
                 c = np.zeros(X.shape[1])
                 if pooled:
                     c[1] = 1.0

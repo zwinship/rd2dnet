@@ -385,6 +385,8 @@ def rdbwnet(
     kfun = get_kernel(kernel)
     kname = kernel.lower() if isinstance(kernel, str) else "triangular"
     om = np.ones_like(y) if weights is None else _check_weights(weights, coords.n_obs)
+    if coords.kernel_weights is not None:  # the similarity kernel of bin_coordinates
+        om = om * coords.kernel_weights
     D = None if fuzzy is None else _check_obs(fuzzy, coords.n_obs, "fuzzy")
     cl = None if cluster is None else _check_cluster(cluster, coords.n_obs)
     Z = None

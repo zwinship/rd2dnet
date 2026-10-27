@@ -8,6 +8,17 @@ highway exits, sensor panels).
 
 New:
 
+- **Nearest-crossing bins** (an additional design; the default is unchanged).
+  `bin_coordinates(coords, features=...)` assigns each observation to its nearest boundary
+  crossing. `rdnet()` on the result fits each crossing separately with the product kernel
+  `K1(R / h_R) K2(S / h_S)`, where `S` is the Mahalanobis edge dissimilarity built from edge
+  attributes and local topology; the fit has branch-specific slopes and an `R * S` slope.
+  `rdnet_fe()` is the pooled crossing-fixed-effects estimator with propensity reweighting
+  (the density-weighted BATE). `similarity_sensitivity()` reports the BATE over a range
+  of `h_S`.
+- `RDNetResult.wbate("density")` (weights proportional to the local sample) and
+  `wbate("gls")` (minimum-variance weights `cov^-1 1 / (1' cov^-1 1)`, with a warning
+  when some are negative). Both work for the default design too.
 - `rd2dnet(Y, X, t, b, network)`: the data entry of rd2d (outcome, locations, treatment,
   boundary points) plus a network. `as_network()` turns graphs, igraph objects and line
   layers into a `NetworkGraph`.

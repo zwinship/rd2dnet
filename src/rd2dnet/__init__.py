@@ -22,6 +22,7 @@ Step by step::
 """
 
 from .bandwidth import rdbwnet
+from .bins import BinCoordinates, RDNetFEResult, bin_coordinates, rdnet_fe, similarity_bandwidth, similarity_sensitivity
 from .boundary import Boundary
 from .coordinates import NetworkCoordinates, network_coordinates
 from .density import DensityResult, density
@@ -35,6 +36,7 @@ from .network import NetworkGraph, project_lonlat
 __version__ = "0.2.0"
 
 __all__ = [
+    "BinCoordinates",
     "Boundary",
     "DensityResult",
     "EdgeCost",
@@ -43,9 +45,11 @@ __all__ = [
     "NetworkGraph",
     "NetworkMetric",
     "Precomputed",
+    "RDNetFEResult",
     "RDNetResult",
     "TransitionCost",
     "as_network",
+    "bin_coordinates",
     "density",
     "get_kernel",
     "manipulation_test",
@@ -55,5 +59,8 @@ __all__ = [
     "rd2dnet",
     "rdbwnet",
     "rdnet",
+    "rdnet_fe",
+    "similarity_bandwidth",
+    "similarity_sensitivity",
     "travel_time",
 ]
