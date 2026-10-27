@@ -19,6 +19,8 @@ New:
 - `RDNetResult.wbate("density")` (weights proportional to the local sample) and
   `wbate("gls")` (minimum-variance weights `cov^-1 1 / (1' cov^-1 1)`, with a warning
   when some are negative). Both work for the default design too.
+- Stata: `rdnetset ..., features(varlist)`, `rdnetbins` (creates `_rdn_bin`, `_rdn_branch`,
+  `_rdn_S`), `rdnetfe`, and `estat wbate, weights(density|gls)`.
 - `rd2dnet(Y, X, t, b, network)`: the data entry of rd2d (outcome, locations, treatment,
   boundary points) plus a network. `as_network()` turns graphs, igraph objects and line
   layers into a `NetworkGraph`.

@@ -232,3 +232,36 @@ CHANGELOG.md and the PRs.
 40. **Points on the boundary line's extension beyond its ends are treated**, whichever
     direction the line runs. They have no side, and the old rule flipped them when `b` was
     reversed.
+
+## Nearest-crossing bins (2026-10-27)
+
+Design choices made while implementing the bins design (an additional method;
+the default is unchanged), with the owner's agreement on the main ones:
+
+41. **Added, not replacing.** `bin_coordinates()` returns coordinates whose evaluation
+    points are the crossings, so `rdnet` and every option (bias correction, the h_R
+    selector, cluster/Conley/CR2, fuzzy, covariates) work unchanged; the default design's
+    numbers are bit-identical to before (checked on the mock city, 7 option sets).
+42. **Branch** = the edge where the path from the crossing first passes a junction
+    (owner's choice). A crossing inserted by splitting an edge has one edge per side, so
+    branches start at the first node with three or more neighbours (or at a crossing
+    with two or more neighbours on that side).
+43. **One bin per boundary node.** A first version merged crossings joined by a street
+    along the boundary; on the mock city (boundary along a street) that made one bin.
+    Locations on such a street belong to the nearer node.
+44. **h_S:** rule of thumb `sqrt(2 chi2_k(0.95))` plus `similarity_sensitivity()`
+    (owner's choice); a data-driven selector is noted in the README as future research.
+45. **Edge features** are computed on the network as given: nodes the package inserted
+    (crossings, locations) with two neighbours are skipped. Omega is the covariance over
+    all segments (pseudo-inverse with a 1e-10 relative eigenvalue cut, the same in all
+    three languages). Attributes are averaged over parallel edges and both directions.
+46. **Portable tie rules.** The shortest-path tree's parent is the smallest-index
+    neighbour on a shortest path (not the Dijkstra predecessor, whose ties depend on
+    settling order), and a location exactly on an end node of its segment is placed on
+    the node. The parity harness found the second: Python and R snapped such points to
+    different incident segments.
+47. **`rdnet_fe` slopes** are pooled across bins (interacted with the crossings'
+    features and S, not by branch); in the Monte Carlo it has a +0.04 bias when slopes
+    really differ by branch, documented in the README.
+48. **GLS weights** may be negative with strongly correlated estimates; a warning says
+    so rather than truncating them.

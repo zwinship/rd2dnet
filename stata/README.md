@@ -67,6 +67,7 @@ Use `rdnetdensity, unique` with repeated measurements.
 | coordinates | `network_coordinates()` | `rdnetset` (creates `_rdn_s`, `_rdn_treated`, `_rdn_arc`) |
 | estimation | `rdnet()` | `rdnet` (results in `e()`; `e(b)`, `e(V)` work with `test`/`lincom`) |
 | aggregates | `wbate()`, `lbate()` | `estat wbate`, `estat lbate` |
+| nearest-crossing bins | `bin_coordinates()`, `rdnet_fe()`, `wbate("density"/"gls")` | `rdnetset ..., features()`, `rdnetbins`, `rdnetfe`, `estat wbate, weights(density\|gls)` |
 | bandwidths | `rdbwnet()` | `rdbwnet` |
 | density test | `density()` | `rdnetdensity` |
 | mock data | `load_mock_midtown()` | `rdnetmock` |
