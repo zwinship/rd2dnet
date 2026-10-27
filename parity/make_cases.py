@@ -97,8 +97,11 @@ def edge_frame(rng, nodes, edges, directed):
         else:
             pair = [(a, b), (b, a)] if directed else [(a, b)]
         for u, v in pair:
+            # lanes: an intensive edge attribute for the bins' edge similarity (derived, so the
+            # random draws of the designs are unchanged)
             rows.append({"from": u + 1, "to": v + 1, "length": ln,
-                         "cost2": ln / speed * 3.6, "cls": cls})
+                         "cost2": ln / speed * 3.6, "cls": cls,
+                         "lanes": {20.0: 1.0, 30.0: 2.0, 50.0: 3.0}[float(speed)] + (cls == "a")})
     return pd.DataFrame(rows)
 
 
@@ -262,9 +265,58 @@ def run_estimates(d, spec, obs, cc):
         bw = rd2dnet.rdbwnet(obs["y_out"].to_numpy(), cc, bwselect=r["bwselect"])
         out = pd.DataFrame({"h0": bw["h0"], "h1": bw["h1"], "status": bw["status"].map(STATUS)})
         out.to_csv(d / f"py_bw_{k}.csv", index=False)
+    run_bins(d, obs, cc)
     mt = rd2dnet.manipulation_test(cc, q=MANIP_Q, reps=MANIP_REPS)
     pd.DataFrame([dict(statistic=mt.statistic, pvalue=mt.pvalue, n_treated=mt.n_treated)]).to_csv(
         d / "py_manip_1.csv", index=False, float_format="%.17g")
+
+
+def canon_branches(lab, trunk):
+    """Branches as a partition: numbered in order of first appearance, 0 for the trunk.
+
+    Edge rows (the raw labels) may be ordered differently in each language.
+    """
+    out = np.zeros(len(lab), dtype=int)
+    seen = {}
+    for i, x in enumerate(lab):
+        if x != trunk:
+            out[i] = seen.setdefault(x, len(seen) + 1)
+    return out
+
+
+BINS_H = 350.0
+
+
+def run_bins(d, obs, cc):
+    """Nearest-crossing bins: membership, branches, S, bin fits, aggregates and the pooled FE estimate."""
+    b = rd2dnet.bin_coordinates(cc, features=["lanes"])
+    y = obs["y_out"].to_numpy()
+    pd.DataFrame({"bin": np.where(b.bin >= 0, b.bin + 1, np.nan), "branch": canon_branches(b.branch, -1),
+                  "S": b.similarity}).to_csv(d / "py_bins_obs.csv", index=False, float_format="%.17g")
+    tab = b.bins_table()
+    pd.DataFrame({"arc": tab["arc"], "n0": tab["n0"], "n1": tab["n1"], "h_S": b.h_S}).to_csv(
+        d / "py_bins_tab.csv", index=False, float_format="%.17g")
+    agg = {}
+    for k, kw in enumerate([dict(h=BINS_H), dict()], 1):
+        res = rd2dnet.rdnet(y, b, min_obs=10, seed=0, **kw)
+        res_frame(res.table).to_csv(d / f"py_bins_res_{k}.csv", index=False)
+        if k == 1:
+            for rule in ("density", "gls"):
+                try:
+                    with np.errstate(all="ignore"):
+                        import warnings
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            a = res.wbate(rule)
+                    agg[f"{rule}_tau_bc"], agg[f"{rule}_se"] = a["tau_bc"], a["se_rb"]
+                except ValueError:
+                    agg[f"{rule}_tau_bc"] = agg[f"{rule}_se"] = np.nan
+    try:
+        fe = rd2dnet.rdnet_fe(y, b, h=BINS_H)
+        agg.update(fe_tau=fe.tau, fe_se=fe.se, fe_tau_bc=fe.tau_bc, fe_se_rb=fe.se_rb)
+    except ValueError:
+        agg.update(fe_tau=np.nan, fe_se=np.nan, fe_tau_bc=np.nan, fe_se_rb=np.nan)
+    pd.DataFrame([agg]).to_csv(d / "py_bins_agg.csv", index=False, float_format="%.17g")
 
 
 # --------------------------------------------------------------------------
@@ -321,6 +373,7 @@ def r_script(spec, bnd):
         L.append(f"bw <- rdbwnet(obs$y_out, cc, bwselect = '{r['bwselect']}')")
         L.append("write.csv(data.frame(h0 = bw$h0, h1 = bw$h1, status = status_code(bw$status)), "
                  f"file.path(d, 'r_bw_{k}.csv'), row.names = FALSE)")
+    L.append(f"run_bins(obs, cc, d, {BINS_H!r})")
     L.append(f"mt <- manipulation_test(cc, q = {MANIP_Q}, reps = {MANIP_REPS})")
     L.append("write.csv(data.frame(statistic = mt$statistic, pvalue = mt$pvalue, n_treated = mt$n_treated), "
              "file.path(d, 'r_manip_1.csv'), row.names = FALSE)")

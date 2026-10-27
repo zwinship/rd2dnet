@@ -163,6 +163,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "custom"
   intensity <- if (is.null(weights)) rep(1, length(y)) else .check_weights(weights, length(y))
+  # bins: the similarity kernel K2(S / h_S)
+  if (!is.null(coords$kernel_weights)) intensity <- intensity * coords$kernel_weights
   D <- if (is.null(fuzzy)) NULL else .check_obs(fuzzy, length(y), "fuzzy")
   Z <- NULL
   if (!is.null(covs)) {
@@ -305,6 +307,8 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
       }
     }
 
+    Ej <- .local_slopes(coords, j, idx)
+
     fit_all <- function() {
       dim <- 2
       aux <- NULL
@@ -313,8 +317,9 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         wk <- kfun(d / hs) / hs^2 * intensity
         m <- which(wk > 0 & base)
         Xa <- .design(s[m] / hs[m], o[m] / hs[m], Tf[m], aux_order,
-                      if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim)
-        Xi <- .design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, FALSE, dim)
+                      if (is.null(zcols)) NULL else Z[m, zcols, drop = FALSE], FALSE, dim,
+                      Ei = .local_slopes(coords, j, m))
+        Xi <- .design(s[idx] / hs[idx], o[idx] / hs[idx], Tf[idx], aux_order, Zi, FALSE, dim, Ei = Ej)
         ka <- .identifiable(Xa, wk[m])
         aux <- list(Xa = Xa[, ka, drop = FALSE], wa = wk[m], m = m, Xi = Xi[, ka, drop = FALSE])
       }
@@ -325,7 +330,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
         # the pooled model's slopes are common to both sides, so its basis uses one
         # scale; the side-specific model scales each side by its own h
         hb <- if (pooled) rep(max(H[j, ]), length(idx)) else hside[idx]
-        X <- .design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled, dim)
+        X <- .design(s[idx] / hb, o[idx] / hb, Tf[idx], order, Zi, pooled, dim, Ei = Ej)
         cvec <- rep(0, ncol(X))
         if (pooled) {
           cvec[2] <- 1
@@ -551,9 +556,15 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
   keep
 }
 
-.design <- function(us, uo, Ti, order, Zi, pooled, dim = 2) {
+# Joint local design: side-specific polynomials (or pooled slopes), then the bins'
+# extra slopes us * Ei (one set per side, or common when pooled), then covariates.
+.design <- function(us, uo, Ti, order, Zi, pooled, dim = 2, Ei = NULL) {
   R <- .poly_basis(us, uo, order, dim)
   X <- if (pooled) cbind(1, Ti, R[, -1, drop = FALSE]) else cbind(R * Ti, R * (1 - Ti))
+  if (!is.null(Ei)) {
+    S <- us * Ei
+    X <- if (pooled) cbind(X, S) else cbind(X, S * Ti, S * (1 - Ti))
+  }
   X <- unname(X)
   if (is.null(Zi)) X else cbind(X, Zi, deparse.level = 0)
 }
@@ -667,8 +678,12 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 #' (`[max_j dist(0, [lo_j, hi_j]), max_j max(|lo_j|, |hi_j|)]`).
 #'
 #' @param x An [rdnet()] result.
-#' @param weights One weight per evaluation point (default: equal weights on
-#'   the distinct places of the estimated points).
+#' @param weights One weight per evaluation point, normalised to sum to one, or
+#'   a rule: `"place"` (the default, `NULL`: equal weights on the distinct
+#'   places of the estimated points), `"density"` (proportional to the local
+#'   sample `n0 + n1`; with [bin_coordinates()] the density-weighted BATE) or
+#'   `"gls"` (the minimum-variance weights `cov^-1 1 / (1' cov^-1 1)`, with a
+#'   warning when some are negative). Rules use the points with status `"ok"`.
 #' @param kind For `lbate()`: `"max"` (default), `"min"` or `"absmax"`.
 #' @return A named numeric vector: `tau`, `tau_bc`, `se_rb`, `ci_lo`,
 #'   `ci_hi`, `pvalue` (the bias-corrected estimate drives the interval and
@@ -684,7 +699,7 @@ rdnet <- function(y, coords, h = NULL, p = 1, q = NULL, deriv = c(0, 0), tangvec
 wbate <- function(x, weights = NULL) {
   if (!inherits(x, "rdnet")) stop("expected an rdnet() result", call. = FALSE)
   J <- nrow(x$table)
-  w <- if (is.null(weights)) .place_weights(x$table) else as.numeric(weights)
+  w <- if (is.null(weights) || is.character(weights)) .rule_weights(x, if (is.null(weights)) "place" else weights) else as.numeric(weights)
   if (length(w) != J) {
     stop(sprintf("WBATE weights must have one entry per evaluation point (%d)", J), call. = FALSE)
   }
@@ -726,6 +741,32 @@ lbate <- function(x, kind = c("max", "min", "absmax")) {
     min = c(min(t$tau), min(t$tau_bc), min(lo), min(hi)),
     absmax = c(max(abs(t$tau)), max(abs(t$tau_bc)), max(pmax(0, lo, -hi)), max(pmax(abs(lo), abs(hi)))))
   c(tau = v[1], tau_bc = v[2], se_rb = NA_real_, ci_lo = v[3], ci_hi = v[4], pvalue = NA_real_)
+}
+
+# WBATE weights by rule: "place", "density" or "gls".
+.rule_weights <- function(x, rule) {
+  ok <- x$table$status == "ok"
+  if (length(rule) != 1 || !rule %in% c("place", "equal", "density", "gls")) {
+    stop("weights must be numbers or one of 'place', 'density', 'gls'", call. = FALSE)
+  }
+  if (rule %in% c("place", "equal")) return(.place_weights(x$table))
+  w <- numeric(nrow(x$table))
+  if (!any(ok)) return(w)
+  if (rule == "density") {
+    w[ok] <- (x$table$n0 + x$table$n1)[ok]
+    return(w)
+  }
+  g <- drop(.pinv_sym(x$cov[ok, ok, drop = FALSE])$inv %*% rep(1, sum(ok)))
+  if (!all(is.finite(g)) || abs(sum(g)) < 1e-300) {
+    stop("GLS weights are not defined: the covariance of the estimates is degenerate", call. = FALSE)
+  }
+  g <- g / sum(g)
+  if (any(g < -1e-12)) {
+    warning(sprintf(paste0("%d GLS weights are negative (strongly correlated estimates); the GLS BATE is then ",
+                           "not an average of the local effects"), sum(g < -1e-12)), call. = FALSE)
+  }
+  w[ok] <- g
+  w
 }
 
 # Equal weight per distinct place among the estimated points, shared by repeats.

@@ -280,9 +280,7 @@ def bin_coordinates(
     if similarity and (features or topology):
         orig, Z, names = _edge_feature_matrix(net, E, list(features), topology)
         Omega = np.atleast_2d(np.cov(Z, rowvar=False)) if len(Z) > 1 else np.zeros((Z.shape[1], Z.shape[1]))
-        Oinv = np.linalg.pinv(Omega, rcond=1e-10, hermitian=True)
-        rank = int(np.linalg.matrix_rank(Omega, tol=1e-10 * max(np.abs(Omega).max(), 1e-300), hermitian=True)) \
-            if Omega.size else 0
+        Oinv, rank = _pinv_sym(Omega)
         # each bin's reference: mean features of the segments at its crossings
         ref = np.zeros((M, len(names)))
         inc_bin = np.r_[bin_node[eu], bin_node[ev]]
@@ -322,6 +320,16 @@ def bin_coordinates(
     return out
 
 
+def _pinv_sym(A: np.ndarray, rcond: float = 1e-10) -> tuple[np.ndarray, int]:
+    """Pseudo-inverse and rank of a symmetric PSD matrix (eigenvalues above ``rcond`` times the largest)."""
+    if A.size == 0:
+        return A.copy(), 0
+    lam, V = np.linalg.eigh(A)
+    top = max(float(lam.max()), 0.0)
+    keep = lam > rcond * top if top > 0 else np.zeros(len(lam), dtype=bool)
+    return (V[:, keep] / lam[keep]) @ V[:, keep].T, int(keep.sum())
+
+
 def _crossing_tree(net, node_on, node_T, E) -> dict:
     """Shortest-path tree from the boundary nodes and the branch of every node.
 
@@ -338,8 +346,22 @@ def _crossing_tree(net, node_on, node_T, E) -> dict:
     loop = eu == ev
     A = _min_csr(np.r_[eu[~loop], ev[~loop]], np.r_[ev[~loop], eu[~loop]], np.r_[cost[~loop], cost[~loop]], n)
     sources = np.flatnonzero(node_on)
-    dist, pred, src = dijkstra(A, directed=True, indices=sources, min_only=True, return_predecessors=True)
-    pred = np.where(pred < 0, -1, pred)
+    dist = dijkstra(A, directed=True, indices=sources, min_only=True) if sources.size else np.full(n, np.inf)
+    # Parent of each node: among its neighbours on a shortest path from the
+    # crossings, the one with the smallest index. Candidates must come before the
+    # node in (distance, index) order, so the tree has no cycles even across
+    # zero-length edges. The rule is the same in Python, R and Stata, so ties do
+    # not depend on the order in which a Dijkstra search settles nodes.
+    a_all = np.r_[eu[~loop], ev[~loop]]
+    b_all = np.r_[ev[~loop], eu[~loop]]
+    c_all = np.r_[cost[~loop], cost[~loop]]
+    tol = 1e-9 * np.maximum(1.0, dist[b_all])
+    da, db = dist[a_all], dist[b_all]
+    cand = (np.isfinite(db) & ~node_on[b_all] & (da + c_all <= db + tol)
+            & ((da < db - tol) | ((np.abs(da - db) <= tol) & (a_all < b_all))))
+    pred = np.full(n, n, dtype=np.int64)
+    np.minimum.at(pred, b_all[cand], a_all[cand])
+    pred[pred == n] = -1
     # undirected neighbours (distinct, no self-loops)
     pairs = np.unique(np.column_stack([np.minimum(eu, ev), np.maximum(eu, ev)])[~loop], axis=0)
     deg = np.bincount(pairs.ravel(), minlength=n)
@@ -370,6 +392,7 @@ def _crossing_tree(net, node_on, node_T, E) -> dict:
     child = np.flatnonzero(pred >= 0)
     st = splits(pred[child], node_T[child])
     label[child[st]] = row_of(pred[child[st]], child[st])
+    root = np.where(pred >= 0, pred, np.arange(n))
     anc = pred.copy()
     while True:
         m = np.flatnonzero(anc >= 0)
@@ -377,9 +400,10 @@ def _crossing_tree(net, node_on, node_T, E) -> dict:
             break
         up = anc[m]
         label[m] = np.where(label[up] >= 0, label[up], label[m])
+        root[m] = root[up]
         anc[m] = anc[up]
-    return {"dist": dist, "pred": pred, "label": label, "splits": splits, "row_of": row_of,
-            "source": np.where(src >= 0, src, -1)}
+    root = np.where(np.isfinite(dist) & node_on[root], root, -1)
+    return {"dist": dist, "pred": pred, "label": label, "splits": splits, "row_of": row_of, "source": root}
 
 
 def _location_branches(tree, sn: Snap, T) -> np.ndarray:
@@ -416,8 +440,9 @@ def _edge_feature_matrix(net, E, attrs: list[str], topology: bool):
     eu, ev = E["u"].to_numpy(), E["v"].to_numpy()
     deg_split = np.bincount(np.r_[eu[eu != ev], ev[eu != ev]], minlength=n)
     labels = net.nodes
-    inserted = np.array([bool(net.graph.nodes[labels[k]].get("rdnet_crossing") or
-                              net.graph.nodes[labels[k]].get("rdnet_point")) for k in range(n)], dtype=bool)
+    # nodes the package inserted carry these labels (R and Stata use the same names)
+    inserted = np.array([isinstance(x, str) and x.startswith(("rdnet_crossing_", "rdnet_point_")) for x in labels],
+                        dtype=bool)
     transparent = inserted & (deg_split == 2)
     nb = np.full((n, 2), -1, dtype=np.int64)
     fill = np.zeros(n, dtype=np.int64)
@@ -444,18 +469,23 @@ def _edge_feature_matrix(net, E, attrs: list[str], topology: bool):
     A_, B_ = ukeys // n, ukeys % n
     cols, names = [], []
     for attr in attrs:
+        # a segment's value: the mean over the stored edges between its ends (parallel
+        # edges, both directions)
         vals = np.full(len(E), np.nan)
         for r, (a, b) in enumerate(zip(eu, ev)):
-            data = net.graph.get_edge_data(labels[a], labels[b])
-            if data is None and net.graph.is_directed():
-                data = net.graph.get_edge_data(labels[b], labels[a])
-            if data is not None and net.graph.is_multigraph():
-                data = next(iter(data.values()), None)
-            x = None if data is None else data.get(attr)
-            try:
-                vals[r] = float(_scalar(x)) if x is not None else np.nan
-            except (TypeError, ValueError):
-                vals[r] = np.nan
+            got = []
+            for p, q in ((labels[a], labels[b]), (labels[b], labels[a])) if net.graph.is_directed() else                     ((labels[a], labels[b]),):
+                data = net.graph.get_edge_data(p, q)
+                if data is None:
+                    continue
+                for d in (data.values() if net.graph.is_multigraph() else (data,)):
+                    try:
+                        x = float(_scalar(d.get(attr)))
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(x):
+                        got.append(x)
+            vals[r] = np.mean(got) if got else np.nan
         sums = np.bincount(orig, weights=np.where(np.isfinite(vals), vals, 0.0), minlength=m)
         cnt = np.bincount(orig, weights=np.isfinite(vals).astype(float), minlength=m)
         col = np.divide(sums, cnt, out=np.full(m, np.nan), where=cnt > 0)

@@ -265,6 +265,8 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "triangular"
   om <- if (is.null(weights)) rep(1, length(y)) else .check_weights(weights, coords$n_obs)
+  # the similarity kernel of bin_coordinates()
+  if (!is.null(coords$kernel_weights)) om <- om * coords$kernel_weights
   D <- if (is.null(fuzzy)) NULL else .check_obs(fuzzy, coords$n_obs, "fuzzy")
   cl <- if (is.null(cluster)) NULL else .check_cluster(cluster, coords$n_obs)
   Z <- NULL
