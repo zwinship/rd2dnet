@@ -284,3 +284,7 @@ the default is unchanged), with the owner's agreement on the main ones:
       0 x 1, and failed a `colvector` return (a bin with one branch below `min_branch`).
     Test-code fixes too: `rdn_expect` arguments without spaces, and no `egen nvals()`
     (egenmore). After these, the suite, the install check and the 40-case parity pass.
+53. **Parity case 36 is close to the tolerance.** In the bins fit with a selected bandwidth,
+    one crossing has se_rb = 98.75 from a near-singular HC3 fit (item 50). Python and R
+    agree there to 8e-8 to 3e-7 depending on the CI run (BLAS rounding), with identical
+    code; Stata agrees to 7e-9. If the parity job fails only on this value, re-run it.
