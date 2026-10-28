@@ -8,6 +8,19 @@ highway exits, sensor panels).
 
 New:
 
+- **Nearest-crossing bins** (an additional design; the default is unchanged).
+  `bin_coordinates(coords, features=...)` assigns each observation to its nearest boundary
+  crossing. `rdnet()` on the result fits each crossing separately with the product kernel
+  `K1(R / h_R) K2(S / h_S)`, where `S` is the Mahalanobis edge dissimilarity built from edge
+  attributes and local topology; the fit has branch-specific slopes and an `R * S` slope.
+  `rdnet_fe()` is the pooled crossing-fixed-effects estimator with propensity reweighting
+  (the density-weighted BATE). `similarity_sensitivity()` reports the BATE over a range
+  of `h_S`.
+- `RDNetResult.wbate("density")` (weights proportional to the local sample) and
+  `wbate("gls")` (minimum-variance weights `cov^-1 1 / (1' cov^-1 1)`, with a warning
+  when some are negative). Both work for the default design too.
+- Stata: `rdnetset ..., features(varlist)`, `rdnetbins` (creates `_rdn_bin`, `_rdn_branch`,
+  `_rdn_S`), `rdnetfe`, and `estat wbate, weights(density|gls)`.
 - `rd2dnet(Y, X, t, b, network)`: the data entry of rd2d (outcome, locations, treatment,
   boundary points) plus a network. `as_network()` turns graphs, igraph objects and line
   layers into a `NetworkGraph`.
@@ -87,6 +100,8 @@ Fixes:
 - Splitting an edge at the boundary now divides the metric's own cost attribute (such
   as `weight`), not only `length` and `travel_time`.
 - Parallel edges: snapping uses the cheapest edge, as shortest paths do.
+- When a side has exactly `bwcheck` locations, the bandwidth floor now wins over that side's largest
+  distance in R and Stata too (Python already kept it), so the point keeps its last location.
 - The bandwidth floor (the distance to the `bwcheck`-th nearest observation) is nudged
   just past that distance. The triangular kernel gives weight 0 at exactly `d = h`, so a
   bandwidth at the floor used to leave one observation fewer than `min_obs` and the point

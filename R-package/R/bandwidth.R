@@ -265,6 +265,8 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
   kfun <- get_kernel(kernel)
   kname <- if (is.character(kernel)) .kernel_name(kernel) else "triangular"
   om <- if (is.null(weights)) rep(1, length(y)) else .check_weights(weights, coords$n_obs)
+  # the similarity kernel of bin_coordinates()
+  if (!is.null(coords$kernel_weights)) om <- om * coords$kernel_weights
   D <- if (is.null(fuzzy)) NULL else .check_obs(fuzzy, coords$n_obs, "fuzzy")
   cl <- if (is.null(cluster)) NULL else .check_cluster(cluster, coords$n_obs)
   Z <- NULL
@@ -427,7 +429,9 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
     den <- den_c * ((Bc[[1]] - Bc[[2]])^2 + scaleregul * (g$Reg10 + g$Reg11))
     h <- if (base == "imserd") (mean(num) / mean(den))^expo else (num / den)^expo
     if (cer) h <- h * .cer_factor(n_eff, p)
-    h <- pmin(pmax(h, pmax(g$hmin0, g$hmin1)), pmax(g$hmax0, g$hmax1))
+    # the floor wins over the largest distance: a side with exactly bwcheck locations
+    # has its nudged floor just above them, and capping it would drop the last one
+    h <- pmax(pmin(h, pmax(g$hmax0, g$hmax1)), pmax(g$hmin0, g$hmin1))
     out$h0[good] <- h
     out$h1[good] <- h
   } else {
@@ -436,7 +440,7 @@ rdbwnet <- function(y, coords, p = 1, deriv = c(0, 0), tangvec = NULL, covs = NU
       den <- den_c * (Bc[[t + 1]]^2 + scaleregul * g[[paste0("Reg1", t)]])
       h <- if (base == "imsetwo") (mean(num) / mean(den))^expo else (num / den)^expo
       if (cer) h <- h * .cer_factor(n_eff_side[t + 1], p)
-      out[[paste0("h", t)]][good] <- pmin(pmax(h, g[[paste0("hmin", t)]]), g[[paste0("hmax", t)]])
+      out[[paste0("h", t)]][good] <- pmax(pmin(h, g[[paste0("hmax", t)]]), g[[paste0("hmin", t)]])
     }
   }
   out$h <- ifelse(.isclose(out$h0, out$h1), out$h0, NA_real_)

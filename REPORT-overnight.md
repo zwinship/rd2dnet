@@ -18,7 +18,11 @@
 - **CI:** all green on the merged result: pytest on 3.10-3.13 and Windows, the notebook,
   R CMD check on 5 platforms, Python-R parity, and live OSM. R's live-OSM job had kept
   failing on Overpass 502/504 errors; R now retries on mirrors.
-- **Stata still to run.** The AppStream session expired during a pause at about 03:20 and
+- **Stata verified (10/28).** The suite (ALL TESTS PASSED), the install check and parity on
+  40 regenerated cases, bins included (PARITY PASSED, worst difference 6.6e-9), all ran in
+  Stata 19. The run found two Mata bugs, both fixed (DECISIONS item 52). The note below is
+  kept for the record.
+- **Stata still to run (superseded).** The AppStream session expired during a pause at about 03:20 and
   needs your sign-in. Stata code merged after that is written, and three static reviews
   checked it against Python (all findings fixed), but it has not been run in Stata. That
   covers:
@@ -216,7 +220,7 @@ had failed on 502/504 errors from overpass-api.de.
   `h=[a, b]` means one value per point when J = 2.
 - **Clustering with very few clusters:** CR2 intervals are honest but wide. With 6 blocks
   per side the degrees of freedom are about 2.
-- **Untested in Stata:** everything after 03:20 on 10/21. The Mata code had three static
+- **Untested in Stata (until 10/28, now run):** everything after 03:20 on 10/21. The Mata code had three static
   reviews against Python; all findings are fixed.
 
 ## Night 1 open items, now resolved

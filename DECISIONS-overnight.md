@@ -232,3 +232,59 @@ CHANGELOG.md and the PRs.
 40. **Points on the boundary line's extension beyond its ends are treated**, whichever
     direction the line runs. They have no side, and the old rule flipped them when `b` was
     reversed.
+
+## Nearest-crossing bins (2026-10-27)
+
+Design choices made while implementing the bins design (an additional method;
+the default is unchanged), with the owner's agreement on the main ones:
+
+41. **Added, not replacing.** `bin_coordinates()` returns coordinates whose evaluation
+    points are the crossings, so `rdnet` and every option (bias correction, the h_R
+    selector, cluster/Conley/CR2, fuzzy, covariates) work unchanged; the default design's
+    numbers are bit-identical to before (checked on the mock city, 7 option sets).
+42. **Branch** = the edge where the path from the crossing first passes a junction
+    (owner's choice). A crossing inserted by splitting an edge has one edge per side, so
+    branches start at the first node with three or more neighbours (or at a crossing
+    with two or more neighbours on that side).
+43. **One bin per boundary node.** A first version merged crossings joined by a street
+    along the boundary; on the mock city (boundary along a street) that made one bin.
+    Locations on such a street belong to the nearer node.
+44. **h_S:** rule of thumb `sqrt(2 chi2_k(0.95))` plus `similarity_sensitivity()`
+    (owner's choice); a data-driven selector is noted in the README as future research.
+45. **Edge features** are computed on the network as given: nodes the package inserted
+    (crossings, locations) with two neighbours are skipped. Omega is the covariance over
+    all segments (pseudo-inverse with a 1e-10 relative eigenvalue cut, the same in all
+    three languages). Attributes are averaged over parallel edges and both directions.
+46. **Portable tie rules.** The shortest-path tree's parent is the smallest-index
+    neighbour on a shortest path (not the Dijkstra predecessor, whose ties depend on
+    settling order), and a location exactly on an end node of its segment is placed on
+    the node. The parity harness found the second: Python and R snapped such points to
+    different incident segments.
+47. **`rdnet_fe` slopes** are pooled across bins (interacted with the crossings'
+    features and S, not by branch); in the Monte Carlo it has a +0.04 bias when slopes
+    really differ by branch, documented in the README.
+48. **GLS weights** may be negative with strongly correlated estimates; a warning says
+    so rather than truncating them.
+49. **Branch slopes need `min_branch` (default 10) locations on their side**; the reference
+    slope is the trunk's, or else the largest branch's. Before, which aliased branch column
+    a fit dropped depended on column order (two orders gave tau -0.37 and +0.38 in a parity
+    case with no trunk and a one-location branch).
+50. **Parity bins runs use `min_obs = 20`.** With 10 a bin fit at leverage near 1 gave
+    se_rb = 305 in both languages, equal only to 5e-6: the known near-singular HC3 case
+    (DECISIONS "Near-singular q-fits"), not specific to bins.
+51. **Bandwidth floor beats the largest distance.** When a side has exactly `bwcheck`
+    locations, the floor (nudged 1e-9 past the last one) is above that side's largest
+    distance. Python kept the floor (pandas `clip`), R and Stata capped at the largest
+    distance and lost the last location (status "insufficient"). All three now keep the
+    floor. Found by the parity harness (bins, case 06).
+52. **Stata run on 10/28 found two Mata bugs** (Python and R unaffected):
+    - `rdnetmanip` indexed `pos[0]` in its k-means loop: Mata's `|` (and `||`) evaluate both
+      sides, so a guard like `i == 1 | pos[i] != pos[i - 1]` does not protect the index.
+    - In the bins slopes, `select()` of a 1 x 1 vector keeping nothing returns 0 x 0, not
+      0 x 1, and failed a `colvector` return (a bin with one branch below `min_branch`).
+    Test-code fixes too: `rdn_expect` arguments without spaces, and no `egen nvals()`
+    (egenmore). After these, the suite, the install check and the 40-case parity pass.
+53. **Parity case 36 is close to the tolerance.** In the bins fit with a selected bandwidth,
+    one crossing has se_rb = 98.75 from a near-singular HC3 fit (item 50). Python and R
+    agree there to 8e-8 to 3e-7 depending on the CI run (BLAS rounding), with identical
+    code; Stata agrees to 7e-9. If the parity job fails only on this value, re-run it.

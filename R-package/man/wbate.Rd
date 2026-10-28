@@ -12,8 +12,12 @@ lbate(x, kind = c("max", "min", "absmax"))
 \arguments{
 \item{x}{An \code{\link[=rdnet]{rdnet()}} result.}
 
-\item{weights}{One weight per evaluation point (default: equal weights on
-the distinct places of the estimated points).}
+\item{weights}{One weight per evaluation point, normalised to sum to one, or
+a rule: \code{"place"} (the default, \code{NULL}: equal weights on the distinct
+places of the estimated points), \code{"density"} (proportional to the local
+sample \code{n0 + n1}; with \code{\link[=bin_coordinates]{bin_coordinates()}} the density-weighted BATE) or
+\code{"gls"} (the minimum-variance weights \verb{cov^-1 1 / (1' cov^-1 1)}, with a
+warning when some are negative). Rules use the points with status \code{"ok"}.}
 
 \item{kind}{For \code{lbate()}: \code{"max"} (default), \code{"min"} or \code{"absmax"}.}
 }

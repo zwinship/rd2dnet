@@ -50,7 +50,9 @@ and tests without internet access, never for analysis).
 }
 \examples{
 \donttest{
-net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE))
+net <- suppressWarnings(
+  network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE)
+)
 net
 }
 }

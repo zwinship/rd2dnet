@@ -35,6 +35,16 @@ def poly_basis(s: np.ndarray, o: np.ndarray, p: int, dim: int = 2) -> np.ndarray
     return out
 
 
+def _pinv_sym(A: np.ndarray, rcond: float = 1e-10) -> tuple[np.ndarray, int]:
+    """Pseudo-inverse and rank of a symmetric PSD matrix (eigenvalues above ``rcond`` times the largest)."""
+    if A.size == 0:
+        return A.copy(), 0
+    lam, V = np.linalg.eigh(A)
+    top = max(float(lam.max()), 0.0)
+    keep = lam > rcond * top if top > 0 else np.zeros(len(lam), dtype=bool)
+    return (V[:, keep] / lam[keep]) @ V[:, keep].T, int(keep.sum())
+
+
 @dataclass
 class Fit:
     beta: np.ndarray

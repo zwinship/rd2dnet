@@ -10,8 +10,11 @@ d Side-specific local polynomial estimates of boundary average treatment
 d effect curves with robust bias-corrected inference, uniform confidence
 d bands, weighted and largest aggregate effects, fuzzy designs, covariates,
 d derivative targets, HC, cluster and network Conley standard errors, a port
-d of rd2d's bandwidth selector, and a network-normalised density test
-d following rddensity (Cattaneo, Jansson and Ma).
+d of rd2d's bandwidth selector, a network-normalised density test
+d following rddensity (Cattaneo, Jansson and Ma) and a manipulation test
+d (Bugni, Crippa and Restrepo). An additional nearest-crossing bins design
+d (rdnetbins, rdnetfe) compares observations reaching the boundary at the
+d same crossing, with edge-similarity kernels and branch-specific slopes.
 d
 d Please cite the rd2d papers when using this package (see help rd2dnet).
 d
@@ -24,7 +27,7 @@ d KW: causal inference
 d
 d Requires: Stata version 16
 d
-d Distribution-Date: 20261019
+d Distribution-Date: 20261028
 d
 d Author: Zach Winship
 d Support: email zachtwinship@gmail.com
@@ -43,6 +46,10 @@ f rdnetdensity.ado
 f rdnetdensity.sthlp
 f rdnetmanip.ado
 f rdnetmanip.sthlp
+f rdnetbins.ado
+f rdnetbins.sthlp
+f rdnetfe.ado
+f rdnetfe.sthlp
 f rdnetmock.ado
 f rdnetmock.sthlp
 F rdnet_mock_obs.dta

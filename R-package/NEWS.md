@@ -1,5 +1,16 @@
 # rd2dnet 0.2.0
 
+## Nearest-crossing bins (an additional design)
+
+* `bin_coordinates(coords, features = ...)` assigns each observation to its nearest
+  boundary crossing. `rdnet()` on the result fits each crossing separately, with the
+  product kernel `K1(R / h_R) K2(S / h_S)`, where `S` is the Mahalanobis edge dissimilarity
+  built from edge attributes and local topology. The fit has branch-specific slopes and an
+  `R * S` slope. The default design is unchanged.
+* `rdnet_fe()`: pooled crossing fixed effects with propensity reweighting (the
+  density-weighted BATE). `similarity_sensitivity()`: the BATE over a range of `h_S`.
+* `wbate(x, "density")` and `wbate(x, "gls")` aggregation rules.
+
 ## Easier data and network entry
 
 * `rd2dnet(Y, X, t, b, network)`: the data entry of rd2d's `rd2d(Y, X, t, b)`, with the

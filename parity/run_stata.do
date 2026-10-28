@@ -198,6 +198,97 @@ program define rdn_par_bw
     rdn_par_note `case' "`label' values" `worst'
 end
 
+capture program drop rdn_par_diffvar
+program define rdn_par_diffvar
+    * largest relative difference between two variables (both missing counts as equal)
+    args a b case label
+    tempvar d
+    quietly gen double `d' = abs(`a' - `b') / max(1, abs(`b'))
+    quietly replace `d' = 0 if `a' >= . & `b' >= .
+    quietly replace `d' = 1e300 if `d' >= .
+    quietly summarize `d', meanonly
+    rdn_par_note `case' "`label'" r(max)
+end
+
+capture program drop rdn_par_bins
+program define rdn_par_bins
+    * nearest-crossing bins: membership, branches (as a partition), S, the bins
+    * table, bin fits with a fixed and a selected bandwidth, the density and GLS
+    * aggregates and rdnetfe (mirrors run_bins() in make_cases.py)
+    args dir case h
+    quietly rdnetbins
+    local hS = cond(r(h_S) < ., r(h_S), -1)
+    tempname BT
+    matrix `BT' = r(bins)
+    tempvar o first canon
+    quietly gen long `o' = _n
+    quietly gen double `first' = .
+    quietly bysort _rdn_branch (`o'): replace `first' = `o'[1] if _rdn_branch > 0 & _rdn_branch < .
+    quietly egen long `canon' = group(`first')
+    quietly replace `canon' = 0 if `canon' >= .
+    sort `o'
+    capture frame drop pb
+    frame create pb
+    frame pb {
+        import delimited using "`dir'/py_bins_obs.csv", clear asdouble case(preserve) varnames(1)
+        quietly gen long `o' = _n
+    }
+    capture drop pb
+    quietly frlink 1:1 `o', frame(pb)
+    tempvar pbin pbr pS
+    quietly frget `pbin' = bin `pbr' = branch `pS' = S, from(pb)
+    drop pb
+    rdn_par_diffvar _rdn_bin `pbin' `case' "bins membership"
+    rdn_par_diffvar `canon' `pbr' `case' "bins branches"
+    rdn_par_diffvar _rdn_S `pS' `case' "bins S"
+    rdn_par_ref "`dir'/py_bins_tab.csv" "arc n0 n1 h_s"
+    local worst = abs(`hS' - PYREF[1, 4]) / max(1, abs(PYREF[1, 4]))
+    if rowsof(`BT') != rowsof(PYREF) local worst 1e300
+    else {
+        forvalues j = 1/`=rowsof(PYREF)' {
+            forvalues k = 1/3 {
+                local d = abs(`BT'[`j', `k' + 1] - PYREF[`j', `k']) / max(1, abs(PYREF[`j', `k']))
+                if `d' >= . local d 1e300
+                if `d' > `worst' local worst `d'
+            }
+        }
+    }
+    rdn_par_note `case' "bins table" `worst'
+    quietly rdnet y_out, minobs(20) seed(0)
+    rdn_par_res "`dir'/py_bins_res_2.csv" `case' bins_selected
+    quietly rdnet y_out, h(`h') minobs(20) seed(0)
+    rdn_par_res "`dir'/py_bins_res_1.csv" `case' bins_fixed
+    rdn_par_ref "`dir'/py_bins_agg.csv" "density_tau_bc density_se gls_tau_bc gls_se fe_tau fe_se fe_tau_bc fe_se_rb"
+    forvalues k = 1/8 {
+        local a`k' = .
+    }
+    capture quietly estat wbate, weights(density)
+    if !_rc {
+        local a1 = r(tau_bc)
+        local a2 = r(se_rb)
+    }
+    capture quietly estat wbate, weights(gls)
+    if !_rc {
+        local a3 = r(tau_bc)
+        local a4 = r(se_rb)
+    }
+    capture quietly rdnetfe y_out, h(`h')
+    if !_rc {
+        local a5 = e(tau)
+        local a6 = e(se)
+        local a7 = e(tau_bc)
+        local a8 = e(se_rb)
+    }
+    local worst 0
+    forvalues k = 1/8 {
+        if `a`k'' >= . & PYREF[1, `k'] >= . continue
+        local d = abs(`a`k'' - PYREF[1, `k']) / max(1, abs(PYREF[1, `k']))
+        if `d' >= . local d 1e300
+        if `d' > `worst' local worst `d'
+    }
+    rdn_par_note `case' "bins aggregates and rdnetfe" `worst'
+end
+
 file open fh using "parity/cases/cases.txt", read text
 file read fh line
 local cases

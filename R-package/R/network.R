@@ -796,7 +796,9 @@ network_graph_from_igraph <- function(g, metric = "weight", x = "x", y = "y", di
 #'   `travel_time` (s) edge columns.
 #' @examples
 #' \donttest{
-#' net <- suppressWarnings(network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE))
+#' net <- suppressWarnings(
+#'   network_graph_from_place("Midtown Manhattan, New York", offline_fallback = TRUE)
+#' )
 #' net
 #' }
 #' @export

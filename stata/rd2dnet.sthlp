@@ -35,6 +35,8 @@ Commands:
 {p2col:{helpb rdbwnet}}data-driven bandwidths{p_end}
 {p2col:{helpb rdnetdensity}}density (sorting) test at the boundary{p_end}
 {p2col:{helpb rdnetmanip}}manipulation test of Bugni, Crippa and Restrepo (sorting that offsets along the boundary){p_end}
+{p2col:{helpb rdnetbins}}nearest-crossing bins: an additional design that compares observations at the same crossing{p_end}
+{p2col:{helpb rdnetfe}}pooled nearest-crossing BATE with crossing fixed effects{p_end}
 {p2col:{helpb rdnetmock}}load the bundled mock city{p_end}
 {p2colreset}{...}
 

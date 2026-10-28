@@ -26,6 +26,14 @@ program define Wbate, rclass
     if !_rc {
         matrix `wmat' = `weights'
     }
+    else if inlist(lower("`weights'"), "density", "gls") {
+        * density: proportional to the local sample n0 + n1; gls: cov^-1 1 / (1' cov^-1 1)
+        tempname C
+        matrix `C' = e(cov)
+        local rule = lower("`weights'")
+        rd2dnet_mata
+        mata: st_matrix(st_local("wmat"), rdn_rule_weights(st_matrix(st_local("R")), st_matrix(st_local("C")), st_local("rule")))
+    }
     else if lower("`weights'") == "equal" {
         * equal weight per distinct place (node_arc) among the estimated points;
         * points that snapped to the same place share its weight
@@ -35,7 +43,7 @@ program define Wbate, rclass
     else {
         capture numlist "`weights'"
         if _rc {
-            di as err "weights() must be a matrix name, a list of numbers, or equal"
+            di as err "weights() must be a matrix name, a list of numbers, equal, density or gls"
             exit 198
         }
         local ws `r(numlist)'

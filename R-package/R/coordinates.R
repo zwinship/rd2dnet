@@ -400,6 +400,7 @@ print.rd2dnet_coords <- function(x, ...) {
 
 # Compute and cache the rows of several evaluation points in one search.
 .node_rows <- function(coords, js) {
+  if (inherits(coords, "rd2dnet_bins")) return(invisible()) # kernel distances are |s|
   js <- js[!vapply(as.character(js), exists, logical(1), envir = coords$cache, inherits = FALSE)]
   if (!length(js)) {
     return(invisible())
@@ -448,6 +449,10 @@ coords_at <- function(coords, j) {
   j <- as.integer(j)
   if (length(j) != 1 || is.na(j) || j < 1 || j > coords$n_eval) {
     stop("j must be a single evaluation point index", call. = FALSE)
+  }
+  if (inherits(coords, "rd2dnet_bins")) { # bin j: its members, at distance |s| from the crossing
+    member <- !is.na(coords$bin) & coords$bin == j
+    return(list(d = ifelse(member, abs(coords$s), Inf), o = ifelse(member, 0, NA_real_)))
   }
   D <- .node_row(coords, j)
   sn <- coords$lsnap

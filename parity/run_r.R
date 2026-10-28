@@ -29,6 +29,38 @@ write_res <- function(t, file) {
   write.csv(out, file, row.names = FALSE)
 }
 
+# Nearest-crossing bins (mirrors run_bins() in make_cases.py).
+run_bins <- function(obs, cc, d, h) {
+  b <- bin_coordinates(cc, features = "lanes")
+  br <- b$branch
+  canon <- ifelse(br > 0, match(br, unique(br[br > 0])), 0L)
+  write.csv(data.frame(bin = b$bin, branch = canon, S = b$similarity), file.path(d, "r_bins_obs.csv"),
+            row.names = FALSE)
+  tab <- bins_table(b)
+  write.csv(data.frame(arc = tab$arc, n0 = tab$n0, n1 = tab$n1, h_S = if (is.finite(b$h_S)) b$h_S else -1),
+            file.path(d, "r_bins_tab.csv"),
+            row.names = FALSE)
+  agg <- list()
+  for (k in 1:2) {
+    res <- if (k == 1) rdnet(obs$y_out, b, h = h, min_obs = 20, seed = 0) else rdnet(obs$y_out, b, min_obs = 20, seed = 0)
+    write_res(res$table, file.path(d, sprintf("r_bins_res_%d.csv", k)))
+    if (k == 1) {
+      for (rule in c("density", "gls")) {
+        a <- tryCatch(suppressWarnings(wbate(res, rule)), error = function(e) c(tau_bc = NA_real_, se_rb = NA_real_))
+        agg[[paste0(rule, "_tau_bc")]] <- unname(a["tau_bc"])
+        agg[[paste0(rule, "_se")]] <- unname(a["se_rb"])
+      }
+    }
+  }
+  fe <- tryCatch(rdnet_fe(obs$y_out, b, h = h), error = function(e) NULL)
+  if (is.null(fe)) {
+    agg[c("fe_tau", "fe_se", "fe_tau_bc", "fe_se_rb")] <- NA_real_
+  } else {
+    agg[c("fe_tau", "fe_se", "fe_tau_bc", "fe_se_rb")] <- list(fe$tau, fe$se, fe$tau_bc, fe$se_rb)
+  }
+  write.csv(as.data.frame(agg), file.path(d, "r_bins_agg.csv"), row.names = FALSE)
+}
+
 cases <- readLines(file.path(root, "cases.txt"))
 failed <- character()
 for (cs in cases) {

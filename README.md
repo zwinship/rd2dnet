@@ -37,7 +37,7 @@ remotes::install_github("zwinship/rd2dnet", subdir = "R-package")
 See [`R-package/README.md`](R-package/README.md) and `vignette("rd2dnet")`.
 
 **Stata (draft).** A Stata port lives in [`stata/`](stata/) (`rdnetset`, `rdnet`, `rdbwnet`,
-`rdnetdensity`, `estat wbate`/`lbate`). It is still being tested;
+`rdnetdensity`, `rdnetmanip`, `estat wbate`/`lbate`, and the bins design's `rdnetbins`/`rdnetfe`). It is still being tested;
 [`stata/README.md`](stata/README.md) explains its status and how to run the test suite.
 
 ## Method
@@ -246,6 +246,73 @@ bundled mock network instead (for demos only).
     on streets, GPS fixes of vehicles). A warning says so when the locations' median
     distance to the nearest street is below 0.6 times that of points spread evenly over
     the same area (GPS noise of up to about 15 m).
+
+## Alternative design: nearest-crossing bins
+
+The default design above pools every observation near an evaluation point and lets a
+polynomial in the offset `o` absorb differences between crossings. The bins design
+instead compares observations only with others that reach the boundary at the **same
+crossing**, and down-weights side streets that do not resemble the crossing street. It is
+an additional method; the default does not change.
+
+```python
+coords = rd2dnet.network_coordinates(net, bnd, points)
+bins = rd2dnet.bin_coordinates(coords, features=["lanes", "speed_kph"])   # + topology
+res = rd2dnet.rdnet(y, bins)             # one estimate per crossing; every rdnet option works
+res.wbate("density")                     # density-weighted BATE: bins weighted by local sample
+res.wbate("gls")                         # minimum-variance (GLS) BATE: cov^-1 1 / (1' cov^-1 1)
+rd2dnet.rdnet_fe(y, bins)                # pooled: crossing fixed effects + propensity weights
+rd2dnet.similarity_sensitivity(y, bins)  # the BATE over a range of h_S (report it)
+bins.bins_table()                        # crossings, members per side, branches, features
+```
+
+1. **Bins.** Each observation belongs to the boundary crossing nearest to it along the
+   network; `R = s` is its signed distance to that crossing. The evaluation point of bin
+   `m` is the crossing itself, and its local sample is the bin's members only.
+2. **Edge similarity.** Each street segment has a feature vector: the edge attributes you
+   name, plus its topology on the network as given (edges sharing an end, edges two steps
+   away, the larger end degree, the mean clustering coefficient of its ends). `S` is the
+   Mahalanobis distance between an observation's segment and the crossing's segment, using
+   the covariance of the features over all segments.
+3. **Bin fits.** Weights are the product kernel `K1(R / h_R) * K2(S / h_S)`. Within a bin the
+   two sides share the crossing, so the jump is common. The slopes in `R` differ by side and
+   by **branch**, the edge where the path from the crossing first passes a junction. A slope
+   in `R * S` on each side lets the slope change with dissimilarity. Bias correction, the
+   `h_R` selector, cluster/Conley errors, fuzzy designs and covariates all work as in the
+   default design.
+4. **Aggregation.** `wbate("density")` and `wbate("gls")` use the joint covariance of the
+   bin estimates. Conley errors give that covariance across bins too: neighbours on the
+   network can belong to different bins.
+
+`rdnet_fe` is for boundaries with many crossings and few observations at each. It fits one
+regression over all bins. That regression has crossing fixed effects, common jump and
+slopes, and slopes that vary with the crossing's features and with `S`. It weights each
+bin by `1 / p_m` (treated) and `1 / (1 - p_m)` (control), where `p_m` is the bin's
+kernel-weighted treated share, so it estimates the density-weighted BATE. Plain
+fixed-effects weights (`ipw=False`) would favour bins whose two sides are balanced.
+
+**Choosing `h_S`.** `h_S="rot"` (the default) is `sqrt(2 * chi2_k(0.95))`, where `k` is the
+number of independent features. Under the reference of segments drawn independently, it
+keeps all but the 5% most dissimilar, with weights falling linearly in `S`. It is scale-free
+but not optimal in any sense, so report `similarity_sensitivity`. That function shows the
+BATE at half, one and two times the rule of thumb and with no similarity kernel
+(`h_S = inf`). `h_R` is selected per bin by `rdbwnet`, from the members' fit in `R` with the
+`K2` weights.[^hs]
+
+[^hs]: A data-driven selector for `h_S` is left for future research. Unlike `R`, `S` is not
+    a running variable extrapolated to a cutoff, so the MSE-optimal plug-in theory behind
+    `rdbwnet` does not cover it. Cross-validation is known to behave poorly at RD cutoffs.
+
+The two designs answer different questions when effects vary. The default estimates the
+effect at points along the boundary, while bins estimate it at each crossing.
+
+In a Monte Carlo (400 replications; 15 crossings, each with a trunk and two branches per
+side; branch-specific slopes; effects varying by crossing; h = 450 m), 95% intervals
+covered 0.947 per crossing and 0.948 for the density-weighted BATE, whose standard error
+matched the Monte Carlo sd (0.148 vs 0.148). `rdnet_fe` covered 0.940. It has a bias of
++0.04 because it pools slopes that differ by branch. Bins have
+smaller local samples, so expect wider intervals per crossing. Use `rdnet_fe` when most
+crossings have too few observations for a fit of their own.
 
 ## Validation (Monte Carlo on the bundled mock city)
 

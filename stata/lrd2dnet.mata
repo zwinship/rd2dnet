@@ -913,7 +913,8 @@ real matrix rdn_pairs(struct rdn_engine scalar E, real colvector sources, real s
 
 struct rdn_net {
     string colvector ids, eclass, connectors, penrows, pencols
-    real matrix xy, penmat
+    string rowvector fnames
+    real matrix xy, penmat, efeat
     real colvector efrom, eto, ecost, elen, iscross
     real colvector fu, fv, flen, fcost, fglen
     real scalar n, directed, metric, defpen, snapscale, ncross, flow
@@ -1161,6 +1162,7 @@ void rdn_read_network(struct rdn_net scalar N, string scalar fnodes, string scal
     else N.elen = J(rows(from), 1, .)
     if (classv != "" & _st_varindex(classv) < .) N.eclass = rdn_idstrings(classv)
     else N.eclass = J(rows(from), 1, "")
+    rdn_read_features(N, rows(from))
     st_framecurrent(cur)
     if (hasmissing(N.xy)) _error(416, "every node needs x and y coordinates")
     N.n = rows(N.ids)
@@ -1189,6 +1191,7 @@ void rdn_read_network(struct rdn_net scalar N, string scalar fnodes, string scal
     N.ecost = N.ecost[keep]
     N.elen = N.elen[keep]
     N.eclass = N.eclass[keep]
+    N.efeat = N.efeat[keep, .]
     for (i = 1; i <= rows(N.eclass); i++) if (N.eclass[i] == "") N.eclass[i] = "unclassified"
     N.iscross = J(N.n, 1, 0)
     N.ncross = 0
@@ -1224,6 +1227,7 @@ void rdn_read_lines(struct rdn_net scalar N, string scalar fedges, string rowvec
     else N.elen = glen
     if (classv != "" & _st_varindex(classv) < .) N.eclass = rdn_idstrings(classv)
     else N.eclass = J(m, 1, "")
+    rdn_read_features(N, m)
     st_framecurrent(cur)
     if (hasmissing(seg)) _error(416, "segment end coordinates must not be missing")
     ends = seg[., (1, 2)] \ seg[., (3, 4)]
@@ -1279,9 +1283,24 @@ void rdn_read_lines(struct rdn_net scalar N, string scalar fedges, string rowvec
     N.ecost = N.ecost[keep]
     N.elen = N.elen[keep]
     N.eclass = N.eclass[keep]
+    N.efeat = N.efeat[keep, .]
     for (i = 1; i <= rows(N.eclass); i++) if (N.eclass[i] == "") N.eclass[i] = "unclassified"
     N.iscross = J(N.n, 1, 0)
     N.ncross = 0
+}
+
+// Edge attributes named in rdnetset's features() (for rdnetbins), read from the
+// current (edge) frame; copied to the pieces when edges are split.
+void rdn_read_features(struct rdn_net scalar N, real scalar m)
+{
+    string rowvector fv
+    real scalar k
+    fv = tokens(st_local("features"))
+    for (k = 1; k <= cols(fv); k++) {
+        if (_st_varindex(fv[k]) >= .) _error(111, "features(): the edge frame has no variable " + fv[k])
+    }
+    N.fnames = fv
+    N.efeat = (cols(fv) ? st_data(., fv) : J(m, 0, .))
 }
 
 // The side of a line ("left" or "right") on which the treated observations lie.
@@ -1362,7 +1381,7 @@ void rdn_split(struct rdn_net scalar N, struct rdn_bnd scalar B)
 {
     real colvector db, glen, cand, drop, keep, nf, nt, nco, nle, chain, cut
     string colvector ncl, newids
-    real matrix newxy, hit
+    real matrix newxy, hit, nfe
     transmorphic keys
     string scalar key
     real scalar m, c, e, u, v, cid, r, a, share
@@ -1382,6 +1401,7 @@ void rdn_split(struct rdn_net scalar N, struct rdn_bnd scalar B)
     nco = J(0, 1, .)
     nle = J(0, 1, .)
     ncl = J(0, 1, "")
+    nfe = J(0, cols(N.efeat), .)
     for (c = 1; c <= rows(cand); c++) {
         e = cand[c]
         u = N.efrom[e]
@@ -1410,6 +1430,7 @@ void rdn_split(struct rdn_net scalar N, struct rdn_bnd scalar B)
             nco = nco \ N.ecost[e] * share
             nle = nle \ N.elen[e] * share
             ncl = ncl \ N.eclass[e]
+            nfe = nfe \ N.efeat[e, .]
         }
         drop[e] = 1
     }
@@ -1420,6 +1441,7 @@ void rdn_split(struct rdn_net scalar N, struct rdn_bnd scalar B)
     N.ecost = N.ecost[keep] \ nco
     N.elen = N.elen[keep] \ nle
     N.eclass = N.eclass[keep] \ ncl
+    N.efeat = N.efeat[keep, .] \ nfe
     N.xy = N.xy \ newxy
     N.ids = N.ids \ newids
     N.iscross = N.iscross \ J(rows(newxy), 1, 1)
@@ -1445,6 +1467,7 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
 {
     real colvector frac, node, atu, atv, mid, lo, hi, t, slo, shi, st, sp, ts, ids, o, cut, chain
     real colvector drop, keep, nf, nt, nco, nle
+    real matrix nfe
     string colvector ncl
     transmorphic spots, pairs
     string scalar key, pkey
@@ -1486,6 +1509,7 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
     nco = J(0, 1, .)
     nle = J(0, 1, .)
     ncl = J(0, 1, "")
+    nfe = J(0, cols(N.efeat), .)
     for (k = 1; k <= m; k++) {
         a = min((N.efrom[k], N.eto[k]))
         b = max((N.efrom[k], N.eto[k]))
@@ -1510,6 +1534,7 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
             nco = nco \ N.ecost[k] * share
             nle = nle \ N.elen[k] * share
             ncl = ncl \ N.eclass[k]
+            nfe = nfe \ N.efeat[k, .]
         }
         drop[k] = 1
     }
@@ -1519,6 +1544,7 @@ real colvector rdn_point_nodes(struct rdn_net scalar N, real colvector u, real c
     N.ecost = N.ecost[keep] \ nco
     N.elen = N.elen[keep] \ nle
     N.eclass = N.eclass[keep] \ ncl
+    N.efeat = N.efeat[keep, .] \ nfe
     N.xy = N.xy \ (N.xy[slo, .] + (N.xy[shi, .] - N.xy[slo, .]) :* st)
     N.ids = N.ids \ ("rdnet_point_" :+ strofreal((0::(ns - 1))))
     N.iscross = N.iscross \ J(ns, 1, 0)
@@ -1630,6 +1656,10 @@ struct rdn_coords {
     real colvector Cu, Cv, Ccu, Ccv, Carc, Cnode
     real colvector nodeT, nodeon, nodedist, nodesrc
     real colvector evalarc, eu, ev, ecu, ecv, enode, enodearc, emasked
+    // nearest-crossing bins (rdnetbins): isbins == 1 when set
+    real scalar isbins, hS, kernS, frank, usesim, minbr
+    real colvector bin, branch, simil, kw
+    real matrix binbr, bref, omega
 }
 
 // (loc, first): location id of each point and one point per location (by x,
@@ -1925,7 +1955,14 @@ real colvector rdn_along(struct rdn_coords scalar C, real colvector u, real colv
 // (missing where infinite).
 void rdn_coords_at(struct rdn_coords scalar C, real scalar j, real colvector d, real colvector o)
 {
-    real colvector D, dl, sg, reach, ol
+    real colvector D, dl, sg, reach, ol, member
+    if (C.isbins == 1) {
+        // bin j: its members, at distance |s| from the crossing
+        member = (C.bin :== j)
+        d = rdn_where(member, abs(C.s), .)
+        o = rdn_where(member, 0, .)
+        return
+    }
     D = C.NR[j, .]'
     dl = C.Ldep + rowmin((C.Lcu + D[C.Lu], C.Lcv + D[C.Lv]))
     dl = rowmin((dl, C.Ldep + rdn_along(C, C.Lu, C.Lv, C.Lcu, j)))
@@ -2314,16 +2351,26 @@ real scalar rdn_cluster_dof(real scalar n, real scalar k, real colvector cl)
 
 // Joint local design: side-specific polynomials (or pooled slopes) plus
 // covariates common to both sides.
+// Joint local design: side-specific polynomials (or pooled slopes), then the
+// bins' extra slopes us :* Ei (one set per side, or common when pooled), then
+// covariates.
 real matrix rdn_design(real colvector us, real colvector uo, real colvector Ti, real scalar ordr,
-    real matrix Zi, real scalar pooled)
+    real matrix Zi, real scalar pooled, | real matrix Ei)
 {
-    real matrix R, X
+    real matrix R, X, S
     R = rdn_poly_basis(us, uo, ordr)
     if (pooled) {
         if (cols(R) > 1) X = (J(rows(us), 1, 1), Ti, R[., (2..cols(R))])
         else X = (J(rows(us), 1, 1), Ti)
     }
     else X = (R :* Ti, R :* (1 :- Ti))
+    if (args() >= 7) {
+        if (cols(Ei) > 0 & rows(Ei) > 0) {
+            S = us :* Ei
+            if (pooled) X = (X, S)
+            else X = (X, S :* Ti, S :* (1 :- Ti))
+        }
+    }
     if (cols(Zi) > 0 & rows(Zi) > 0) X = (X, Zi)
     return(X)
 }
@@ -2492,7 +2539,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
     real scalar minobs, real scalar seed, real scalar scaleregul, real scalar scalebiascrct,
     string scalar bwsel, real matrix cov, real scalar crit, real matrix bw, real scalar cr2in)
 {
-    real matrix H, R, Zi, Xa, Xi, X, Psi, V, PsiC, G
+    real matrix H, R, Zi, Xa, Xi, X, Psi, V, PsiC, G, Ej
     real colvector T, Tf, s, fin, d, o, base, hside, w, use, i1, i0, idx, zc, hs, wk, m
     real colvector cvec, vtgt, psi, betaa, raux, uni, pos, se_all, ok, keys, f, qc, qj, clu
     real rowvector tj
@@ -2609,13 +2656,14 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
         // the (s, o) basis, keeping its identifiable columns (rdn_identifiable)
         rdn_set_dim(2)
         haso = 0
+        Ej = rdn_local_slopes(C, j, idx)
         if (conley) {
             hs = hside :* rscale
             wk = rdn_kernel(d :/ hs, kcode) :/ (hs :^ 2) :* editmissing(om, 0)
             m = selectindex((wk :> 0) :& base)
             Xa = rdn_design(s[m] :/ hs[m], o[m] :/ hs[m], Tf[m], auxorder,
-                (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0)
-            Xi = rdn_design(s[idx] :/ hs[idx], o[idx] :/ hs[idx], Tf[idx], auxorder, Zi, 0)
+                (rows(zc) ? Z[m, zc'] : J(rows(m), 0, .)), 0, rdn_local_slopes(C, j, m, idx))
+            Xi = rdn_design(s[idx] :/ hs[idx], o[idx] :/ hs[idx], Tf[idx], auxorder, Zi, 0, Ej)
             ka = rdn_identifiable(Xa, wk[m])
             Xa = select(Xa, ka')
             Xi = select(Xi, ka')
@@ -2630,7 +2678,7 @@ real matrix rdn_rdnet(struct rdn_coords scalar C, real colvector y, real colvect
             // the pooled model's slopes are common to both sides, so its basis
             // uses one scale; the side-specific model scales each side by its own h
             hb = (pooled ? J(rows(idx), 1, max(H[j, .])) : hside[idx])
-            X = rdn_design(s[idx] :/ hb, o[idx] :/ hb, Tf[idx], ordr, Zi, pooled)
+            X = rdn_design(s[idx] :/ hb, o[idx] :/ hb, Tf[idx], ordr, Zi, pooled, Ej)
             cvec = J(cols(X), 1, 0)
             if (pooled) cvec[2] = 1
             else {
@@ -3259,7 +3307,9 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
         if (base == "imserd") h = J(rows(g), 1, (mean(num) / mean(den))^expo)
         else h = (num :/ den) :^ expo
         if (cer) h = h :* rdn_cer_factor(neff, p)
-        h = rowmin((rowmax((h, rowmax((g[., 9], g[., 10])))), rowmax((g[., 11], g[., 12]))))
+        // the floor wins over the largest distance: a side with exactly bwcheck
+        // locations has its nudged floor just above them
+        h = rowmax((rowmin((h, rowmax((g[., 11], g[., 12])))), rowmax((g[., 9], g[., 10]))))
         Out[good, 21] = h
         Out[good, 22] = h
     }
@@ -3270,7 +3320,7 @@ real matrix rdn_rdbwnet(struct rdn_coords scalar C, real colvector y, real scala
             if (base == "imsetwo") h = J(rows(g), 1, (mean(num) / mean(den))^expo)
             else h = (num :/ den) :^ expo
             if (cer) h = h :* rdn_cer_factor((t == 0 ? neff0 : neff1), p)
-            h = rowmin((rowmax((h, g[., 9 + t])), g[., 11 + t]))
+            h = rowmax((rowmin((h, g[., 11 + t])), g[., 9 + t]))
             Out[good, 21 + t] = h
         }
     }
@@ -3728,6 +3778,8 @@ void rdn_read_common(struct rdn_coords scalar C, string scalar touse, real colve
     else Z = J(0, 0, .)
     if (st_local("wvar") != "") om = rdn_spread(ids, st_data(., st_local("wvar"), touse), n, 0)
     else om = J(n, 1, 1)
+    // bins: the similarity kernel K2(S / h_S)
+    if (C.isbins == 1 & rows(C.kw) == n) om = om :* C.kw
     if (st_local("clvar") != "") cl = rdn_spread(ids, st_data(., st_local("clvar"), touse), n, .)
     else cl = J(0, 1, .)
     if (st_local("deriv") != "") deriv = strtoreal(tokens(st_local("deriv")))
@@ -3794,6 +3846,7 @@ void rdn_rdnet_entry()
         st_matrixcolstripe(st_local("bwmat"), (J(24, 1, ""), rdn_bw_names()'))
     }
     st_local("crit", strofreal(crit, "%21.0g"))
+    st_local("design", (rdn_C.isbins == 1 ? "bins" : "location"))
     st_local("nobs", strofreal(rows(ids)))
     st_local("kname", rdn_kernel_name(kcode))
     st_local("q", strofreal(q))
@@ -3924,12 +3977,14 @@ real matrix rdn_kmeans_parts(real colvector pos, real scalar kmax0)
 {
     real colvector vals, start, w, s1, s2, sw, ii, cc
     real matrix D, A, F
-    real scalar m, kmax, k, j, i, best, bi, kk, n, a, t
+    real scalar m, kmax, k, j, i, best, bi, kk, n, a, t, isnew
     vals = J(0, 1, .)
     start = J(0, 1, .)
     w = J(0, 1, .)
     for (i = 1; i <= rows(pos); i++) {
-        if (i == 1 | pos[i] != pos[i - 1]) {
+        isnew = 1  // Mata's | does not short-circuit, so pos[0] must not be reached
+        if (i > 1) isnew = (pos[i] != pos[i - 1])
+        if (isnew) {
             vals = vals \ pos[i]
             start = start \ i
             w = w \ 1
@@ -4214,6 +4269,804 @@ real colvector rdn_place_weights(real matrix R)
         w[j] = 1 / c
     }
     return(w)
+}
+
+
+// ---------------------------------------------------------------------------
+// Nearest-crossing bins (rdnetbins, rdnetfe, estat wbate density|gls).
+// Mirrors src/rd2dnet/bins.py and R-package/R/bins.R step by step.
+// ---------------------------------------------------------------------------
+
+// Key of an undirected node pair (1-based node indices).
+real scalar rdn_pairkey(real scalar a, real scalar b, real scalar n)
+{
+    return((min((a, b)) - 1) * n + (max((a, b)) - 1))
+}
+
+// Whether a path leaving node p towards side ts starts a branch: a node with
+// three or more neighbours, or a crossing with two or more neighbours off the
+// boundary on that side.
+real scalar rdn_bsplits(real colvector nodeon, real colvector deg, real colvector sideT,
+    real colvector sideC, real scalar p, real scalar ts)
+{
+    if (nodeon[p]) return((ts ? sideT[p] : sideC[p]) >= 2)
+    return(deg[p] >= 3)
+}
+
+// Shortest-path tree from the boundary nodes over the edge table's costs
+// (ignoring directions). A node's parent is, among its neighbours on a shortest
+// path from the crossings, the one with the smallest index; candidates come
+// before the node in (distance, index) order. label: the edge-table row where
+// the path from the crossing first leaves a junction (0 on the trunk); root:
+// the crossing the tree path starts from (0 if none).
+void rdn_crossing_tree(struct rdn_coords scalar C, real colvector dist, real colvector pred,
+    real colvector label, real colvector root, real colvector deg, real colvector sideT,
+    real colvector sideC, transmorphic rowmap)
+{
+    struct rdn_engine scalar E
+    real colvector fu, fv, c, a, b, cc, srcs, src0, anc, m, up
+    real scalar n, k, tol, x, p
+    n = C.N.n
+    fu = C.N.fu
+    fv = C.N.fv
+    c = rdn_where(C.N.fcost :< ., C.N.fcost, C.N.flen)
+    a = fu \ fv
+    b = fv \ fu
+    cc = c \ c
+    E = rdn_csr(a, b, cc, n)
+    srcs = selectindex(C.nodeon)
+    dist = .
+    src0 = .
+    if (rows(srcs)) rdn_nearest_source(E, srcs, dist, src0)
+    else dist = J(n, 1, rdn_inf())
+    pred = J(n, 1, 0)
+    for (k = 1; k <= rows(a); k++) {
+        if (C.nodeon[b[k]] | dist[b[k]] >= 1e299) continue
+        tol = 1e-9 * max((1, dist[b[k]]))
+        if (!(dist[a[k]] + cc[k] <= dist[b[k]] + tol)) continue
+        if (dist[a[k]] < dist[b[k]] - tol | (abs(dist[a[k]] - dist[b[k]]) <= tol & a[k] < b[k])) {
+            if (pred[b[k]] == 0 | a[k] < pred[b[k]]) pred[b[k]] = a[k]
+        }
+    }
+    deg = J(n, 1, 0)
+    sideT = J(n, 1, 0)
+    sideC = J(n, 1, 0)
+    rowmap = asarray_create("real")
+    for (k = 1; k <= rows(fu); k++) {
+        if (!asarray_contains(rowmap, rdn_pairkey(fu[k], fv[k], n))) asarray(rowmap, rdn_pairkey(fu[k], fv[k], n), k)
+        deg[fu[k]] = deg[fu[k]] + 1
+        deg[fv[k]] = deg[fv[k]] + 1
+        if (C.nodeon[fu[k]] & !C.nodeon[fv[k]]) {
+            if (C.nodeT[fv[k]]) sideT[fu[k]] = sideT[fu[k]] + 1
+            else sideC[fu[k]] = sideC[fu[k]] + 1
+        }
+        if (C.nodeon[fv[k]] & !C.nodeon[fu[k]]) {
+            if (C.nodeT[fu[k]]) sideT[fv[k]] = sideT[fv[k]] + 1
+            else sideC[fv[k]] = sideC[fv[k]] + 1
+        }
+    }
+    label = J(n, 1, 0)
+    for (x = 1; x <= n; x++) {
+        p = pred[x]
+        if (p > 0) {
+            if (rdn_bsplits(C.nodeon, deg, sideT, sideC, p, C.nodeT[x])) label[x] = asarray(rowmap, rdn_pairkey(p, x, n))
+        }
+    }
+    // pointer jumping: the topmost start edge among each node's ancestors
+    root = rdn_where(pred :> 0, pred, (1::n))
+    anc = pred
+    while (1) {
+        m = selectindex(anc :> 0)
+        if (rows(m) == 0) break
+        up = anc[m]
+        label[m] = rdn_where(label[up] :> 0, label[up], label[m])
+        root[m] = root[up]
+        anc[m] = anc[up]
+    }
+    root = rdn_where((dist :< 1e299) :& C.nodeon[root], root, J(n, 1, 0))
+}
+
+// Local clustering coefficient of every node of a simple undirected graph.
+real colvector rdn_clustering(real colvector A, real colvector B, real scalar n)
+{
+    real colvector deg, tri, o, nb, start, cnt, out
+    real matrix P
+    transmorphic keys
+    real scalar k, x, i, j, y, z
+    keys = asarray_create("real")
+    P = J(2 * rows(A), 2, .)
+    i = 0
+    for (k = 1; k <= rows(A); k++) {
+        if (A[k] == B[k]) continue
+        if (asarray_contains(keys, rdn_pairkey(A[k], B[k], n))) continue
+        asarray(keys, rdn_pairkey(A[k], B[k], n), 1)
+        P[++i, .] = (A[k], B[k])
+        P[++i, .] = (B[k], A[k])
+    }
+    deg = J(n, 1, 0)
+    tri = J(n, 1, 0)
+    if (i == 0) return(deg)
+    P = P[(1::i), .]
+    o = order(P, (1, 2))
+    P = P[o, .]
+    cnt = J(n, 1, 0)
+    for (k = 1; k <= rows(P); k++) cnt[P[k, 1]] = cnt[P[k, 1]] + 1
+    start = runningsum(cnt) - cnt :+ 1
+    for (x = 1; x <= n; x++) {
+        if (cnt[x] < 2) continue
+        nb = P[(start[x]::(start[x] + cnt[x] - 1)), 2]
+        for (i = 1; i < rows(nb); i++) {
+            for (j = i + 1; j <= rows(nb); j++) {
+                y = nb[i]
+                z = nb[j]
+                if (asarray_contains(keys, rdn_pairkey(y, z, n))) tri[x] = tri[x] + 1
+            }
+        }
+    }
+    deg = cnt
+    out = J(n, 1, 0)
+    for (x = 1; x <= n; x++) if (deg[x] >= 2) out[x] = tri[x] / (deg[x] * (deg[x] - 1) / 2)
+    return(out)
+}
+
+// Segments two steps away from each segment (sharing an end with an adjacent
+// segment, other than the segment itself and its adjacent segments).
+real colvector rdn_second_edges(real colvector A, real colvector B, real scalar n)
+{
+    real colvector out, cnt, start, inc, mark1, mark2, ends, adj
+    real matrix P
+    real scalar m, e, k, t, f, c, g, x, na
+    m = rows(A)
+    out = J(m, 1, 0)
+    P = J(2 * m, 2, .)
+    k = 0
+    for (e = 1; e <= m; e++) {
+        if (A[e] == B[e]) continue
+        P[++k, .] = (A[e], e)
+        P[++k, .] = (B[e], e)
+    }
+    if (k == 0) return(out)
+    P = P[(1::k), .]
+    P = P[order(P, (1, 2)), .]
+    cnt = J(n, 1, 0)
+    for (k = 1; k <= rows(P); k++) cnt[P[k, 1]] = cnt[P[k, 1]] + 1
+    start = runningsum(cnt) - cnt :+ 1
+    inc = P[., 2]
+    mark1 = J(m, 1, 0)
+    mark2 = J(m, 1, 0)
+    for (e = 1; e <= m; e++) {
+        if (A[e] == B[e]) continue
+        adj = J(cnt[A[e]] + cnt[B[e]], 1, .)
+        na = 0
+        ends = A[e] \ B[e]
+        for (t = 1; t <= 2; t++) {
+            x = ends[t]
+            for (k = start[x]; k < start[x] + cnt[x]; k++) {
+                f = inc[k]
+                if (f != e & mark1[f] != e) {
+                    mark1[f] = e
+                    adj[++na] = f
+                }
+            }
+        }
+        for (k = 1; k <= na; k++) {
+            f = adj[k]
+            // the far end of f (the end not shared with e)
+            c = (A[f] == A[e] | A[f] == B[e] ? B[f] : A[f])
+            if (c == A[e] | c == B[e]) continue
+            for (t = start[c]; t < start[c] + cnt[c]; t++) {
+                g = inc[t]
+                if (g == e | mark1[g] == e | mark2[g] == e) continue
+                mark2[g] = e
+                out[e] = out[e] + 1
+            }
+        }
+    }
+    return(out)
+}
+
+// Original-segment id of each edge-table row (nodes inserted at boundary
+// crossings and at locations, with two neighbours, are skipped) and the
+// features of each original segment: rdnetset's features() (mean over the
+// stored edges between a row's ends, then over the rows of the segment), then
+// with topo the topology features.
+void rdn_bin_features(struct rdn_coords scalar C, transmorphic rowmap, real scalar topo,
+    real colvector orig, real matrix Z, string rowvector names)
+{
+    real colvector fu, fv, ins, degs, transp, oa, ob, okey, ukeys, A, B, deg, sums, cnt, col, ok, rv, rc
+    real colvector cl, miss
+    real matrix nb, rs, rcn
+    real scalar n, k, mm, r, a, prev, nxt, i, f, it, kf
+    transmorphic umap
+    n = C.N.n
+    fu = C.N.fu
+    fv = C.N.fv
+    ins = (strpos(C.N.ids, "rdnet_crossing_") :== 1) :| (strpos(C.N.ids, "rdnet_point_") :== 1)
+    degs = J(n, 1, 0)
+    for (k = 1; k <= rows(fu); k++) {
+        degs[fu[k]] = degs[fu[k]] + 1
+        degs[fv[k]] = degs[fv[k]] + 1
+    }
+    transp = ins :& (degs :== 2)
+    nb = J(n, 2, 0)
+    for (k = 1; k <= rows(fu); k++) {
+        if (transp[fu[k]]) {
+            if (nb[fu[k], 1] == 0) nb[fu[k], 1] = fv[k]
+            else if (nb[fu[k], 2] == 0) nb[fu[k], 2] = fv[k]
+        }
+        if (transp[fv[k]]) {
+            if (nb[fv[k], 1] == 0) nb[fv[k], 1] = fu[k]
+            else if (nb[fv[k], 2] == 0) nb[fv[k], 2] = fu[k]
+        }
+    }
+    oa = fu
+    ob = fv
+    for (r = 1; r <= rows(fu); r++) {
+        if (!(transp[fu[r]] | transp[fv[r]])) continue
+        for (i = 1; i <= 2; i++) {
+            a = (i == 1 ? fu[r] : fv[r])
+            prev = (i == 1 ? fv[r] : fu[r])
+            for (it = 1; it <= n; it++) {
+                if (!transp[a]) break
+                nxt = (nb[a, 1] == prev ? nb[a, 2] : nb[a, 1])
+                prev = a
+                a = nxt
+            }
+            if (i == 1) oa[r] = a
+            else ob[r] = a
+        }
+    }
+    okey = (rowmin((oa, ob)) :- 1) :* n :+ (rowmax((oa, ob)) :- 1)
+    ukeys = uniqrows(okey)
+    mm = rows(ukeys)
+    umap = asarray_create("real")
+    for (k = 1; k <= mm; k++) asarray(umap, ukeys[k], k)
+    orig = J(rows(fu), 1, .)
+    for (k = 1; k <= rows(fu); k++) orig[k] = asarray(umap, okey[k])
+    A = floor(ukeys :/ n) :+ 1
+    B = mod(ukeys, n) :+ 1
+    Z = J(mm, 0, .)
+    names = J(1, 0, "")
+    kf = cols(C.N.efeat)
+    for (f = 1; f <= kf; f++) {
+        // per edge-table row: the mean over the stored edges between its ends
+        rs = J(rows(fu), 2, 0)
+        for (k = 1; k <= rows(C.N.efrom); k++) {
+            if (!(C.N.efeat[k, f] < .)) continue
+            if (!asarray_contains(rowmap, rdn_pairkey(C.N.efrom[k], C.N.eto[k], n))) continue
+            r = asarray(rowmap, rdn_pairkey(C.N.efrom[k], C.N.eto[k], n))
+            rs[r, 1] = rs[r, 1] + C.N.efeat[k, f]
+            rs[r, 2] = rs[r, 2] + 1
+        }
+        rv = rdn_where(rs[., 2] :> 0, rs[., 1] :/ rs[., 2], .)
+        sums = J(mm, 1, 0)
+        cnt = J(mm, 1, 0)
+        for (k = 1; k <= rows(fu); k++) {
+            if (rv[k] < .) {
+                sums[orig[k]] = sums[orig[k]] + rv[k]
+                cnt[orig[k]] = cnt[orig[k]] + 1
+            }
+        }
+        col = rdn_where(cnt :> 0, sums :/ cnt, .)
+        miss = (col :>= .)
+        if (all(miss)) _error(459, "features(): " + C.N.fnames[f] + " is missing on every segment")
+        if (any(miss)) {
+            printf("{txt}warning: edge attribute %s is missing on %g of %g segments; filled with its mean\n",
+                C.N.fnames[f], sum(miss), mm)
+            col = rdn_where(miss, mean(select(col, !miss)), col)
+        }
+        Z = Z, col
+        names = names, C.N.fnames[f]
+    }
+    if (topo) {
+        deg = J(n, 1, 0)
+        for (k = 1; k <= mm; k++) {
+            if (A[k] != B[k]) {
+                deg[A[k]] = deg[A[k]] + 1
+                deg[B[k]] = deg[B[k]] + 1
+            }
+        }
+        rc = rdn_where(A :!= B, deg[A] + deg[B] :- 2, deg[A])
+        cl = rdn_clustering(A, B, n)
+        Z = Z, rc, rdn_second_edges(A, B, n), rowmax((deg[A], deg[B])), (cl[A] + cl[B]) :/ 2
+        names = names, ("n_adjacent", "n_second", "degree_max", "clustering")
+    }
+}
+
+// Pseudo-inverse and rank of a symmetric PSD matrix (eigenvalues above rcond
+// times the largest).
+real matrix rdn_pinv_sym(real matrix A, real scalar rank)
+{
+    real matrix V
+    real rowvector L
+    real colvector keep
+    real scalar top
+    rank = 0
+    if (rows(A) == 0) return(A)
+    symeigensystem(A, V, L)
+    top = max((max(L), 0))
+    if (top <= 0) return(J(rows(A), cols(A), 0))
+    keep = selectindex((L :> 1e-10 * top)')
+    rank = rows(keep)
+    if (rank == 0) return(J(rows(A), cols(A), 0))
+    return(V[., keep] * diag(1 :/ L[keep]) * V[., keep]')
+}
+
+// Rule-of-thumb similarity bandwidth sqrt(2 chi2_k(0.95)); missing (no kernel) when k = 0.
+real scalar rdn_hs_rot(real scalar k)
+{
+    if (k <= 0) return(.)
+    return(sqrt(2 * invchi2(k, 0.95)))
+}
+
+// Turn network coordinates into nearest-crossing bins (in place).
+void rdn_bins_build(struct rdn_coords scalar C, real scalar topo, real scalar usesim, real scalar usebr,
+    real scalar hs, real scalar rot, real scalar kcode, real scalar minbr)
+{
+    external string rowvector rdn_binfeat
+    real colvector dist, pred, label, root, deg, sideT, sideC, cross, okl, used, arc, o, rep
+    real colvector binnode, binl, TLoc, viau, viav, swap, a, b, brl, endn, tb, other, orig, rowl, S
+    real colvector inb, ids, ub, hasrow, inbin, tiny, atu, atv, Lu, Lv, Lcu, Lcv
+    real matrix Z, Oinv, ref, pairs, DZ, Om
+    string rowvector names
+    transmorphic rowmap, seenbb
+    real scalar n, M, i, k, m, rank, x
+    n = C.N.n
+    dist = .
+    pred = .
+    label = .
+    root = .
+    deg = .
+    sideT = .
+    sideC = .
+    rowmap = .
+    rdn_crossing_tree(C, dist, pred, label, root, deg, sideT, sideC, rowmap)
+
+    // one bin per crossing (boundary node) that some location reaches first
+    cross = C.Cnode
+    okl = (cross :> 0) :& (C.Ls :< .)
+    used = uniqrows(select(cross, okl))
+    M = rows(used)
+    if (M == 0) _error(498, "no observation reaches the boundary: there are no bins")
+    arc = rdn_bproject(C.B, C.N.xy[used, .])
+    o = order((arc, used), (1, 2))
+    rep = used[o]
+    arc = arc[o]
+    binnode = J(n, 1, 0)
+    binnode[rep] = (1::M)
+    binl = J(rows(cross), 1, 0)
+    for (i = 1; i <= rows(cross); i++) if (okl[i]) binl[i] = binnode[cross[i]]
+
+    // a location exactly on an end node of its segment is placed on that node:
+    // it lies on every segment meeting the node, and which one the snapper
+    // picked is a tie (broken differently in Python, R and Stata)
+    tiny = 1e-9 :* rowmax((J(rows(C.Lu), 1, 1), C.Lcu + C.Lcv))
+    atu = (C.Lu :!= C.Lv) :& (C.Lcu :<= tiny)
+    atv = (C.Lu :!= C.Lv) :& (!atu) :& (C.Lcv :<= tiny)
+    Lu = rdn_where(atu :| atv, rdn_where(atu, C.Lu, C.Lv), C.Lu)
+    Lv = rdn_where(atu :| atv, rdn_where(atu, C.Lu, C.Lv), C.Lv)
+    Lcu = rdn_where(atu :| atv, 0, C.Lcu)
+    Lcv = rdn_where(atu :| atv, 0, C.Lcv)
+
+    // branches of the locations
+    TLoc = C.treated[C.firstl]
+    viau = Lcu + dist[Lu]
+    viav = Lcv + dist[Lv]
+    swap = (viau :> viav)
+    a = rdn_where(swap, Lv, Lu)
+    b = rdn_where(swap, Lu, Lv)
+    brl = J(rows(a), 1, 0)
+    if (usebr) {
+        for (i = 1; i <= rows(a); i++) {
+            brl[i] = label[a[i]]
+            if (brl[i] == 0 & a[i] != b[i]) {
+                if (rdn_bsplits(C.nodeon, deg, sideT, sideC, a[i], TLoc[i])) brl[i] = asarray(rowmap, rdn_pairkey(a[i], b[i], n))
+            }
+        }
+    }
+    // a location whose tree path starts in another bin (ties, or a directed metric): trunk
+    endn = rdn_where(viau :<= viav, Lu, Lv)
+    tb = J(rows(endn), 1, 0)
+    for (i = 1; i <= rows(endn); i++) if (root[endn[i]] > 0) tb[i] = binnode[root[endn[i]]]
+    other = (binl :> 0) :& (tb :!= binl)
+    brl = rdn_where(other, 0, brl)
+    inb = selectindex((binl :> 0) :& (brl :> 0))
+    // (bin, branch) in order of first appearance among the locations, as in
+    // Python and R: which aliased column a fit drops depends on the order
+    C.binbr = J(0, 2, .)
+    if (rows(inb)) {
+        seenbb = asarray_create("real", 2)
+        pairs = J(rows(inb), 3, .)
+        x = 0
+        for (i = 1; i <= rows(inb); i++) {
+            if (asarray_contains(seenbb, (binl[inb[i]], brl[inb[i]]))) continue
+            asarray(seenbb, (binl[inb[i]], brl[inb[i]]), 1)
+            x++
+            pairs[x, .] = (binl[inb[i]], x, brl[inb[i]])
+        }
+        pairs = pairs[(1::x), .]
+        pairs = pairs[order(pairs, (1, 2)), .]
+        C.binbr = pairs[., (1, 3)]
+    }
+
+    // edge similarity
+    C.usesim = usesim
+    C.frank = 0
+    C.bref = J(M, 0, .)
+    C.omega = J(0, 0, .)
+    S = J(rows(cross), 1, .)
+    if (usesim & (cols(C.N.efeat) > 0 | topo)) {
+        orig = .
+        Z = .
+        names = J(1, 0, "")
+        rdn_bin_features(C, rowmap, topo, orig, Z, names)
+        Om = (rows(Z) > 1 ? variance(Z) : J(cols(Z), cols(Z), 0))
+        rank = 0
+        Oinv = rdn_pinv_sym(Om, rank)
+        // each bin's reference: mean features of the segments at its crossing
+        ref = J(M, cols(Z), 0)
+        pairs = J(2 * rows(C.N.fu), 2, .)
+        x = 0
+        for (k = 1; k <= rows(C.N.fu); k++) {
+            if (binnode[C.N.fu[k]] > 0) pairs[++x, .] = (binnode[C.N.fu[k]], orig[k])
+            if (binnode[C.N.fv[k]] > 0) pairs[++x, .] = (binnode[C.N.fv[k]], orig[k])
+        }
+        if (x) {
+            pairs = uniqrows(pairs[(1::x), .])
+            for (m = 1; m <= M; m++) {
+                if (!any(pairs[., 1] :== m)) continue
+                ub = select(pairs[., 2], pairs[., 1] :== m)
+                ref[m, .] = mean(Z[ub, .])
+            }
+        }
+        // the segment each location sits on (none at a crossing node)
+        rowl = J(rows(cross), 1, 0)
+        for (i = 1; i <= rows(cross); i++) {
+            if (Lu[i] != Lv[i]) rowl[i] = asarray(rowmap, rdn_pairkey(Lu[i], Lv[i], n))
+            else if (pred[Lu[i]] > 0) rowl[i] = asarray(rowmap, rdn_pairkey(pred[Lu[i]], Lu[i], n))
+        }
+        DZ = J(rows(cross), cols(Z), 0)
+        inbin = selectindex((rowl :> 0) :& (binl :> 0))
+        if (rows(inbin)) DZ[inbin, .] = Z[orig[rowl[inbin]], .] - ref[binl[inbin], .]
+        S = sqrt(rowmax((rowsum((DZ * Oinv) :* DZ), J(rows(DZ), 1, 0))))
+        S = rdn_where(binl :> 0, S, .)
+        C.frank = rank
+        C.bref = ref
+        C.omega = Om
+        rdn_binfeat = names
+    }
+    else rdn_binfeat = J(1, 0, "")
+    if (rot) hs = rdn_hs_rot(C.frank)
+
+    C.bin = binl[C.loc]
+    C.branch = brl[C.loc]
+    C.simil = S[C.loc]
+    C.isbins = 1
+    C.kernS = kcode
+    C.minbr = minbr
+    rdn_bins_set_hs(C, hs)
+    // the evaluation points are the crossings
+    C.evalarc = arc
+    C.enodearc = arc
+    C.eu = rep
+    C.ev = rep
+    C.ecu = J(M, 1, 0)
+    C.ecv = J(M, 1, 0)
+    C.enode = rep
+    C.exy = C.N.xy[rep, .]
+    C.emasked = rdn_bmasked(C.B, arc)
+    C.neval = M
+    C.NR = J(0, 0, .)
+}
+
+// Similarity bandwidth: kernel weights K2(S / h_S) / K2(0); missing h_S: no kernel.
+void rdn_bins_set_hs(struct rdn_coords scalar C, real scalar hs)
+{
+    real colvector S
+    C.hS = hs
+    if (C.usesim == 1 & cols(C.bref) > 0 & hs < .) {
+        S = editmissing(C.simil, 0)
+        C.kw = rdn_kernel(S :/ hs, C.kernS) :/ rdn_kernel(0, C.kernS)
+    }
+    else C.kw = J(0, 1, .)
+}
+
+// Branches of bin j with their own slope in the local sample ix: on each side,
+// those with at least C.minbr distinct locations; the reference (no indicator)
+// is the trunk when it qualifies, else the largest qualifying branch (the first
+// to appear on ties). Smaller branches share the reference slope. Independent
+// of column order, as in Python and R.
+real colvector rdn_slope_branches(struct rdn_coords scalar C, real scalar j, real colvector ix)
+{
+    real colvector order, br, T, lc, cnt, keep, on
+    real scalar side, k, ctr, ref, best
+    if (rows(C.binbr) == 0) return(J(0, 1, .))
+    if (!any(C.binbr[., 1] :== j)) return(J(0, 1, .))
+    order = select(C.binbr[., 2], C.binbr[., 1] :== j)
+    br = C.branch[ix]
+    T = C.treated[ix]
+    lc = C.loc[ix]
+    keep = J(rows(order), 1, 0)
+    for (side = 1; side >= 0; side--) {
+        on = (T :== side)
+        ctr = rows(uniqrows(select(lc, on :& (br :== 0))))  // distinct locations
+        cnt = J(rows(order), 1, 0)
+        for (k = 1; k <= rows(order); k++) cnt[k] = rows(uniqrows(select(lc, on :& (br :== order[k]))))
+        ref = 0
+        if (!(ctr >= C.minbr) & any(cnt :>= C.minbr)) {
+            best = -1
+            for (k = 1; k <= rows(order); k++) {
+                if (cnt[k] >= C.minbr & cnt[k] > best) {
+                    best = cnt[k]
+                    ref = k
+                }
+            }
+        }
+        for (k = 1; k <= rows(order); k++) if (cnt[k] >= C.minbr & k != ref) keep[k] = 1
+    }
+    if (!any(keep)) return(J(0, 1, .))  // select() of a 1 x 1 can return 0 x 0
+    return(select(order, keep))
+}
+
+// Extra slope regressors of bin j at rows ix (multiplied by s / h in the fit):
+// one indicator per branch with its own slope (decided on basis, default ix),
+// then S.
+real matrix rdn_local_slopes(struct rdn_coords scalar C, real scalar j, real colvector ix, | real colvector basis)
+{
+    real matrix out
+    real colvector br
+    real scalar k
+    out = J(rows(ix), 0, .)
+    if (C.isbins != 1) return(out)
+    br = rdn_slope_branches(C, j, (args() >= 4 ? basis : ix))
+    for (k = 1; k <= rows(br); k++) out = out, (C.branch[ix] :== br[k])
+    if (C.usesim == 1 & cols(C.bref) > 0) out = out, C.simil[ix]
+    return(out)
+}
+
+// rdnetbins: build the bins and report them.
+void rdn_bins_entry()
+{
+    external struct rdn_coords scalar rdn_C
+    external string rowvector rdn_binfeat
+    real matrix T
+    real colvector b, ids, sel, cnt0, cnt1, nbr
+    real scalar M, hs, rot, j, kcode
+    string scalar hstr
+    if (rdn_C.ready != 1) _error(301, "network coordinates not found; run rdnetset first (they are kept in memory only)")
+    hstr = strlower(strtrim(st_local("hs")))
+    rot = (hstr == "" | hstr == "rot")
+    if (rot) hs = .
+    else if (hstr == "inf" | hstr == "none") hs = .
+    else {
+        hs = strtoreal(hstr)
+        if (!(hs > 0 & hs < .)) _error(198, "hs() must be rot, a positive number, or inf")
+    }
+    kcode = rdn_kernel_code(st_local("kernels"))
+    rdn_bins_build(rdn_C, !rdn_lnum("notopology", 0), !rdn_lnum("nosimilarity", 0), !rdn_lnum("nobranches", 0),
+        hs, rot, kcode, rdn_lnum("minbranch", 10))
+    M = rdn_C.neval
+    b = rdn_C.bin
+    cnt0 = J(M, 1, 0)
+    cnt1 = J(M, 1, 0)
+    for (j = 1; j <= rows(b); j++) {
+        if (b[j] > 0) {
+            if (rdn_C.treated[j]) cnt1[b[j]] = cnt1[b[j]] + 1
+            else cnt0[b[j]] = cnt0[b[j]] + 1
+        }
+    }
+    nbr = J(M, 1, 0)
+    for (j = 1; j <= rows(rdn_C.binbr); j++) nbr[rdn_C.binbr[j, 1]] = nbr[rdn_C.binbr[j, 1]] + 1
+    T = ((1::M), rdn_C.evalarc, cnt0, cnt1, nbr, rdn_C.emasked, rdn_C.bref)
+    st_matrix("r(bins)", T)
+    st_matrixcolstripe("r(bins)", (J(cols(T), 1, ""), (("bin", "arc", "n0", "n1", "n_branches", "masked"),
+        rdn_binfeat)'))
+    st_numscalar("r(N_bins)", M)
+    st_numscalar("r(h_S)", rdn_C.hS)
+    st_numscalar("r(rank)", rdn_C.frank)
+    // per-observation bin, branch and S, through _rdn_id
+    ids = st_data(., "_rdn_id")
+    sel = selectindex(ids :< .)
+    if (rows(sel)) {
+        st_store(sel, "_rdn_bin", rdn_where(b[ids[sel]] :> 0, b[ids[sel]], .))
+        st_store(sel, "_rdn_branch", rdn_C.branch[ids[sel]])
+        st_store(sel, "_rdn_S", rdn_C.simil[ids[sel]])
+    }
+}
+
+// estat wbate, weights(density|gls): weights from the result table.
+real colvector rdn_rule_weights(real matrix R, real matrix cov, string scalar rule)
+{
+    real colvector ok, okw, g, w
+    real scalar rank
+    ok = (R[., 15] :== 0)
+    w = J(rows(R), 1, 0)
+    okw = selectindex(ok)
+    if (rows(okw) == 0) return(w)
+    if (rule == "density") {
+        w[okw] = R[okw, 6] + R[okw, 7]
+        return(w)
+    }
+    rank = 0
+    g = rdn_pinv_sym(cov[okw, okw], rank) * J(rows(okw), 1, 1)
+    if (hasmissing(g) | abs(sum(g)) < 1e-300) _error(498, "GLS weights are not defined: the covariance of the estimates is degenerate")
+    g = g :/ sum(g)
+    if (any(g :< -1e-12)) {
+        printf("{txt}warning: %g GLS weights are negative (strongly correlated estimates); the GLS BATE is then\n", sum(g :< -1e-12))
+        printf("{txt}         not an average of the local effects\n")
+    }
+    w[okw] = g
+    return(w)
+}
+
+// rdnetfe: pooled BATE with crossing fixed effects and propensity weights.
+void rdn_fe_entry()
+{
+    external struct rdn_coords scalar rdn_C
+    external string rowvector rdn_binfeat
+    struct rdn_coords scalar C
+    struct rdn_fit scalar F
+    string scalar touse, vce, basevce
+    real colvector ids, y, D, om, cl, T, s, b, bb, ok, hside, W, n0, n1, w1, w0, phat, usebin, idx
+    real colvector bi, Ti, w, R, ub, binv, sdv, vary, Si, keep, cvec, psi, Radj, res, okH
+    real matrix Z, tang, H, bw, FE, Zm, Zs, X, P, Xe, out, Hg
+    real rowvector deriv
+    real scalar M, p, q, kcode, m, k, tcol, df, v, oi, ordr, cutoff, euclid, cr2, z, zq, minobs, ipw, nt
+    string rowvector terms
+    transmorphic seen
+    C = rdn_C
+    if (C.isbins != 1) _error(301, "run rdnetbins first: rdnetfe needs nearest-crossing bins")
+    touse = st_local("touse")
+    ids = rdn_sample_ids(C, touse)
+    y = .
+    D = .
+    Z = .
+    om = .
+    cl = .
+    deriv = .
+    tang = .
+    rdn_read_common(C, touse, ids, y, D, Z, om, cl, deriv, tang)
+    if (rows(D)) _error(198, "rdnetfe does not take fuzzy()")
+    rdn_set_dim(2)
+    M = C.neval
+    p = rdn_lnum("p", 1)
+    q = rdn_lnum("q", p + 1)
+    if (p < 0 | q < p) _error(198, "need 0 <= p <= q")
+    kcode = rdn_kernel_code(st_local("kernel"))
+    vce = st_local("vcetype")
+    basevce = (vce == "hc1" | vce == "hc2" | vce == "hc3" ? vce : "hc0")
+    cutoff = rdn_lnum("cutoff", .)
+    euclid = rdn_lnum("euclid", 0)
+    cr2 = (vce == "cluster" & st_local("cr1") == "")
+    minobs = rdn_lnum("minobs", 1)
+    ipw = !rdn_lnum("noipw", 0)
+    H = rdn_bandwidth_matrix(M)
+    if (rows(H) == 0) {
+        bw = rdn_rdbwnet(C, y, p, (0, 0), J(0, 0, .), J(0, 0, .), kcode, st_local("bwselect"), basevce,
+            J(0, 1, .), J(0, 1, .), om, 20 + rdn_nterms(p + 1), rdn_lnum("scaleregul", 3), 1)
+        H = bw[., (21, 22)]
+        okH = selectindex(rowmin((H :< .) :& (H :> 0)))
+        if (rows(okH) == 0) _error(498, "no bin's bandwidth could be selected; give h()")
+        Hg = H[okH, .]
+        for (m = 1; m <= M; m++) {
+            if (!(H[m, 1] < . & H[m, 2] < . & H[m, 1] > 0 & H[m, 2] > 0)) H[m, .] = (rdn_median(Hg[., 1]), rdn_median(Hg[., 2]))
+        }
+    }
+    T = C.treated
+    s = C.s
+    b = C.bin
+    bb = rdn_where(b :> 0, b, 1)
+    ok = (b :> 0) :& (s :< .) :& (y :< .) :& (om :> 0) :& !C.emasked[bb]
+    if (cols(Z) > 0 & rows(Z) > 0) ok = ok :& (rowmissing(Z) :== 0)
+    hside = rdn_where(T, H[bb, 2], H[bb, 1])
+    W = rdn_where(ok, rdn_kernel(abs(s) :/ hside, kcode) :* editmissing(om, 0), 0)
+    ok = ok :& (W :> 0)
+    n0 = J(M, 1, 0)
+    n1 = J(M, 1, 0)
+    w0 = J(M, 1, 0)
+    w1 = J(M, 1, 0)
+    for (m = 1; m <= M; m++) {
+        n1[m] = rows(rdn_first_per_value(C.loc[selectindex(ok :& T :& (b :== m))]))
+        n0[m] = rows(rdn_first_per_value(C.loc[selectindex(ok :& !T :& (b :== m))]))
+    }
+    for (k = 1; k <= rows(b); k++) {
+        if (!ok[k]) continue
+        if (T[k]) w1[b[k]] = w1[b[k]] + W[k]
+        else w0[b[k]] = w0[b[k]] + W[k]
+    }
+    phat = rdn_where((w1 + w0) :> 0, w1 :/ (w1 + w0), .)
+    usebin = (n0 :>= minobs) :& (n1 :>= minobs)
+    idx = selectindex(ok :& usebin[bb])
+    if (sum(usebin) == 0 | rows(idx) == 0) _error(2000, "no bin has observations on both sides within the bandwidth")
+    bi = b[idx]
+    Ti = T[idx]
+    w = W[idx]
+    if (ipw) w = w :* rdn_where(Ti, 1 :/ phat[bi], 1 :/ (1 :- phat[bi]))
+    R = s[idx] :/ hside[idx]
+    ub = uniqrows(bi)
+    binv = J(rows(bi), 1, 0)
+    for (k = 1; k <= rows(ub); k++) binv = binv + (bi :== ub[k]) * k
+    FE = J(rows(idx), rows(ub), 0)
+    for (k = 1; k <= rows(idx); k++) FE[k, binv[k]] = 1
+    Xe = J(rows(idx), 0, .)
+    terms = J(1, 0, "")
+    if (!rdn_lnum("nobinslopes", 0) & cols(C.bref) > 0) {
+        Zm = C.bref[ub, .]
+        sdv = sqrt(colsum((Zm :- mean(Zm)) :^ 2) :/ rows(Zm))'
+        vary = selectindex(sdv :> 1e-12 :* rowmax((colmax(abs(Zm))', J(cols(Zm), 1, 1))))
+        if (rows(vary)) {
+            Zs = (Zm[., vary'] :- mean(Zm[., vary'])) :/ sdv[vary]'
+            Xe = (R :* Zs[binv, .], (Ti :* R) :* Zs[binv, .])
+            terms = ("R*" :+ rdn_binfeat[vary'], "T*R*" :+ rdn_binfeat[vary'])
+        }
+    }
+    if (C.usesim == 1 & cols(C.bref) > 0) {
+        Si = C.simil[idx]
+        Xe = Xe, R :* Si, Ti :* R :* Si
+        terms = terms, ("R*S", "T*R*S")
+    }
+    z = invnormal(0.5 + rdn_lnum("level", 95) / 200)
+    out = J(2, 3, .)
+    for (oi = 1; oi <= 2; oi++) {
+        ordr = (oi == 1 ? p : q)
+        if (ordr > 0) {
+            P = rdn_poly_basis(R, J(rows(R), 1, 0), ordr)
+            // dim 2 basis in (R, 0): keep the pure powers of R
+            P = P[., selectindex(rdn_poly_exp(ordr)[., 2] :== 0)']
+            P = P[., (2..cols(P))]
+            X = (FE, Ti, P, Ti :* P, Xe)
+        }
+        else X = (FE, Ti, Xe)
+        if (cols(Z) > 0 & rows(Z) > 0) X = X, Z[idx, .]
+        keep = rdn_identifiable(X, w)
+        tcol = rows(ub) + 1
+        if (!keep[tcol]) _error(498, "the treatment effect is not identified (no bin has both sides)")
+        X = select(X, keep')
+        cvec = J(cols(X), 1, 0)
+        cvec[sum(keep[(1::tcol)])] = 1
+        F = rdn_wls(X, y[idx], w)
+        if (!F.ok) _error(498, "the pooled design is singular")
+        df = .
+        if (vce == "conley") {
+            psi = rdn_loadings(F, cvec) :* F.resid
+            Hg = rdn_hac(C, idx, psi, cutoff, euclid)
+            v = Hg[1, 1]
+        }
+        else if (cr2) {
+            Radj = .
+            rdn_cr2(F, cvec, cl[idx], Radj, df)
+            v = sum(rdn_groupsum(Radj :* F.resid, cl[idx]) :^ 2)
+        }
+        else if (vce == "cluster") {
+            psi = rdn_influence(F, cvec, "hc0")
+            nt = rdn_nunique(cl[idx])
+            v = sum(rdn_groupsum(psi, cl[idx]) :^ 2) * (nt > 1 ? nt / (nt - 1) : 1) * rdn_cluster_dof(rows(idx), cols(X), cl[idx])
+        }
+        else {
+            psi = rdn_influence(F, cvec, basevce)
+            v = sum(psi :^ 2)
+        }
+        out[oi, .] = (cvec' * F.beta, sqrt(max((v, 0))), df)
+    }
+    df = out[2, 3]
+    zq = (df < . & df > 0 ? invttail(df, 1 - normal(z)) : z)
+    st_numscalar("r(tau)", out[1, 1])
+    st_numscalar("r(se)", out[1, 2])
+    st_numscalar("r(tau_bc)", out[2, 1])
+    st_numscalar("r(se_rb)", out[2, 2])
+    st_numscalar("r(ci_lo)", out[2, 1] - zq * out[2, 2])
+    st_numscalar("r(ci_hi)", out[2, 1] + zq * out[2, 2])
+    if (out[2, 2] > 0 & out[2, 2] < .) {
+        st_numscalar("r(pvalue)", (df < . & df > 0 ? 2 * ttail(df, abs(out[2, 1] / out[2, 2])) : 2 * normal(-abs(out[2, 1] / out[2, 2]))))
+    }
+    else st_numscalar("r(pvalue)", .)
+    st_numscalar("r(df)", df)
+    st_numscalar("r(N_bins_used)", sum(usebin))
+    st_numscalar("r(N)", rows(idx))
+    st_matrix("r(bins)", ((1::M), C.evalarc, H, n0, n1, phat, usebin))
+    st_matrixcolstripe("r(bins)", (J(8, 1, ""), ("bin" \ "arc" \ "h0" \ "h1" \ "n0" \ "n1" \ "phat" \ "used")))
+    st_local("terms", invtokens(terms))
+    st_local("nobs", strofreal(rows(ids)))
 }
 
 end

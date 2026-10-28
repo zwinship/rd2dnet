@@ -104,12 +104,36 @@ rdn_try rdnetmock, clear
 rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
 rdn_try rdnetmanip, q(50 100 200) reps(2000)
 
+* help rdnetbins
+rdn_try rdnetmock, clear
+rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park) features(speed_kph)
+rdn_try rdnetbins
+rdn_try rdnet outcome, h(700) minobs(10)
+rdn_try estat wbate, weights(density)
+rdn_try estat wbate, weights(gls)
+rdn_try rdnetfe outcome, h(700)
+rdn_try rdnetbins
+local h0 = r(h_S)
+foreach f in 0.5 1 2 {
+    rdn_try rdnetbins, hs(`=`f' * `h0'')
+    rdn_try rdnet outcome, h(700) minobs(10)
+    rdn_try estat wbate, weights(density)
+}
+rdn_try rdnetbins, hs(inf)
+
+* help rdnetfe
+rdn_try rdnetmock, clear
+rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park)
+rdn_try rdnetbins
+rdn_try rdnetfe outcome, h(700)
+rdn_try rdnetfe outcome, h(700) vce(cluster block)
+
 * help rdnetmock
 rdn_try rdnetmock, clear
 rdn_try rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
 
 * the help files open
-foreach h in rd2dnet rdnetset rdnet rdbwnet rdnetdensity rdnetmanip rdnetmock {
+foreach h in rd2dnet rdnetset rdnet rdbwnet rdnetdensity rdnetmanip rdnetbins rdnetfe rdnetmock {
     rdn_try findfile `h'.sthlp
 }
 

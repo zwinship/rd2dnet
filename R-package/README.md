@@ -102,6 +102,21 @@ metric's units. Treatment side is always geographic.
 See the README at the repository root for the full feature list, the Monte Carlo
 validation, known limitations and references; all of it applies to the R package.
 
+**Alternative design: nearest-crossing bins.** Each observation is compared only with
+others that reach the boundary at the same crossing. Side streets that do not resemble
+the crossing street are down-weighted by an edge-similarity kernel, and branches get
+their own slopes. The default design above is unchanged.
+
+```r
+bins <- bin_coordinates(coords, features = c("lanes", "speed_kph"))
+res <- rdnet(y, bins)          # one estimate per crossing; every rdnet() option works
+wbate(res, "density")          # density-weighted BATE (or "gls")
+rdnet_fe(y, bins)              # pooled crossing fixed effects + propensity weights
+similarity_sensitivity(y, bins)
+```
+
+See "Alternative design: nearest-crossing bins" in the root README.
+
 ## Python and R
 
 Function names follow the Python package in snake case: `NetworkGraph` is

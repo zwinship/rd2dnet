@@ -17,7 +17,7 @@ file read fh line
 while r(eof) == 0 {
     local cs = strtrim("`line'")
     capture mkdir "parity/cases/`cs'"
-    foreach f in run.do nodes.csv edges.csv obs.csv boundary.csv py_coords.csv py_res_1.csv py_res_2.csv py_res_3.csv py_dens_1.csv py_bw_1.csv py_agg_1.csv py_manip_1.csv {
+    foreach f in run.do nodes.csv edges.csv obs.csv boundary.csv py_coords.csv py_res_1.csv py_res_2.csv py_res_3.csv py_dens_1.csv py_bw_1.csv py_agg_1.csv py_manip_1.csv py_bins_obs.csv py_bins_tab.csv py_bins_res_1.csv py_bins_res_2.csv py_bins_agg.csv {
         quietly copy "`base'/cases/`cs'/`f'" "parity/cases/`cs'/`f'", replace
     }
     capture quietly copy "`base'/cases/`cs'/region.csv" "parity/cases/`cs'/region.csv", replace

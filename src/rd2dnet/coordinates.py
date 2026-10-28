@@ -78,6 +78,9 @@ class NetworkCoordinates:
         The (boundary-split) network and the boundary.
     """
 
+    #: Extra per-observation kernel factor (the similarity kernel of bins), or None.
+    kernel_weights: np.ndarray | None = None
+
     def __init__(
         self,
         network: NetworkGraph,
@@ -225,6 +228,10 @@ class NetworkCoordinates:
         reach = np.minimum(reach, self._along_eval_edge(c, j))
         o = np.where(self._lcross_node >= 0, sign * reach, np.nan)
         return d[self.loc], o[self.loc]
+
+    def local_slopes(self, j: int, rows: np.ndarray, basis: np.ndarray | None = None) -> np.ndarray | None:
+        """Extra regressors at evaluation point ``j``, multiplied by ``s / h`` in each side's fit (None here)."""
+        return None
 
     def frame(self, j: int | None = None) -> pd.DataFrame:
         """Per-observation coordinates (and, given ``j``, ``d`` and ``o`` at that point)."""
