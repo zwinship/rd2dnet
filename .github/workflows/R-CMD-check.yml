@@ -44,3 +44,10 @@ jobs:
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'
           upload-snapshots: true
+      # the checked source tarball, for CRAN submission
+      - uses: actions/upload-artifact@v6
+        if: matrix.config.os == 'ubuntu-latest' && matrix.config.r == 'release'
+        with:
+          name: cran-tarball
+          path: R-package/check/*.tar.gz
+          if-no-files-found: error
