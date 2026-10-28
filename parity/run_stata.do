@@ -241,7 +241,7 @@ program define rdn_par_bins
     rdn_par_diffvar _rdn_bin `pbin' `case' "bins membership"
     rdn_par_diffvar `canon' `pbr' `case' "bins branches"
     rdn_par_diffvar _rdn_S `pS' `case' "bins S"
-    rdn_par_ref "`dir'/py_bins_tab.csv" "arc n0 n1 h_S"
+    rdn_par_ref "`dir'/py_bins_tab.csv" "arc n0 n1 h_s"
     local worst = abs(`hS' - PYREF[1, 4]) / max(1, abs(PYREF[1, 4]))
     if rowsof(`BT') != rowsof(PYREF) local worst 1e300
     else {
