@@ -3982,7 +3982,7 @@ real matrix rdn_kmeans_parts(real colvector pos, real scalar kmax0)
     start = J(0, 1, .)
     w = J(0, 1, .)
     for (i = 1; i <= rows(pos); i++) {
-        if (i == 1 | pos[i] != pos[i - 1]) {
+        if (i == 1 || pos[i] != pos[i - 1]) {
             vals = vals \ pos[i]
             start = start \ i
             w = w \ 1

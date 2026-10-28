@@ -623,7 +623,8 @@ program define t_bins
         rdn_expect _rdn_bin[`i'] `: word `i' of `bn'' 0 "bins: bin[`i']"
     }
     rdnet outcome, h(700) minobs(10)
-    rdn_expect ("`e(design)'" == "bins") 1 0 "bins: e(design)"
+    local isb = ("`e(design)'" == "bins")
+    rdn_expect `isb' 1 0 "bins: e(design)"
     matrix R = e(results)
     local rows 1 2 3 9 10 11
     local tbc 2.6059830764548826 1.7448275742516373 2.6104339718301404 0.7479398969433454 -0.44696316640305556 0.2975564306702405
@@ -652,7 +653,8 @@ program define t_bins
     rdnetset x y, nodes(rdn_nodes) edges(rdn_edges) boundary(rdn_line) ///
         treatedregion(rdn_region) maskpolygons(rdn_park) neval(21)
     rdnet outcome, h(600)
-    rdn_expect ("`e(design)'" == "location") 1 0 "default design after rdnetset"
+    local isl = ("`e(design)'" == "location")
+    rdn_expect `isl' 1 0 "default design after rdnetset"
 end
 
 * Branch slopes recover the jump exactly on a comb: vertical streets crossing
@@ -725,7 +727,8 @@ program define t_bins_comb
     rdnet yy, h(1500) minobs(5)
     matrix R = e(results)
     local dev = max(abs(R[1,8] - 1), abs(R[2,8] - 2), abs(R[3,8] - 3))
-    rdn_expect (`dev' > 0.05) 1 0 "comb: biased without branch slopes"
+    local big = (`dev' > 0.05)
+    rdn_expect `big' 1 0 "comb: biased without branch slopes"
     * rdnetfe with p = 0 and no slopes: the IPW-weighted fixed effects average
     * the bin effects by kernel mass
     generate double y0 = cond(_rdn_bin == 1, 5, cond(_rdn_bin == 2, -1, 0.5)) + cond(_rdn_bin == 3, 4, _rdn_bin) * _rdn_treated
@@ -737,7 +740,8 @@ program define t_bins_comb
     local m2 = r(sum)
     quietly summarize W if _rdn_bin == 3
     local m3 = r(sum)
-    rdn_expect e(tau) (`m1' + 2 * `m2' + 4 * `m3') / (`m1' + `m2' + `m3') 1e-10 "rdnetfe: mass-weighted average of the bin effects"
+    local avg = (`m1' + 2 * `m2' + 4 * `m3') / (`m1' + `m2' + `m3')
+    rdn_expect e(tau) `avg' 1e-10 "rdnetfe: mass-weighted average of the bin effects"
 end
 
 capture program drop t_errors
