@@ -4714,8 +4714,9 @@ void rdn_bins_build(struct rdn_coords scalar C, real scalar topo, real scalar us
         if (x) {
             pairs = uniqrows(pairs[(1::x), .])
             for (m = 1; m <= M; m++) {
+                if (!any(pairs[., 1] :== m)) continue
                 ub = select(pairs[., 2], pairs[., 1] :== m)
-                if (rows(ub)) ref[m, .] = mean(Z[ub, .])
+                ref[m, .] = mean(Z[ub, .])
             }
         }
         // the segment each location sits on (none at a crossing node)
@@ -4780,17 +4781,17 @@ real colvector rdn_slope_branches(struct rdn_coords scalar C, real scalar j, rea
     real colvector order, br, T, lc, cnt, keep, on
     real scalar side, k, ctr, ref, best
     if (rows(C.binbr) == 0) return(J(0, 1, .))
+    if (!any(C.binbr[., 1] :== j)) return(J(0, 1, .))
     order = select(C.binbr[., 2], C.binbr[., 1] :== j)
-    if (rows(order) == 0) return(J(0, 1, .))
     br = C.branch[ix]
     T = C.treated[ix]
     lc = C.loc[ix]
     keep = J(rows(order), 1, 0)
     for (side = 1; side >= 0; side--) {
         on = (T :== side)
-        ctr = rows(rdn_first_per_value(select(lc, on :& (br :== 0))))
+        ctr = rows(uniqrows(select(lc, on :& (br :== 0))))  // distinct locations
         cnt = J(rows(order), 1, 0)
-        for (k = 1; k <= rows(order); k++) cnt[k] = rows(rdn_first_per_value(select(lc, on :& (br :== order[k]))))
+        for (k = 1; k <= rows(order); k++) cnt[k] = rows(uniqrows(select(lc, on :& (br :== order[k]))))
         ref = 0
         if (!(ctr >= C.minbr) & any(cnt :>= C.minbr)) {
             best = -1
@@ -4803,6 +4804,7 @@ real colvector rdn_slope_branches(struct rdn_coords scalar C, real scalar j, rea
         }
         for (k = 1; k <= rows(order); k++) if (cnt[k] >= C.minbr & k != ref) keep[k] = 1
     }
+    if (!any(keep)) return(J(0, 1, .))  // select() of a 1 x 1 can return 0 x 0
     return(select(order, keep))
 }
 
