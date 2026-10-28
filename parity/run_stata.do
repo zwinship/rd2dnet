@@ -230,7 +230,7 @@ program define rdn_par_bins
     capture frame drop pb
     frame create pb
     frame pb {
-        import delimited using "`dir'/py_bins_obs.csv", clear asdouble varnames(1)
+        import delimited using "`dir'/py_bins_obs.csv", clear asdouble case(preserve) varnames(1)
         quietly gen long `o' = _n
     }
     capture drop pb
