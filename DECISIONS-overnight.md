@@ -277,3 +277,10 @@ the default is unchanged), with the owner's agreement on the main ones:
     distance. Python kept the floor (pandas `clip`), R and Stata capped at the largest
     distance and lost the last location (status "insufficient"). All three now keep the
     floor. Found by the parity harness (bins, case 06).
+52. **Stata run on 10/28 found two Mata bugs** (Python and R unaffected):
+    - `rdnetmanip` indexed `pos[0]` in its k-means loop: Mata's `|` (and `||`) evaluate both
+      sides, so a guard like `i == 1 | pos[i] != pos[i - 1]` does not protect the index.
+    - In the bins slopes, `select()` of a 1 x 1 vector keeping nothing returns 0 x 0, not
+      0 x 1, and failed a `colvector` return (a bin with one branch below `min_branch`).
+    Test-code fixes too: `rdn_expect` arguments without spaces, and no `egen nvals()`
+    (egenmore). After these, the suite, the install check and the 40-case parity pass.
