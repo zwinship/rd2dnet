@@ -3977,12 +3977,14 @@ real matrix rdn_kmeans_parts(real colvector pos, real scalar kmax0)
 {
     real colvector vals, start, w, s1, s2, sw, ii, cc
     real matrix D, A, F
-    real scalar m, kmax, k, j, i, best, bi, kk, n, a, t
+    real scalar m, kmax, k, j, i, best, bi, kk, n, a, t, isnew
     vals = J(0, 1, .)
     start = J(0, 1, .)
     w = J(0, 1, .)
     for (i = 1; i <= rows(pos); i++) {
-        if (i == 1 || pos[i] != pos[i - 1]) {
+        isnew = 1  // Mata's | does not short-circuit, so pos[0] must not be reached
+        if (i > 1) isnew = (pos[i] != pos[i - 1])
+        if (isnew) {
             vals = vals \ pos[i]
             start = start \ i
             w = w \ 1

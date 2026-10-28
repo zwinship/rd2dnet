@@ -703,8 +703,9 @@ program define t_bins_comb
     rdn_expect r(N) 0 0 "comb: trunk before the junction"
     quietly count if seg > 0 & _rdn_branch == 0
     rdn_expect r(N) 0 0 "comb: branches beyond the junction"
-    tempvar nb
-    bysort _rdn_bin _rdn_treated seg: egen `nb' = nvals(_rdn_branch)
+    tempvar tag nb
+    bysort _rdn_bin _rdn_treated seg _rdn_branch: generate byte `tag' = _n == 1
+    by _rdn_bin _rdn_treated seg: egen `nb' = total(`tag')
     quietly summarize `nb'
     rdn_expect r(max) 1 0 "comb: one branch per segment and side"
     frame cedges: quietly summarize lanes
