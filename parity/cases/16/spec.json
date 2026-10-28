@@ -1,0 +1,50 @@
+{
+ "case": 16,
+ "kind": "grid",
+ "directed": false,
+ "direction": "both",
+ "metric": "length",
+ "penalty": 93.1,
+ "n_eval": 7,
+ "n_obs": 1400,
+ "runs": [
+  {
+   "kernel": "uniform",
+   "vce": "hc2",
+   "p": 1,
+   "h": [
+    258.4,
+    429.8
+   ],
+   "fuzzy": true
+  },
+  {
+   "kernel": "uniform",
+   "vce": "hc2",
+   "p": 1,
+   "h": 389.2,
+   "deriv": [
+    1,
+    0
+   ]
+  },
+  {
+   "kernel": "uniform",
+   "vce": "hc2",
+   "p": 1,
+   "bwselect": "cerrd",
+   "covs": true
+  }
+ ],
+ "density": [
+  {
+   "normalize": "euclidean",
+   "bwselect": "common"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "cerrd"
+  }
+ ]
+}

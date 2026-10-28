@@ -1,0 +1,41 @@
+{
+ "case": 40,
+ "kind": "grid",
+ "directed": true,
+ "direction": "flow",
+ "metric": "transition",
+ "penalty": 220.1,
+ "n_eval": 5,
+ "n_obs": 1000,
+ "runs": [
+  {
+   "kernel": "triangular",
+   "p": 1,
+   "bwselect": "mserd",
+   "conley": 194.0
+  },
+  {
+   "kernel": "triangular",
+   "p": 1,
+   "bwselect": "imserd",
+   "conley": 172.4
+  },
+  {
+   "kernel": "triangular",
+   "vce": "hc0",
+   "p": 2,
+   "bwselect": "imserd"
+  }
+ ],
+ "density": [
+  {
+   "normalize": "network",
+   "bwselect": "common"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "mserd"
+  }
+ ]
+}

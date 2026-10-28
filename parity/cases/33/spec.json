@@ -1,0 +1,46 @@
+{
+ "case": 33,
+ "kind": "grid",
+ "directed": false,
+ "direction": "both",
+ "metric": "cost2",
+ "penalty": 194.5,
+ "n_eval": 7,
+ "n_obs": 1400,
+ "runs": [
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc3",
+   "p": 1,
+   "bwselect": "certwo",
+   "deriv": [
+    1,
+    0
+   ]
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc0",
+   "p": 1,
+   "bwselect": "mserd"
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc2",
+   "p": 1,
+   "bwselect": "imserd",
+   "covs": true
+  }
+ ],
+ "density": [
+  {
+   "normalize": "euclidean",
+   "bwselect": "each"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "cerrd"
+  }
+ ]
+}

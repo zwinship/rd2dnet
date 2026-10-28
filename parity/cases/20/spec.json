@@ -1,0 +1,50 @@
+{
+ "case": 20,
+ "kind": "grid",
+ "directed": false,
+ "direction": "both",
+ "metric": "transition",
+ "penalty": 87.4,
+ "n_eval": 9,
+ "n_obs": 700,
+ "runs": [
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc0",
+   "p": 1,
+   "h": [
+    262.5,
+    447.0
+   ],
+   "fuzzy": true
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc0",
+   "p": 1,
+   "h": 291.7,
+   "weights": true
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc2",
+   "p": 1,
+   "h": [
+    356.3,
+    392.2
+   ],
+   "weights": true
+  }
+ ],
+ "density": [
+  {
+   "normalize": "none",
+   "bwselect": "each"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "imserd"
+  }
+ ]
+}

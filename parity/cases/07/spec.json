@@ -1,0 +1,45 @@
+{
+ "case": 7,
+ "kind": "river",
+ "directed": false,
+ "direction": "both",
+ "metric": "length",
+ "penalty": 233.1,
+ "n_eval": 5,
+ "n_obs": 700,
+ "runs": [
+  {
+   "kernel": "triangular",
+   "vce": "hc0",
+   "p": 1,
+   "bwselect": "mserd",
+   "covs": true
+  },
+  {
+   "kernel": "triangular",
+   "vce": "hc0",
+   "p": 1,
+   "h": [
+    412.6,
+    296.1
+   ]
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc0",
+   "p": 1,
+   "h": 306.8
+  }
+ ],
+ "density": [
+  {
+   "normalize": "euclidean",
+   "bwselect": "each"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "cerrd"
+  }
+ ]
+}

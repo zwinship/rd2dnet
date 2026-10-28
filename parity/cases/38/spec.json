@@ -1,0 +1,43 @@
+{
+ "case": 38,
+ "kind": "ring",
+ "directed": false,
+ "direction": "both",
+ "metric": "cost2",
+ "penalty": 90.1,
+ "n_eval": 5,
+ "n_obs": 700,
+ "runs": [
+  {
+   "kernel": "uniform",
+   "vce": "hc2",
+   "p": 1,
+   "bwselect": "imserd",
+   "fuzzy": true
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc1",
+   "p": 1,
+   "h": 358.9,
+   "fuzzy": true
+  },
+  {
+   "kernel": "uniform",
+   "p": 1,
+   "h": 429.7,
+   "cluster": true
+  }
+ ],
+ "density": [
+  {
+   "normalize": "none",
+   "bwselect": "common"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "msetwo"
+  }
+ ]
+}

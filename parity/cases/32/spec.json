@@ -1,0 +1,41 @@
+{
+ "case": 32,
+ "kind": "grid",
+ "directed": false,
+ "direction": "both",
+ "metric": "length",
+ "penalty": 64.8,
+ "n_eval": 9,
+ "n_obs": 1000,
+ "runs": [
+  {
+   "kernel": "epanechnikov",
+   "p": 1,
+   "h": 410.4,
+   "cluster": true
+  },
+  {
+   "kernel": "uniform",
+   "vce": "hc1",
+   "p": 2,
+   "h": 417.6
+  },
+  {
+   "kernel": "uniform",
+   "p": 1,
+   "h": 431.8,
+   "cluster": true
+  }
+ ],
+ "density": [
+  {
+   "normalize": "euclidean",
+   "bwselect": "each"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "cerrd"
+  }
+ ]
+}

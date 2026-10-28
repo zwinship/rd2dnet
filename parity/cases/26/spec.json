@@ -1,0 +1,43 @@
+{
+ "case": 26,
+ "kind": "ring",
+ "directed": false,
+ "direction": "both",
+ "metric": "transition",
+ "penalty": 171.7,
+ "n_eval": 5,
+ "n_obs": 1400,
+ "runs": [
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc0",
+   "p": 1,
+   "h": 344.9,
+   "weights": true
+  },
+  {
+   "kernel": "uniform",
+   "vce": "hc2",
+   "p": 1,
+   "h": 350.4,
+   "weights": true
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc3",
+   "p": 2,
+   "bwselect": "imsetwo"
+  }
+ ],
+ "density": [
+  {
+   "normalize": "euclidean",
+   "bwselect": "each"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "msetwo"
+  }
+ ]
+}

@@ -1,0 +1,51 @@
+{
+ "case": 12,
+ "kind": "grid",
+ "directed": false,
+ "direction": "both",
+ "metric": "transition",
+ "penalty": 156.9,
+ "n_eval": 7,
+ "n_obs": 1400,
+ "runs": [
+  {
+   "kernel": "uniform",
+   "vce": "hc2",
+   "p": 2,
+   "h": [
+    317.8,
+    252.6
+   ]
+  },
+  {
+   "kernel": "epanechnikov",
+   "vce": "hc0",
+   "p": 1,
+   "h": [
+    427.0,
+    318.6
+   ],
+   "deriv": [
+    1,
+    0
+   ]
+  },
+  {
+   "kernel": "uniform",
+   "p": 1,
+   "bwselect": "msetwo",
+   "conley": 140.6
+  }
+ ],
+ "density": [
+  {
+   "normalize": "network",
+   "bwselect": "common"
+  }
+ ],
+ "bw": [
+  {
+   "bwselect": "msetwo"
+  }
+ ]
+}
